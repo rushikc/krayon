@@ -200,3 +200,29 @@ To make the HTML UI blend perfectly with the OS, update your `tauri.conf.json` w
 ```
 
 Setting `decorations: false` hides the standard OS window frame, allowing your React header (`data-tauri-drag-region`) to become the actual top of the application window.
+
+---
+
+## 5. Current Implementation Notes (Initial Setup)
+
+The scaffolded Krayon app deviates from the Tailwind v3 snippets above in a few intentional ways:
+
+### Tailwind CSS v4 (CSS-first)
+
+The project uses **Tailwind v4** with the `@tailwindcss/vite` plugin. There is no `tailwind.config.js`. Theme tokens live in [`src/index.css`](../src/index.css) using `@theme inline` blocks and CSS custom properties. Dark mode is enabled by default via `<html class="dark">` in [`index.html`](../index.html).
+
+### Component Structure
+
+The monolithic `App.jsx` layout above is split into feature-oriented components:
+
+| File | Purpose |
+|------|---------|
+| [`src/App.tsx`](../src/App.tsx) | Root shell layout |
+| [`src/components/layout/Sidebar.tsx`](../src/components/layout/Sidebar.tsx) | Translucent sidebar with vibrancy |
+| [`src/components/layout/TitleBar.tsx`](../src/components/layout/TitleBar.tsx) | Custom draggable title bar |
+| [`src/components/layout/MainStage.tsx`](../src/components/layout/MainStage.tsx) | Preview + timeline placeholder |
+| [`src/features/media-bin/MediaBinPanel.tsx`](../src/features/media-bin/MediaBinPanel.tsx) | Folder picker + video list mock |
+
+### State Management: Zustand
+
+Client state (selected folder, discovered clips, loading/error) is managed by [`src/stores/media-store.ts`](../src/stores/media-store.ts) using **Zustand**. This keeps the store readable from GSAP animation callbacks outside React's render cycle — important once timeline scrubbing is implemented.

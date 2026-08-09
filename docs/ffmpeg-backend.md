@@ -1,5 +1,8 @@
 Integrating FFmpeg with a Tauri + Rust backend involves embedding FFmpeg as an external binary, or "sidecar," ensuring your application has the necessary tools to process video without requiring the user to install them separately. Here is a detailed breakdown of how to make FFmpeg work with Tauri and Rust.
 
+> **Initial setup status:** The Krayon scaffold already registers `tauri-plugin-shell` in [`src-tauri/src/lib.rs`](../src-tauri/src/lib.rs) and grants `shell:allow-execute` for `binaries/ffmpeg` in [`src-tauri/capabilities/default.json`](../src-tauri/capabilities/default.json). The `src-tauri/binaries/` directory is ready for the sidecar binary. Remaining work: add `externalBin` to `tauri.conf.json` and drop in the platform-specific FFmpeg executable (see below).
+
+
 ### The Sidecar Concept in Tauri
 
 In Tauri, a sidecar is an external binary bundled with your application to add functionality or prevent users from needing to install additional dependencies. Binaries can be written in any language, and in this case, the binary is the FFmpeg executable.
