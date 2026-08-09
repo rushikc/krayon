@@ -32,6 +32,7 @@ class Transport {
   private anchorTime = 0;
   private anchorBase: ClockBase = "wall";
   private frame: number | null = null;
+  private scrubbing = false;
   private timeListeners = new Set<TimeListener>();
   private eventListeners = new Set<EventListener>();
 
@@ -83,13 +84,27 @@ class Transport {
 
     this.playing = true;
     this.anchor(this.time);
+    const baseAtStart = this.anchorBase;
     void resumeAudioContext().then(() => {
       // Re-anchor once the context is actually running so the audio clock and
-      // the timeline agree from the first frame.
-      if (this.playing) this.anchor(this.getTime());
+      // the timeline agree, and let listeners reschedule against it.
+      if (!this.playing) return;
+      if (this.baseKind() === baseAtStart) return;
+      this.anchor(this.getTime());
+      this.emit({ type: "play", time: this.anchorTime });
     });
     this.emit({ type: "play", time: this.time });
     this.tick();
+  }
+
+  /**
+   * Audio-clock time at which a given timeline position occurs, or `null` when
+   * playback isn't currently driven by the audio clock. Lets the audio engine
+   * schedule sources that line up exactly with the master clock.
+   */
+  clockTimeFor(timelineTime: number): number | null {
+    if (!this.playing || this.anchorBase !== "audio") return null;
+    return this.anchorClock + (timelineTime - this.anchorTime);
   }
 
   pause(): void {
@@ -116,6 +131,15 @@ class Transport {
 
   nudge(delta: number): void {
     this.seek(this.getTime() + delta);
+  }
+
+  /** Lets picture sync trade accuracy for responsiveness while dragging. */
+  setScrubbing(scrubbing: boolean): void {
+    this.scrubbing = scrubbing;
+  }
+
+  isScrubbing(): boolean {
+    return this.scrubbing;
   }
 
   stop(): void {
