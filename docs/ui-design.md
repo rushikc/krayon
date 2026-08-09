@@ -220,9 +220,24 @@ The monolithic `App.jsx` layout above is split into feature-oriented components:
 | [`src/App.tsx`](../src/App.tsx) | Root shell layout |
 | [`src/components/layout/Sidebar.tsx`](../src/components/layout/Sidebar.tsx) | Translucent sidebar with vibrancy |
 | [`src/components/layout/TitleBar.tsx`](../src/components/layout/TitleBar.tsx) | Custom draggable title bar |
-| [`src/components/layout/MainStage.tsx`](../src/components/layout/MainStage.tsx) | Preview + timeline placeholder |
-| [`src/features/media-bin/MediaBinPanel.tsx`](../src/features/media-bin/MediaBinPanel.tsx) | Folder picker + video list mock |
+| [`src/components/layout/MainStage.tsx`](../src/components/layout/MainStage.tsx) | Composes the preview, transport bar, and timeline |
+| [`src/features/media-bin/MediaBinPanel.tsx`](../src/features/media-bin/MediaBinPanel.tsx) | Folder picker; clicking an item adds it to the timeline |
+| [`src/features/editor/preview/`](../src/features/editor/preview) | 9:16 preview stage, transport controls, timecode |
+| [`src/features/editor/timeline/`](../src/features/editor/timeline) | Ruler, track headers and lanes, clip blocks, waveforms, playhead |
+| [`src/features/editor/playback/`](../src/features/editor/playback) | Master clock and the picture/audio sync loops |
+
+The placeholder timeline from the snippet above is gone: the tracks are now real,
+and the "Video Preview (9:16)" box holds live video. See
+[editor-timeline.md](./editor-timeline.md) for how playback and editing work.
 
 ### State Management: Zustand
 
-Client state (selected folder, discovered clips, loading/error) is managed by [`src/stores/media-store.ts`](../src/stores/media-store.ts) using **Zustand**. This keeps the store readable from GSAP animation callbacks outside React's render cycle — important once timeline scrubbing is implemented.
+Two stores, split by lifetime. [`media-store.ts`](../src/stores/media-store.ts) holds the
+bin: the selected folder, the files found in it, and loading/error state.
+[`timeline-store.ts`](../src/stores/timeline-store.ts) holds the project — assets,
+tracks, clips, selection, zoom, and an undo stack.
+
+Anything that changes at frame rate deliberately stays out of both. The playhead
+position, the timecode, and video sync are written straight to the DOM from a
+clock subscription, and drag previews live in a small external store, so pointer
+moves and playback never re-render the timeline.

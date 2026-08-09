@@ -8,8 +8,8 @@ export interface DragState {
   clipIds: string[];
   /** Live offset applied to a move, in seconds. */
   deltaTime: number;
-  /** Signed number of track rows the group is being dragged across. */
-  trackShift: number;
+  /** Destination track per dragged clip, keyed by clip id. */
+  trackTargets: Record<string, string>;
   /** Clip being trimmed. */
   primaryId: string | null;
   edge: ClipEdge | null;
@@ -21,7 +21,7 @@ const IDLE: DragState = {
   kind: null,
   clipIds: [],
   deltaTime: 0,
-  trackShift: 0,
+  trackTargets: {},
   primaryId: null,
   edge: null,
   trimTime: 0,
