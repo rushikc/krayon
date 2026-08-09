@@ -21,5 +21,6 @@ pnpm tauri dev
 
 - [What is Krayon?](docs/what-is-kyaon.md)
 - [UI Design](docs/ui-design.md)
+- [Editor: Preview Player & Timeline](docs/editor-timeline.md)
 - [Backend Design](docs/backend-design.md)
 - [FFmpeg Integration](docs/ffmpeg-backend.md)

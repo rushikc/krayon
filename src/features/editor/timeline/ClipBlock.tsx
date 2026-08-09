@@ -21,6 +21,7 @@ interface ClipBlockProps {
 
 export function ClipBlock({ clip, selected, pixelsPerSecond }: ClipBlockProps) {
   const asset = useTimelineStore((state) => state.assets[clip.assetId]);
+  const tracks = useTimelineStore((state) => state.tracks);
   const drag = useDragState();
   const { beginMove, beginTrim } = useTimelineDrag();
 
@@ -44,6 +45,15 @@ export function ClipBlock({ clip, selected, pixelsPerSecond }: ClipBlockProps) {
     }
   }
   duration = Math.max(duration, MIN_CLIP_DURATION);
+
+  // Lanes don't clip overflow, so a clip heading for another track is just
+  // offset vertically by the row difference.
+  const targetTrackId = drag.trackTargets[clip.id];
+  const rowShift =
+    isDragging && targetTrackId
+      ? tracks.findIndex((track) => track.id === targetTrackId) -
+        tracks.findIndex((track) => track.id === clip.trackId)
+      : 0;
 
   const isAudio = asset?.kind === "audio" || clip.trackId.startsWith("A");
   const width = Math.max(2, timeToPx(duration, pixelsPerSecond));
@@ -71,9 +81,7 @@ export function ClipBlock({ clip, selected, pixelsPerSecond }: ClipBlockProps) {
         width,
         height,
         transform:
-          isDragging && drag.trackShift !== 0
-            ? `translateY(${drag.trackShift * TRACK_ROW_HEIGHT}px)`
-            : undefined,
+          rowShift !== 0 ? `translateY(${rowShift * TRACK_ROW_HEIGHT}px)` : undefined,
         cursor: isDragging ? "grabbing" : "grab",
       }}
     >
