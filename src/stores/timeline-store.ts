@@ -49,7 +49,11 @@ interface TimelineState {
   /** Drops a bin item on the timeline as a linked video + audio pair. */
   appendAsset: (asset: MediaAsset) => { start: number; ids: string[] };
 
-  selectClips: (ids: string[], additive?: boolean) => void;
+  selectClips: (
+    ids: string[],
+    additive?: boolean,
+    expandLinked?: boolean,
+  ) => void;
   clearSelection: () => void;
 
   splitAt: (time: number, ids?: string[]) => void;
@@ -160,11 +164,12 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
     return { start, ids };
   },
 
-  selectClips: (ids, additive = false) =>
+  selectClips: (ids, additive = false, expandLinked = true) =>
     set((state) => {
-      const expanded = state.linkedSelection
-        ? expandWithLinked(state.clips, ids)
-        : ids;
+      const expanded =
+        expandLinked && state.linkedSelection
+          ? expandWithLinked(state.clips, ids)
+          : ids;
       if (!additive) return { selectedIds: expanded };
       const next = new Set(state.selectedIds);
       for (const id of expanded) {
