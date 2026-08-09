@@ -12,6 +12,9 @@ dist
 dist-ssr
 *.local
 
+# Sample media for the browser dev harness (see docs/editor-timeline.md)
+public/dev-media
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
