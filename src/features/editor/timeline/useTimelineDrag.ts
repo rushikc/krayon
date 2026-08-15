@@ -25,30 +25,36 @@ import {
 } from "@/types/timeline";
 
 /**
- * Largest row shift that still lands every dragged clip on an existing,
- * unlocked track of the same kind. Shrinks toward zero rather than rejecting the
- * whole drag, so vertical wobble never cancels a horizontal move.
+ * Destination track for each dragged clip, given how many rows the pointer has
+ * travelled.
+ *
+ * The shift is counted within tracks of the clip's own kind and clamped there,
+ * which is what lets a linked pair move vertically at all: dragging the audio of
+ * an A/V pair down to `A2` leaves the video on `V1` instead of blocking the
+ * whole group because picture can't live on an audio track.
  */
-function resolveTrackShift(
+function resolveTrackTargets(
   tracks: Track[],
   moving: Clip[],
-  requested: number,
-): number {
-  const indexOf = new Map(tracks.map((track, index) => [track.id, index]));
-  const step = Math.sign(requested);
+  rowShift: number,
+): Record<string, string> {
+  const targets: Record<string, string> = {};
+  if (rowShift === 0) return targets;
 
-  for (let shift = Math.abs(requested); shift > 0; shift -= 1) {
-    const candidate = shift * step;
-    const valid = moving.every((clip) => {
-      const from = indexOf.get(clip.trackId);
-      if (from === undefined) return false;
-      const target = tracks[from + candidate];
-      const source = tracks[from];
-      return Boolean(target) && !target.locked && target.kind === source.kind;
-    });
-    if (valid) return candidate;
+  const byId = new Map(tracks.map((track) => [track.id, track]));
+
+  for (const clip of moving) {
+    const kind = byId.get(clip.trackId)?.kind;
+    if (!kind) continue;
+    const sameKind = tracks.filter((track) => track.kind === kind);
+    const from = sameKind.findIndex((track) => track.id === clip.trackId);
+    if (from < 0) continue;
+    const to = Math.min(Math.max(from + rowShift, 0), sameKind.length - 1);
+    const target = sameKind[to];
+    if (target.locked || target.id === clip.trackId) continue;
+    targets[clip.id] = target.id;
   }
-  return 0;
+  return targets;
 }
 
 export function useTimelineDrag() {
@@ -90,13 +96,13 @@ export function useTimelineDrag() {
       const startY = event.clientY;
 
       let deltaTime = 0;
-      let trackShift = 0;
+      let trackTargets: Record<string, string> = {};
 
       setDragState({
         kind: "move",
         clipIds: moving.map((candidate) => candidate.id),
         deltaTime: 0,
-        trackShift: 0,
+        trackTargets: {},
         primaryId: clip.id,
         edge: null,
         trimTime: 0,
@@ -110,12 +116,12 @@ export function useTimelineDrag() {
           next,
           -Math.min(...moving.map((candidate) => candidate.start)),
         );
-        trackShift = resolveTrackShift(
+        trackTargets = resolveTrackTargets(
           current.tracks,
           moving,
           Math.round((moveEvent.clientY - startY) / TRACK_ROW_HEIGHT),
         );
-        setDragState({ deltaTime, trackShift });
+        setDragState({ deltaTime, trackTargets });
       };
 
       const finish = (commit: boolean): void => {
@@ -124,17 +130,12 @@ export function useTimelineDrag() {
         window.removeEventListener("keydown", onKeyDown);
         clearDragState();
         if (!commit) return;
-        if (deltaTime === 0 && trackShift === 0) return;
+        if (deltaTime === 0 && Object.keys(trackTargets).length === 0) return;
 
-        const tracks = useTimelineStore.getState().tracks;
-        const indexOf = new Map(tracks.map((track, index) => [track.id, index]));
-        const moves: ClipMove[] = moving.map((candidate) => {
-          const from = indexOf.get(candidate.trackId) ?? 0;
-          return {
-            id: candidate.id,
-            trackId: tracks[from + trackShift]?.id ?? candidate.trackId,
-          };
-        });
+        const moves: ClipMove[] = moving.map((candidate) => ({
+          id: candidate.id,
+          trackId: trackTargets[candidate.id] ?? candidate.trackId,
+        }));
         useTimelineStore.getState().commitMove(moves, deltaTime);
       };
 
@@ -183,7 +184,7 @@ export function useTimelineDrag() {
         kind: "trim",
         clipIds: [clip.id],
         deltaTime: 0,
-        trackShift: 0,
+        trackTargets: {},
         primaryId: clip.id,
         edge,
         trimTime: origin,

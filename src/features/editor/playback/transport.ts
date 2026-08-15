@@ -74,6 +74,12 @@ class Transport {
   setDuration(duration: number): void {
     if (Math.abs(duration - this.duration) < 1e-6) return;
     this.duration = duration;
+    // Deleting or undoing can shorten the sequence out from under the playhead.
+    if (this.time > duration) {
+      this.time = duration;
+      if (this.playing) this.anchor(this.time);
+      this.notifyTime(this.time);
+    }
     this.emit({ type: "duration", time: this.time });
   }
 

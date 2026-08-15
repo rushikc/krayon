@@ -7,11 +7,16 @@ import { sequenceDuration } from "@/lib/timeline/ops";
 import { useTimelineStore } from "@/stores/timeline-store";
 
 function useDurationSync(): void {
-  const clips = useTimelineStore((state) => state.clips);
-
   useEffect(() => {
-    transport.setDuration(sequenceDuration(clips));
-  }, [clips]);
+    // A store subscription rather than an effect on `clips`: it runs inside the
+    // same tick as the edit, so code that appends a clip and immediately seeks
+    // to it isn't clamped against a stale duration.
+    const apply = (): void => {
+      transport.setDuration(sequenceDuration(useTimelineStore.getState().clips));
+    };
+    apply();
+    return useTimelineStore.subscribe(apply);
+  }, []);
 }
 
 /**
