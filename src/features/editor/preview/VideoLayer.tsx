@@ -25,9 +25,8 @@ export function VideoLayer({ asset }: VideoLayerProps) {
     <video
       ref={ref}
       src={asset.url}
-      muted
       playsInline
-      preload="auto"
+      preload="metadata"
       className="pointer-events-none absolute inset-0 size-full object-contain opacity-0"
     />
   );

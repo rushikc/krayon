@@ -10,6 +10,8 @@ import {
   splitClips,
   trimClip as trimClipOp,
   type ClipMove,
+  replaceWithSegments,
+  type SourceSegment,
 } from "@/lib/timeline/ops";
 import {
   clampZoom,
@@ -48,6 +50,8 @@ interface TimelineState {
   updateAsset: (id: string, patch: Partial<MediaAsset>) => void;
   /** Drops a bin item on the timeline as a linked video + audio pair. */
   appendAsset: (asset: MediaAsset) => { start: number; ids: string[] };
+  /** Replace one clip with speech-only segments from silence analysis. */
+  applySilenceSegments: (clipId: string, segments: SourceSegment[]) => string[];
 
   selectClips: (
     ids: string[],
@@ -162,6 +166,20 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
     }));
 
     return { start, ids };
+  },
+
+  applySilenceSegments: (clipId, segments) => {
+    const state = get();
+    const result = replaceWithSegments(state.clips, clipId, segments);
+    if (result.addedIds.length === 0) return [];
+
+    set((current) => ({
+      ...withHistory(current),
+      clips: result.clips,
+      selectedIds: result.addedIds,
+    }));
+
+    return result.addedIds;
   },
 
   selectClips: (ids, additive = false, expandLinked = true) =>

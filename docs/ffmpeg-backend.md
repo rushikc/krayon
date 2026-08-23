@@ -2,6 +2,8 @@ Integrating FFmpeg with a Tauri + Rust backend involves embedding FFmpeg as an e
 
 > **Initial setup status:** The Krayon scaffold already registers `tauri-plugin-shell` in [`src-tauri/src/lib.rs`](../src-tauri/src/lib.rs) and grants `shell:allow-execute` for `binaries/ffmpeg` in [`src-tauri/capabilities/default.json`](../src-tauri/capabilities/default.json). The `src-tauri/binaries/` directory is ready for the sidecar binary. Remaining work: add `externalBin` to `tauri.conf.json` and drop in the platform-specific FFmpeg executable (see below).
 
+> **Current runtime:** Silence removal and media probing invoke **system** `ffmpeg` / `ffprobe` from Rust ([`src-tauri/src/ffmpeg.rs`](../src-tauri/src/ffmpeg.rs)), discovered via `PATH` or `KRAYON_FFMPEG` / `KRAYON_FFPROBE`. Sidecar bundling is still recommended for distributable builds. See [silence-removal.md](silence-removal.md) for the processing pipeline.
+
 
 ### The Sidecar Concept in Tauri
 

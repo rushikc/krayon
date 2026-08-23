@@ -4,7 +4,7 @@ import { transport } from "@/features/editor/playback/transport";
 import { videoElements } from "@/features/editor/playback/video-registry";
 import { clipAtTime } from "@/lib/timeline/ops";
 import { useTimelineStore } from "@/stores/timeline-store";
-import { VIDEO_TRACK_ID } from "@/types/timeline";
+import { AUDIO_TRACK_ID, VIDEO_TRACK_ID } from "@/types/timeline";
 
 /** Past this the picture is visibly late, so we hard seek instead of easing. */
 const HARD_SEEK_THRESHOLD = 0.1;
@@ -25,8 +25,8 @@ export function useVideoSync(): void {
     const apply = (time: number): void => {
       const { clips, assets, tracks } = useTimelineStore.getState();
       const active = clipAtTime(clips, VIDEO_TRACK_ID, time);
-      const videoTrackMuted =
-        tracks.find((track) => track.id === VIDEO_TRACK_ID)?.muted ?? false;
+      const audioTrackMuted =
+        tracks.find((track) => track.id === AUDIO_TRACK_ID)?.muted ?? false;
       const playing = transport.isPlaying();
       const scrubbing = transport.isScrubbing();
 
@@ -41,11 +41,12 @@ export function useVideoSync(): void {
 
         if (element.style.opacity !== "1") element.style.opacity = "1";
 
-        // Sound normally comes from the audio track. Files Web Audio can't
-        // decode fall back to the element's own audio so they aren't silent.
+        // Web Audio drives sound once the waveform is decoded; until then (or
+        // when decode fails) the element carries audio so playback isn't silent.
+        const waveform = assets[assetId]?.waveform ?? "idle";
         const wantsElementAudio =
-          assets[assetId]?.waveform === "unavailable" && !videoTrackMuted;
-        if (element.muted === wantsElementAudio) {
+          waveform !== "ready" && !audioTrackMuted;
+        if (element.muted !== !wantsElementAudio) {
           element.muted = !wantsElementAudio;
         }
 
@@ -85,8 +86,22 @@ export function useVideoSync(): void {
     };
 
     const unsubscribeTime = transport.subscribeTime(apply);
-    // Edits made while paused still need the picture refreshed.
-    const unsubscribeStore = useTimelineStore.subscribe(() => {
+    // Edits made while paused still need the picture refreshed; ignore
+    // unrelated store updates (selection, zoom, undo stack, etc.).
+    let prevClips = useTimelineStore.getState().clips;
+    let prevAssets = useTimelineStore.getState().assets;
+    let prevTracks = useTimelineStore.getState().tracks;
+    const unsubscribeStore = useTimelineStore.subscribe((state) => {
+      if (
+        state.clips === prevClips &&
+        state.assets === prevAssets &&
+        state.tracks === prevTracks
+      ) {
+        return;
+      }
+      prevClips = state.clips;
+      prevAssets = state.assets;
+      prevTracks = state.tracks;
       apply(transport.getTime());
     });
 

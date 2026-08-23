@@ -1,7 +1,11 @@
 import { useEffect } from "react";
 
 import { transport } from "@/features/editor/playback/transport";
-import { getAudioContext, getMasterGain } from "@/lib/media/audio-context";
+import {
+  getAudioContext,
+  getMasterGain,
+  resumeAudioContext,
+} from "@/lib/media/audio-context";
 import { getAudioData } from "@/lib/media/waveform";
 import { useTimelineStore } from "@/stores/timeline-store";
 import { clipEnd } from "@/types/timeline";
@@ -43,7 +47,13 @@ export function useAudioEngine(): void {
       stopAll();
       const ctx = getAudioContext();
       const master = getMasterGain();
-      if (!ctx || !master || ctx.state !== "running") return;
+      if (!ctx || !master) return;
+      if (ctx.state !== "running") {
+        void resumeAudioContext().then(() => {
+          if (transport.isPlaying()) scheduleFrom(transport.getTime());
+        });
+        return;
+      }
 
       const { clips, tracks } = useTimelineStore.getState();
       const audible = new Set(
@@ -61,7 +71,7 @@ export function useAudioEngine(): void {
 
         const intoClip = Math.max(0, time - clip.start);
         const mapped = transport.clockTimeFor(clip.start + intoClip);
-        if (mapped === null) return;
+        if (mapped === null) continue;
 
         let when = mapped;
         let offset = clip.sourceIn + intoClip;

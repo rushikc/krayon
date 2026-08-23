@@ -6,6 +6,7 @@ import {
   stepFrames,
 } from "@/features/editor/playback/navigation";
 import { transport } from "@/features/editor/playback/transport";
+import { runSilenceRemovalForClip } from "@/features/silence-removal/SilenceRemovalButton";
 import { useTimelineStore } from "@/stores/timeline-store";
 
 function isTypingTarget(target: EventTarget | null): boolean {
@@ -72,18 +73,32 @@ export function useEditorShortcuts(): void {
         case "+":
         case "=":
           event.preventDefault();
-          store.zoomBy(1.4);
+          store.zoomBy(1.25);
           return;
         case "-":
         case "_":
           event.preventDefault();
-          store.zoomBy(1 / 1.4);
+          store.zoomBy(1 / 1.25);
           return;
         default:
           break;
       }
 
       const key = event.key.toLowerCase();
+      if (event.shiftKey && key === "s") {
+        event.preventDefault();
+        const videoClipId = store.selectedIds.find((id) => {
+          const clip = store.clips.find((candidate) => candidate.id === id);
+          return clip?.trackId === "V1";
+        });
+        if (!videoClipId) return;
+        const clip = store.clips.find((candidate) => candidate.id === videoClipId);
+        if (!clip) return;
+        const asset = store.assets[clip.assetId];
+        if (!asset?.path) return;
+        void runSilenceRemovalForClip(videoClipId, asset.path);
+        return;
+      }
       if (key === "s") {
         event.preventDefault();
         store.splitAt(transport.getTime(), store.selectedIds);

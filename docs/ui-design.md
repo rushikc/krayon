@@ -230,6 +230,16 @@ The placeholder timeline from the snippet above is gone: the tracks are now real
 and the "Video Preview (9:16)" box holds live video. See
 [editor-timeline.md](./editor-timeline.md) for how playback and editing work.
 
+### Window chrome (Tauri)
+
+With `decorations: false`, Krayon renders a unified top bar via
+[`WindowChrome.tsx`](../src/components/layout/WindowChrome.tsx):
+
+- macOS traffic lights (close / minimize / maximize) on the left
+- Full-width drag region; double-click toggles maximize
+- Main content sits below the bar; the title row uses `pl-[78px]` so text clears the lights
+- Interactive controls (buttons, popovers) set `data-tauri-drag-region={false}`
+
 ### State Management: Zustand
 
 Two stores, split by lifetime. [`media-store.ts`](../src/stores/media-store.ts) holds the

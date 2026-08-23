@@ -265,3 +265,104 @@ export function trimClip(
 export function appendPosition(clips: Clip[], trackIds: string[]): number {
   return trackIds.reduce((max, trackId) => Math.max(max, trackEnd(clips, trackId)), 0);
 }
+
+export interface SourceSegment {
+  sourceStart: number;
+  sourceEnd: number;
+}
+
+/**
+ * Replaces one clip (and its linked sibling) with N linked segment pairs laid
+ * back-to-back from the original start. Later clips on the affected tracks are
+ * shifted left by the removed duration so the timeline stays contiguous.
+ */
+export function replaceWithSegments(
+  clips: Clip[],
+  clipId: string,
+  segments: SourceSegment[],
+): { clips: Clip[]; addedIds: string[] } {
+  const target = clips.find((clip) => clip.id === clipId);
+  if (!target) return { clips, addedIds: [] };
+
+  const linked = target.linkedId
+    ? clips.find((clip) => clip.id === target.linkedId)
+    : undefined;
+
+  const clipSourceIn = target.sourceIn;
+  const clipSourceOut = clipSourceIn + target.duration;
+
+  const intersected = segments
+    .map((segment) => ({
+      sourceStart: Math.max(segment.sourceStart, clipSourceIn),
+      sourceEnd: Math.min(segment.sourceEnd, clipSourceOut),
+    }))
+    .filter((segment) => segment.sourceEnd - segment.sourceStart >= MIN_CLIP_DURATION);
+
+  if (intersected.length === 0) {
+    return { clips, addedIds: [] };
+  }
+
+  const removedIds = new Set(
+    [target.id, linked?.id].filter((id): id is string => Boolean(id)),
+  );
+
+  const originalEnd = clipEnd(target);
+  const newEnd =
+    target.start +
+    intersected.reduce(
+      (sum, segment) => sum + (segment.sourceEnd - segment.sourceStart),
+      0,
+    );
+  const delta = newEnd - originalEnd;
+
+  const affectedTracks = new Set(
+    [target.trackId, linked?.trackId].filter((id): id is string => Boolean(id)),
+  );
+
+  const kept = clips.filter((clip) => !removedIds.has(clip.id));
+  const shifted = kept.map((clip) => {
+    if (!affectedTracks.has(clip.trackId)) return clip;
+    if (clip.start >= originalEnd - 1e-6) {
+      return { ...clip, start: clip.start + delta };
+    }
+    return clip;
+  });
+
+  const created: Clip[] = [];
+  const addedIds: string[] = [];
+  let timelineCursor = target.start;
+
+  for (const segment of intersected) {
+    const duration = segment.sourceEnd - segment.sourceStart;
+    const videoId = createId("v");
+    const audioId = linked ? createId("a") : undefined;
+
+    created.push({
+      id: videoId,
+      assetId: target.assetId,
+      trackId: target.trackId,
+      start: timelineCursor,
+      sourceIn: segment.sourceStart,
+      duration,
+      linkedId: audioId,
+    });
+    addedIds.push(videoId);
+
+    if (audioId && linked) {
+      created.push({
+        id: audioId,
+        assetId: linked.assetId,
+        trackId: linked.trackId,
+        start: timelineCursor,
+        sourceIn: segment.sourceStart,
+        duration,
+        linkedId: videoId,
+      });
+      addedIds.push(audioId);
+    }
+
+    timelineCursor += duration;
+  }
+
+  return { clips: [...shifted, ...created], addedIds };
+}

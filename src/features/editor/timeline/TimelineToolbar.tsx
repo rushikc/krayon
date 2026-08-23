@@ -12,6 +12,7 @@ import {
 
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
+import { SilenceRemovalButton } from "@/features/silence-removal/SilenceRemovalButton";
 import { transport } from "@/features/editor/playback/transport";
 import { cn } from "@/lib/utils";
 import { useTimelineStore } from "@/stores/timeline-store";
@@ -103,12 +104,15 @@ export function TimelineToolbar() {
         <Redo2 className="size-4" />
       </Button>
 
+      <Separator orientation="vertical" className="mx-1 h-5" />
+      <SilenceRemovalButton />
+
       <div className="ml-auto flex items-center gap-1">
         <Button
           variant="ghost"
           size="icon-sm"
           title="Zoom out (-)"
-          onClick={() => zoomBy(1 / 1.4)}
+          onClick={() => zoomBy(1 / 1.25)}
         >
           <ZoomOut className="size-4" />
         </Button>
@@ -116,7 +120,7 @@ export function TimelineToolbar() {
           variant="ghost"
           size="icon-sm"
           title="Zoom in (+)"
-          onClick={() => zoomBy(1.4)}
+          onClick={() => zoomBy(1.25)}
         >
           <ZoomIn className="size-4" />
         </Button>

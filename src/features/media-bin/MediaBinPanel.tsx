@@ -9,10 +9,10 @@ import { transport } from "@/features/editor/playback/transport";
 import { isTauri } from "@/lib/media/asset-url";
 import { listDevMedia } from "@/lib/media/dev-media";
 import { createAsset } from "@/lib/media/load-asset";
-import { ensureAudioData } from "@/lib/media/waveform";
 import { useMediaStore } from "@/stores/media-store";
 import { useTimelineStore } from "@/stores/timeline-store";
 import { mediaKind, type MediaFile } from "@/types/media";
+import { VIDEO_TRACK_ID } from "@/types/timeline";
 
 export function MediaBinPanel() {
   const {
@@ -73,15 +73,24 @@ export function MediaBinPanel() {
       setLoadingPath(file.path);
       setError(null);
 
-      const { assets, appendAsset } = useTimelineStore.getState();
+      const { assets, clips, appendAsset, selectClips } =
+        useTimelineStore.getState();
       const asset =
         Object.values(assets).find((candidate) => candidate.path === file.path) ??
         (await createAsset(file));
 
-      const { start } = appendAsset(asset);
-      transport.seek(start);
-      // Decoding runs in the background; the clip is editable immediately.
-      void ensureAudioData(asset);
+      const existingClip = clips.find(
+        (clip) => clip.assetId === asset.id && clip.trackId === VIDEO_TRACK_ID,
+      );
+
+      if (existingClip) {
+        selectClips([existingClip.id]);
+        transport.seek(existingClip.start);
+      } else {
+        const { start, ids } = appendAsset(asset);
+        selectClips(ids);
+        transport.seek(start);
+      }
     } catch (err) {
       setError(
         err instanceof Error ? err.message : `Could not open ${file.name}`,

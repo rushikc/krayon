@@ -10,14 +10,11 @@ export function TitleBar({
   action,
 }: TitleBarProps) {
   return (
-    <header
-      data-tauri-drag-region
-      className="flex h-12 shrink-0 items-center justify-between border-b border-border px-4"
-    >
-      <div data-tauri-drag-region className="flex flex-1 items-center gap-2">
+    <header className="flex h-12 shrink-0 items-center justify-between border-b border-border pl-[78px] pr-4">
+      <div className="flex flex-1 items-center gap-2">
         <span className="text-sm font-medium">{title}</span>
       </div>
-      {action}
+      {action && <div data-tauri-drag-region={false}>{action}</div>}
     </header>
   );
 }

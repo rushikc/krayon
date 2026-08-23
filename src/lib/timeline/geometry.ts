@@ -1,5 +1,5 @@
-export const MIN_PIXELS_PER_SECOND = 4;
-export const MAX_PIXELS_PER_SECOND = 600;
+export const MIN_PIXELS_PER_SECOND = 2;
+export const MAX_PIXELS_PER_SECOND = 1200;
 export const DEFAULT_PIXELS_PER_SECOND = 60;
 
 /** Blank space kept to the right of the last clip so it can be dragged out. */

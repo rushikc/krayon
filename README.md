@@ -24,3 +24,4 @@ pnpm tauri dev
 - [Editor: Preview Player & Timeline](docs/editor-timeline.md)
 - [Backend Design](docs/backend-design.md)
 - [FFmpeg Integration](docs/ffmpeg-backend.md)
+- [Silence Removal Pipeline](docs/silence-removal.md)

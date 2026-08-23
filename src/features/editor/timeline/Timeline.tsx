@@ -34,13 +34,17 @@ export function Timeline() {
   const contentRef = useRef<HTMLDivElement>(null);
   const contentWidth = timeToPx(duration + TIMELINE_TAIL_SECONDS, pixelsPerSecond);
 
-  // Cmd/Ctrl + wheel zooms around the cursor; a plain wheel keeps scrolling.
+  // Cmd/Ctrl + wheel (or gentle trackpad pinch) zooms around the cursor.
   useEffect(() => {
     const scroller = scrollRef.current;
     if (!scroller) return;
 
     const onWheel = (event: WheelEvent): void => {
-      if (!event.ctrlKey && !event.metaKey) return;
+      const wantsZoom =
+        event.ctrlKey ||
+        event.metaKey ||
+        (event.deltaMode === 0 && Math.abs(event.deltaY) < 50);
+      if (!wantsZoom) return;
       event.preventDefault();
 
       const store = useTimelineStore.getState();
@@ -50,7 +54,9 @@ export function Timeline() {
         scroller.scrollLeft + cursorX,
         store.pixelsPerSecond,
       );
-      const next = clampZoom(store.pixelsPerSecond * Math.exp(-event.deltaY * 0.002));
+      const next = clampZoom(
+        store.pixelsPerSecond * Math.exp(-event.deltaY * 0.0012),
+      );
       store.setZoom(next);
 
       requestAnimationFrame(() => {
