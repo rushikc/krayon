@@ -27,7 +27,6 @@ interface MediaState {
   clipGroups: ClipGroup[];
   selectedClipId: string | null;
   selectedEntry: SelectedEntry;
-  activeClipVersionId: string | null;
   setFolder: (path: string, files: MediaFileInfo[]) => void;
   startFolderLoad: (path: string) => void;
   finishFolderLoad: (error?: string | null) => void;
@@ -35,7 +34,7 @@ interface MediaState {
   setPickingFolder: (picking: boolean) => void;
   setError: (error: string | null) => void;
   updateFile: (id: string, patch: Partial<MediaFileInfo>) => void;
-  setClips: (clips: ClipItem[], groups: ClipGroup[], versionId?: string | null) => void;
+  setClips: (clips: ClipItem[], groups: ClipGroup[]) => void;
   setSelectedClip: (clipId: string | null) => void;
   selectSpeechClip: (clipId: string, autoPlay?: boolean) => void;
   selectSilenceRange: (start: number, end: number, autoPlay?: boolean) => void;
@@ -63,7 +62,6 @@ export const useMediaStore = create<MediaState>((set, get) => ({
   clipGroups: [],
   selectedClipId: null,
   selectedEntry: null,
-  activeClipVersionId: null,
 
   setFolder: (path, files) =>
     set({
@@ -77,7 +75,6 @@ export const useMediaStore = create<MediaState>((set, get) => ({
       clipGroups: [],
       selectedClipId: null,
       selectedEntry: null,
-      activeClipVersionId: null,
     }),
 
   startFolderLoad: (path) =>
@@ -104,9 +101,7 @@ export const useMediaStore = create<MediaState>((set, get) => ({
       selectedId,
       selectedClipId: null,
       selectedEntry: null,
-      ...(prev !== selectedId
-        ? { clips: [], clipGroups: [], activeClipVersionId: null }
-        : {}),
+      ...(prev !== selectedId ? { clips: [], clipGroups: [] } : {}),
     });
   },
 
@@ -119,8 +114,7 @@ export const useMediaStore = create<MediaState>((set, get) => ({
       files: state.files.map((f) => (f.id === id ? { ...f, ...patch } : f)),
     })),
 
-  setClips: (clips, clipGroups, versionId = null) =>
-    set({ clips, clipGroups, activeClipVersionId: versionId ?? null }),
+  setClips: (clips, clipGroups) => set({ clips, clipGroups }),
 
   setSelectedClip: (selectedClipId) =>
     set({
@@ -152,14 +146,12 @@ export const useMediaStore = create<MediaState>((set, get) => ({
       clipGroups: [],
       selectedClipId: null,
       selectedEntry: null,
-      activeClipVersionId: null,
     }),
 
   applyManifest: (manifest, versions) => {
     set({
       clips: manifest.clips,
       clipGroups: manifest.groups,
-      activeClipVersionId: manifest.versionId,
       selectedClipId: null,
       selectedEntry: null,
     });

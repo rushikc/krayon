@@ -57,7 +57,7 @@ export interface SilenceAnalysis {
 export interface ClipItem {
   id: string;
   index: number;
-  path: string;
+  path?: string | null;
   sourceStart: number;
   sourceEnd: number;
   duration: number;
@@ -106,7 +106,7 @@ export interface EditorStateManifest {
   groups: ClipGroup[];
   clipCount: number;
   removedSeconds: number;
-  clipsDir: string;
+  clipsDir?: string | null;
 }
 
 export interface EditorStateResponse {

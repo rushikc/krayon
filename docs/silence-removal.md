@@ -11,8 +11,7 @@ flowchart LR
   Video[Source video] --> Extract[ffmpeg: 16kHz mono WAV]
   Extract --> Whisper[faster-whisper transcription]
   Whisper --> Segments[Gap-based segment builder]
-  Segments --> Preview[UI: play kept speech only]
-  Segments --> Clips[Optional: cut MP4 segments]
+  Segments --> Preview[UI: source-range playback]
 ```
 
 ## Algorithm
@@ -41,7 +40,7 @@ src/backend/app/services/
 ├── transcribe.py   # faster-whisper wrapper
 ├── segments.py     # build_segments_from_words
 ├── analysis.py     # orchestrates full pipeline
-└── clips.py        # ffmpeg segment cutting + fuzzy grouping
+└── clips.py        # segment metadata + fuzzy grouping
 ```
 
 ## API
@@ -84,7 +83,7 @@ GET  /api/silence/progress/{jobId}  → text/event-stream
 
 ## UI integration
 
-- **Right panel → Analyze silence** runs the full async pipeline (transcribe + cut + group)
+- **Right panel → Analyze silence** runs the full async pipeline (transcribe + segment + group)
 - **Analysis run** dropdown appears when prior runs exist; switch versions without re-analyzing
 - **Speech clips only / Show all segments** toggles the left sidebar list mode
 - Opening the editor restores the last active run from `.krayon/state/{mediaId}/`
@@ -98,12 +97,11 @@ After each pipeline run completes, Krayon writes versioned state next to the sou
   index.json
   versions/{versionId}/
     manifest.json
-    clips/seg_000.mp4 ...
 ```
 
-- **Append-only** — re-analyzing creates a new version folder; prior manifests and clip files are never deleted
+- **Append-only** — re-analyzing creates a new version folder; prior manifests are never deleted
 - **index.json** — version list with auto labels (`Run 1 · Aug 23, 7:05 PM`), `activeVersionId`, summary stats
-- **manifest.json** — silence options, segment analysis, clips, groups (words omitted by default to keep files small)
+- **manifest.json** — silence options, segment analysis, clip metadata (timestamps + text + groups). Words omitted by default to keep files small. No per-segment MP4 files.
 
 ### State API
 
@@ -113,17 +111,13 @@ GET /api/editor/state/{mediaId}/versions/{id} → specific version
 PUT /api/editor/state/{mediaId}/active       → { "versionId": "..." }
 ```
 
-Clip streaming resolves from the active or requested version:
+### Clip preview
 
-```http
-GET /api/media/clip/{mediaId}/{filename}?version={versionId}
-```
-
-If `version` is omitted, the server uses `activeVersionId` from `index.json`.
+Speech clips play as **source video ranges** — the player seeks to `sourceStart` and stops at `sourceEnd` on the original (or proxy) stream. No separate clip files are cut or served.
 
 ## Clip grouping
 
-After cutting, clips with similar transcript text are grouped using normalized fuzzy string matching (`difflib.SequenceMatcher`, threshold **0.82**). Repeated takes like "using machine learning" × 5 appear under one collapsible group in the sidebar.
+After segment metadata is built, clips with similar transcript text are grouped using normalized fuzzy string matching plus shared-prefix detection (default threshold **0.65**). Takes that share the same opening line (common in retakes) merge even when the rest of the transcript diverges.
 
 ## Tool check
 

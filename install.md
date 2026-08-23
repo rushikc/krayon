@@ -71,7 +71,7 @@ Open **http://localhost:5173**. Vite proxies `/api/*` to the FastAPI server on p
 1. Click **Open** in the left sidebar — the native macOS folder picker appears.
 2. Select a folder with `.mov` or `.mp4` files.
 3. Pick a video from the list — it plays in the center player.
-4. Use **Analyze silence** or **Generate & group clips** on the right panel.
+4. Use **Analyze silence** on the right panel.
 
 The last selected folder is saved in browser `localStorage`.
 
@@ -83,12 +83,13 @@ Files over 1 GB get a low-resolution proxy generated automatically (480p / 24fps
 <your-folder>/.krayon/proxies/<filename>_proxy.mp4
 ```
 
-Clips and transcripts are cached under:
+Transcripts are cached under:
 
 ```
-<your-folder>/.krayon/clips/
 <your-folder>/.krayon/<stem>.wav
 ```
+
+Analysis state (segment timestamps, groups) is saved under `<your-folder>/.krayon/state/{mediaId}/`.
 
 ## Optional configuration
 

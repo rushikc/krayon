@@ -143,20 +143,3 @@ def stream_proxy(media_id: str, request: Request):
     if not proxy.exists():
         proxy = generate_proxy(source)
     return _stream_file(proxy, request)
-
-
-@router.get("/media/clip/{media_id}/{filename}", response_model=None)
-def stream_clip(media_id: str, filename: str, request: Request, version: str | None = None):
-    from app.services.editor_state import resolve_clip_file
-    from app.services.ffmpeg import clips_cache_dir
-
-    source = resolve_media_id(media_id)
-    clip_path = resolve_clip_file(source, filename, version)
-    if clip_path is None:
-        # Legacy fallback for clips cut before versioned state
-        legacy = clips_cache_dir(source.parent, source.stem) / filename
-        if legacy.exists():
-            clip_path = legacy
-        else:
-            raise HTTPException(status_code=404, detail="Clip not found")
-    return _stream_file(clip_path, request)

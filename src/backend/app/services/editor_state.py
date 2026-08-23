@@ -28,10 +28,6 @@ def version_dir(source: Path, version_id: str) -> Path:
     return state_root_for_source(source) / "versions" / version_id
 
 
-def clips_dir_for_version(source: Path, version_id: str) -> Path:
-    return version_dir(source, version_id) / "clips"
-
-
 def index_path(source: Path) -> Path:
     return state_root_for_source(source) / "index.json"
 
@@ -71,12 +67,11 @@ def _write_index(source: Path, index: EditorStateIndex) -> None:
     )
 
 
-def prepare_version(source: Path) -> tuple[str, Path]:
-    """Allocate a new version id and create its clips directory (append-only)."""
+def prepare_version(source: Path) -> str:
+    """Allocate a new version id and create its directory (append-only)."""
     version_id = create_version_id()
-    clips_out = clips_dir_for_version(source, version_id)
-    clips_out.mkdir(parents=True, exist_ok=True)
-    return version_id, clips_out
+    version_dir(source, version_id).mkdir(parents=True, exist_ok=True)
+    return version_id
 
 
 def save_version(
@@ -112,7 +107,6 @@ def save_version(
         groups=groups,
         clip_count=len(clips),
         removed_seconds=removed,
-        clips_dir="clips",
     )
 
     vdir = version_dir(source, version_id)
@@ -188,27 +182,6 @@ def set_active_version(source: Path, version_id: str) -> EditorStateIndex | None
     index.active_version_id = version_id
     _write_index(source, index)
     return index
-
-
-def resolve_version_id(source: Path, version_id: str | None) -> str | None:
-    index = _read_index(source)
-    if index is None:
-        return None
-    if version_id:
-        if any(v.version_id == version_id for v in index.versions):
-            return version_id
-        return None
-    return index.active_version_id
-
-
-def resolve_clip_file(source: Path, filename: str, version_id: str | None) -> Path | None:
-    resolved_version = resolve_version_id(source, version_id)
-    if not resolved_version:
-        return None
-    clip_path = clips_dir_for_version(source, resolved_version) / filename
-    if not clip_path.exists():
-        return None
-    return clip_path
 
 
 def build_generate_response(source: Path, manifest: EditorStateManifest) -> ClipsGenerateResponse:

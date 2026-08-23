@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     silence_pad: float = 0.05
     min_segment_seconds: float = 0.05
 
-    clip_similarity_threshold: float = 0.82
+    clip_similarity_threshold: float = 0.65
 
     cors_origins: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
 

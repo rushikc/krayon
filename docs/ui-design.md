@@ -57,8 +57,8 @@ While **Analyze silence** is running, the center panel shows `PipelineStepper` (
 
 | Action | Behavior |
 |--------|----------|
-| Click row | Preview in center (paused) |
-| Click play icon | Preview and start playback immediately |
+| Click row | Preview in center — seeks source video to segment range (paused) |
+| Click play icon | Preview and start playback within segment range |
 | Silence row | Seeks source video to gap range |
 
 ## Stack
@@ -101,14 +101,11 @@ Co-located with the per-folder cache at `{video_folder}/.krayon/`:
       versions/
         {versionId}/             # e.g. 2026-08-23T19-05-00_a1b2c3
           manifest.json          # full persisted payload
-          clips/
-            seg_000.mp4
-            ...
 ```
 
 - **mediaId** — `sha256(resolved_path)[:16]`, same as the editor URL param
 - **index.json** — append-only version history; `activeVersionId` points at the newest run after each analysis
-- **manifest.json** — options, analysis summary, clips, groups — everything needed to restore the UI
+- **manifest.json** — options, analysis summary, segment metadata (timestamps + text + groups)
 
 ### Version behavior
 
@@ -117,6 +114,6 @@ Co-located with the per-folder cache at `{video_folder}/.krayon/`:
 | Open editor | `GET /api/editor/state/{mediaId}` loads active manifest into stores |
 | Re-analyze | Creates a new `versions/{versionId}/` folder; prior runs stay on disk |
 | Switch run | Version dropdown in Controls → `PUT /api/editor/state/{mediaId}/active` |
-| Clip playback | `/api/media/clip/{mediaId}/{filename}?version={versionId}` |
+| Clip playback | Source video stream with seek to `[sourceStart, sourceEnd]` (or proxy for large files) |
 
-The version selector appears only when saved history exists. **Analyze silence** never clears prior clips from disk or from the UI until the new run completes.
+The version selector appears only when saved history exists. **Analyze silence** never clears prior segment data from the UI until the new run completes.

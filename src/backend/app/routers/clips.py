@@ -10,7 +10,7 @@ from fastapi.responses import StreamingResponse
 
 from app.schemas import ClipsGenerateRequest, ClipsGenerateResponse, SilenceAnalysis
 from app.services.analysis import analyze_silence
-from app.services.clips import extract_segment_clips
+from app.services.clips import build_segment_clips
 from app.services.editor_state import prepare_version, save_version
 from app.services.jobs import SSE_HEADERS, job_hub
 from app.services.pipeline_progress import overall_progress
@@ -38,7 +38,7 @@ def _generate(
     body: ClipsGenerateRequest,
     on_progress: ProgressFn | None = None,
 ) -> GenerateResult:
-    version_id, clips_out_dir = prepare_version(source)
+    version_id = prepare_version(source)
 
     analysis = analyze_silence(source, body.options, on_progress=on_progress)
 
@@ -47,20 +47,19 @@ def _generate(
     ]
     words = [Word(text=w.text, start=w.start, end=w.end) for w in analysis.words]
 
-    def cut_progress(completed: int, total: int, message: str) -> None:
+    def build_progress(completed: int, total: int, message: str) -> None:
         step = completed / total if total else 1.0
-        _publish(on_progress, "cutting", step, message)
+        _publish(on_progress, "grouping", step * 0.5, message)
 
-    _publish(on_progress, "cutting", 0.0, "Cutting clips…")
-    clips, groups = extract_segment_clips(
-        source,
+    _publish(on_progress, "grouping", 0.0, "Building segments…")
+    clips, groups = build_segment_clips(
+        source.stem,
         segments,
         words,
-        out_dir=clips_out_dir,
-        on_progress=cut_progress,
+        similarity_threshold=body.similarity_threshold,
+        on_progress=build_progress,
     )
 
-    _publish(on_progress, "grouping", 0.0, "Grouping similar takes…")
     _publish(on_progress, "grouping", 1.0, f"Grouped into {len(groups)} takes")
 
     manifest = save_version(

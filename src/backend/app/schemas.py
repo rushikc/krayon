@@ -79,7 +79,7 @@ class SilenceAnalysis(BaseModel):
 class ClipItem(BaseModel):
     id: str
     index: int
-    path: str
+    path: str | None = None
     source_start: float = Field(alias="sourceStart")
     source_end: float = Field(alias="sourceEnd")
     duration: float
@@ -100,7 +100,7 @@ class ClipGroup(BaseModel):
 class ClipsGenerateRequest(BaseModel):
     path: str
     options: SilenceOptions = Field(default_factory=SilenceOptions)
-    similarity_threshold: float = Field(default=0.82, alias="similarityThreshold")
+    similarity_threshold: float = Field(default=0.65, alias="similarityThreshold")
 
     model_config = {"populate_by_name": True}
 
@@ -157,7 +157,7 @@ class EditorStateManifest(BaseModel):
     groups: list[ClipGroup]
     clip_count: int
     removed_seconds: float
-    clips_dir: str = "clips"
+    clips_dir: str | None = None
 
 
 class EditorStateResponse(BaseModel):

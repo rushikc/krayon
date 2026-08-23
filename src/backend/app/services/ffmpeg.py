@@ -144,10 +144,6 @@ def proxy_cache_dir(folder: Path) -> Path:
     return krayon_cache_dir(folder) / "proxies"
 
 
-def clips_cache_dir(folder: Path, stem: str) -> Path:
-    return krayon_cache_dir(folder) / "clips" / stem
-
-
 def proxy_path_for(source: Path) -> Path:
     folder = source.parent
     return proxy_cache_dir(folder) / f"{source.stem}_proxy.mp4"

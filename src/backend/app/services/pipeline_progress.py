@@ -2,10 +2,9 @@ from __future__ import annotations
 
 PHASE_WEIGHTS: dict[str, tuple[float, float]] = {
     "starting": (0.00, 0.02),
-    "transcribing": (0.02, 0.72),
-    "segmenting": (0.72, 0.76),
-    "cutting": (0.76, 0.96),
-    "grouping": (0.96, 0.99),
+    "transcribing": (0.02, 0.88),
+    "segmenting": (0.88, 0.94),
+    "grouping": (0.94, 0.99),
     "complete": (1.0, 1.0),
     "error": (1.0, 1.0),
 }

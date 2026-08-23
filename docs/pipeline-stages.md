@@ -1,10 +1,10 @@
 # Pipeline Stages
 
-This document describes each stage of the **Analyze silence** pipeline — the five steps shown in the editor's `PipelineStepper` while processing runs. For the underlying silence-removal algorithm, API endpoints, and persisted state layout, see [silence-removal.md](./silence-removal.md).
+This document describes each stage of the **Analyze silence** pipeline — the four steps shown in the editor's `PipelineStepper` while processing runs. For the underlying silence-removal algorithm, API endpoints, and persisted state layout, see [silence-removal.md](./silence-removal.md).
 
 ## Overview
 
-When you click **Analyze silence** in the editor controls panel, Krayon starts an async job that transcribes speech, identifies kept segments, cuts individual clip files, and groups repeated takes. Progress streams back to the UI in real time.
+When you click **Analyze silence** in the editor controls panel, Krayon starts an async job that transcribes speech, identifies kept segments, builds segment metadata, and groups repeated takes. Clip preview plays **source video ranges** (`sourceStart` → `sourceEnd`) — no per-segment MP4 files are cut. Progress streams back to the UI in real time.
 
 | Layer | Location |
 |-------|----------|
@@ -29,10 +29,9 @@ flowchart TD
   Job --> Starting[1 Starting pipeline]
   Starting --> Transcribing[2 Transcribing speech]
   Transcribing --> Segmenting[3 Building speech segments]
-  Segmenting --> Cutting[4 Cutting clip files]
-  Cutting --> Grouping[5 Grouping similar takes]
+  Segmenting --> Grouping[4 Grouping similar takes]
   Grouping --> Save[save_version - not shown in stepper]
-  Save --> Done[Editor hydrated with clips]
+  Save --> Done[Editor hydrated with segment metadata]
 ```
 
 ---
@@ -51,10 +50,9 @@ Overall progress is computed in [`pipeline_progress.py`](../src/backend/app/serv
 | Phase | Overall range | Typical duration |
 |-------|--------------|------------------|
 | `starting` | 0% → 2% | Instant |
-| `transcribing` | 2% → 72% | Longest (Whisper) |
-| `segmenting` | 72% → 76% | Milliseconds |
-| `cutting` | 76% → 96% | One ffmpeg encode per segment |
-| `grouping` | 96% → 99% | Near-instant |
+| `transcribing` | 2% → 88% | Longest (Whisper) |
+| `segmenting` | 88% → 94% | Milliseconds |
+| `grouping` | 94% → 99% | Metadata build + fuzzy clustering |
 | `complete` | 100% | Delivers final JSON payload |
 
 ### SSE events
@@ -87,12 +85,12 @@ When `phase === "complete"`, the `message` field contains a JSON string with the
 
 ### What it does
 
-Prepares the job before any audio or video processing begins. This stage is intentionally fast — it sets up disk layout so later stages have a known, version-specific output directory.
+Prepares the job before any audio or video processing begins. This stage is intentionally fast — it sets up a version-specific directory for the manifest.
 
 1. Backend creates a background thread and publishes `starting` at 0%, then 100%.
 2. `_generate()` calls `prepare_version(source)` which:
    - Generates a unique version id: `{ISO-timestamp}_{6-char-uuid}` (e.g. `2026-08-23T19-05-00_a1b2c3`)
-   - Creates `.krayon/state/{mediaId}/versions/{versionId}/clips/` next to the source video
+   - Creates `.krayon/state/{mediaId}/versions/{versionId}/` next to the source video
    - Does **not** delete or overwrite any prior version folders (append-only history)
 
 ### Inputs → outputs
@@ -100,7 +98,6 @@ Prepares the job before any audio or video processing begins. This stage is inte
 | Input | Output |
 |-------|--------|
 | Source video path | `versionId` string |
-| | Empty `clips/` directory ready for stage 4 |
 
 ### Progress messages
 
@@ -109,7 +106,7 @@ Prepares the job before any audio or video processing begins. This stage is inte
 ### Disk artifacts
 
 ```
-{video_folder}/.krayon/state/{mediaId}/versions/{versionId}/clips/   (empty dir)
+{video_folder}/.krayon/state/{mediaId}/versions/{versionId}/   (empty until manifest saved)
 ```
 
 ### Key settings
@@ -228,7 +225,7 @@ This is a fast in-memory pass — no disk I/O.
 
 ### Disk artifacts
 
-None at this stage — segments exist only in memory until stage 4 writes clip files.
+None at this stage — segments exist only in memory until stage 4 builds metadata.
 
 ### Key settings
 
@@ -240,86 +237,34 @@ None at this stage — segments exist only in memory until stage 4 writes clip f
 
 ---
 
-## Stage 4: Cutting clip files
-
-| | |
-|---|---|
-| **UI label** | Cutting clip files |
-| **Phase id** | `cutting` |
-| **Code** | [`extract_segment_clips()`](../src/backend/app/services/clips.py) |
-
-### What it does
-
-For each speech segment from stage 3, ffmpeg cuts a standalone MP4 clip file into the version-specific clips directory allocated in stage 1.
-
-**Per segment:**
-
-1. **Derive transcript text** — Collect all words whose timestamps overlap the segment bounds; join into a text label.
-2. **Cut with ffmpeg** — Default mode is **reencode** for frame-accurate boundaries:
-   ```
-   ffmpeg -i source.mp4 -ss {start} -to {end} -c:v libx264 -preset veryfast -crf 20 ...
-   ```
-   `-ss` and `-to` are placed **after** `-i` for accurate seeking (not keyframe-limited copy mode).
-3. **Skip if exists** — If `seg_{index}.mp4` already exists in the **same version directory**, skip re-encoding (idempotent retry within one run only).
-4. **Probe duration** — ffprobe reads the actual clip file duration, which may differ slightly from the segment bounds due to frame alignment.
-5. **Build ClipItem** — `{ id, index, path, sourceStart, sourceEnd, duration, text, groupId: "pending" }`.
-
-An alternate `cut_mode="copy"` uses stream copy (`-c copy`) for speed but less precise boundaries. The default pipeline uses reencode.
-
-### Inputs → outputs
-
-| Input | Output |
-|-------|--------|
-| Source video | `seg_000.mp4`, `seg_001.mp4`, … |
-| `Segment[]` | `ClipItem[]` (one per segment) |
-| `Word[]` (for text labels) | |
-| Version clips directory | |
-
-### Progress messages
-
-- `"Cutting clips…"` (step 0%)
-- `"Cutting clip 3/8"` — one update per segment completed
-
-Progress: `stepProgress = completed / total`.
-
-### Disk artifacts
-
-```
-{video_folder}/.krayon/state/{mediaId}/versions/{versionId}/clips/
-  seg_000.mp4
-  seg_001.mp4
-  ...
-```
-
-### Key settings
-
-| Setting | Source | Default |
-|---------|--------|---------|
-| `cut_mode` | Internal (not exposed in UI) | `reencode` |
-
----
-
-## Stage 5: Grouping similar takes
+## Stage 4: Grouping similar takes
 
 | | |
 |---|---|
 | **UI label** | Grouping similar takes |
 | **Phase id** | `grouping` |
-| **Code** | [`group_clips_by_text()`](../src/backend/app/services/clips.py) inside `extract_segment_clips` |
+| **Code** | [`build_segment_clips()`](../src/backend/app/services/clips.py) → [`group_clips_by_text()`](../src/backend/app/services/clips.py) |
 
 ### What it does
 
-Talking-head recordings often contain repeated takes of the same line. This stage clusters clips with similar transcript text so the sidebar can show them under one collapsible group.
+Builds timestamp-only segment metadata from the speech segments, then clusters similar takes for the sidebar.
 
-**Algorithm:**
+**Metadata build (first half of grouping phase):**
 
-1. **Normalize text** for each clip:
-   - Lowercase
-   - Strip punctuation
-   - Remove filler words (`um`, `uh`, `like`, `you`, `know`, `so`, `well`, `okay`, `ok`, `ah`)
-2. **Greedy clustering** — Walk clips in order. For each clip, compare normalized text against existing group centroids using `difflib.SequenceMatcher`.
-3. **Assign group** — If similarity ≥ threshold, join that group. Otherwise, create a new group with the clip's text as the label (truncated to 48 characters).
-4. **Build ClipGroup[]** — Each group gets `{ id, label, clipIds[] }`.
+For each segment from stage 3:
+
+1. **Derive transcript text** — Collect words overlapping the segment bounds.
+2. **Build ClipItem** — `{ id, index, sourceStart, sourceEnd, duration, text, groupId: "pending" }`. Duration is `sourceEnd − sourceStart` (no ffmpeg probe).
+3. Progress: `"Building segment 3/8"`.
+
+**Grouping (second half):**
+
+Talking-head recordings often contain repeated takes of the same line. Clips with similar transcript text are clustered so the sidebar can show them under one collapsible group.
+
+1. **Normalize text** — lowercase, strip punctuation, remove filler words.
+2. **Greedy clustering** — `difflib.SequenceMatcher` against group centroids.
+3. **Assign group** — similarity ≥ threshold joins existing group; otherwise new group.
+4. **Build ClipGroup[]** — `{ id, label, clipIds[] }`.
 
 **Example:**
 
@@ -329,30 +274,35 @@ Clip 2: "Using machine learning for prediction"   → Group A (high similarity)
 Clip 3: "Let me tell you about APIs"              → Group B (new group)
 ```
 
-This stage runs in memory and completes almost instantly.
-
 ### Inputs → outputs
 
 | Input | Output |
 |-------|--------|
-| `ClipItem[]` with `groupId: "pending"` | `ClipItem[]` with assigned `groupId` |
+| `Segment[]`, `Word[]` | `ClipItem[]` with timestamps + text |
 | | `ClipGroup[]` for sidebar display |
 
 ### Progress messages
 
-- `"Grouping similar takes…"` (step 0%)
+- `"Building segments…"` (step 0%)
+- `"Building segment 3/8"`
 - `"Grouped into 3 takes"` (step 100%)
 
 ### Disk artifacts
 
-None — grouping results are written to disk in the post-pipeline save step.
+None until the post-pipeline save step writes `manifest.json`.
 
 ### Key settings
 
 | Setting | Source | Default |
 |---------|--------|---------|
-| `similarityThreshold` | API request body | 0.82 |
-| | Backend config `KRAYON_CLIP_SIMILARITY_THRESHOLD` | 0.82 |
+| `similarityThreshold` | API request body | 0.65 |
+| | Backend config `KRAYON_CLIP_SIMILARITY_THRESHOLD` | 0.65 |
+
+---
+
+## Clip preview (not a pipeline stage)
+
+Selecting a speech clip in the sidebar does **not** load a separate file. [`VideoPlayer.tsx`](../src/frontend/components/player/VideoPlayer.tsx) streams the source video (or proxy for large files) and plays the range `[sourceStart, sourceEnd]` — the same mechanism used for silence segment preview.
 
 ---
 
@@ -384,10 +334,9 @@ Common failure points:
 | Failure | Stage | Typical cause |
 |---------|-------|---------------|
 | Source not found | starting | File moved or deleted |
-| ffmpeg missing | transcribing / cutting | Tool not installed or not on PATH |
+| ffmpeg missing | transcribing | Tool not installed or not on PATH |
 | Whisper unavailable | transcribing | faster-whisper not installed or model download failed |
 | Transcription failure | transcribing | Corrupt audio, unsupported codec |
-| Cut failure | cutting | Invalid timestamps, disk full |
 | Write failure | save | Permissions, disk full |
 
 Switching to a different video in the editor while a pipeline is running cancels the SSE subscription and ignores stale results for the previous video.
@@ -401,7 +350,7 @@ Switching to a different video in the editor while a pipeline is running cancels
 | `silenceThreshold` | segmenting | 0.4s | Controls panel |
 | `pad` | segmenting | 0.05s | Controls panel |
 | `language` | transcribing | `en` | Controls panel |
-| `similarityThreshold` | grouping | 0.82 | API (not exposed in UI) |
+| `similarityThreshold` | grouping | 0.65 | API (not exposed in UI) |
 | `KRAYON_WHISPER_MODEL` | transcribing | `base` | Environment |
 | `KRAYON_WHISPER_DEVICE` | transcribing | `auto` | Environment |
 | `KRAYON_MIN_SEGMENT_SECONDS` | segmenting | 0.05s | Environment |

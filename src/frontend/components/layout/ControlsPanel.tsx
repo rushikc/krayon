@@ -109,7 +109,7 @@ export function ControlsPanel() {
           }
           try {
             const result = JSON.parse(payload) as ClipsGenerateResponse;
-            setClips(result.clips, result.groups, result.versionId ?? null);
+            setClips(result.clips, result.groups);
 
             const kept = result.clips.reduce((sum, c) => sum + c.duration, 0);
             const sourceDuration = selectedFile.duration ?? kept;

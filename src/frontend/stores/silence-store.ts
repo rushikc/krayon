@@ -19,7 +19,6 @@ const PIPELINE_STEP_DEFS = [
   { id: "starting", label: "Starting pipeline" },
   { id: "transcribing", label: "Transcribing speech" },
   { id: "segmenting", label: "Building speech segments" },
-  { id: "cutting", label: "Cutting clip files" },
   { id: "grouping", label: "Grouping similar takes" },
 ] as const;
 

@@ -37,11 +37,6 @@ export function mediaProxyUrl(id: string): string {
   return `${API_BASE}/api/media/proxy/${id}`;
 }
 
-export function clipStreamUrl(mediaId: string, filename: string, versionId?: string | null): string {
-  const qs = versionId ? `?version=${encodeURIComponent(versionId)}` : "";
-  return `${API_BASE}/api/media/clip/${mediaId}/${filename}${qs}`;
-}
-
 export async function getEditorState(mediaId: string): Promise<EditorStateResponse | null> {
   const res = await fetch(`${API_BASE}/api/editor/state/${mediaId}`);
   if (res.status === 404) return null;
@@ -95,7 +90,7 @@ export async function analyzeSilence(
 export async function startClipsJob(
   path: string,
   options: SilenceOptions,
-  similarityThreshold = 0.82,
+  similarityThreshold = 0.65,
 ): Promise<{ jobId: string }> {
   return request<{ jobId: string }>("/api/clips/generate/async", {
     method: "POST",
@@ -106,7 +101,7 @@ export async function startClipsJob(
 export async function generateClips(
   path: string,
   options: SilenceOptions,
-  similarityThreshold = 0.82,
+  similarityThreshold = 0.65,
 ): Promise<ClipsGenerateResponse> {
   return request<ClipsGenerateResponse>("/api/clips/generate", {
     method: "POST",

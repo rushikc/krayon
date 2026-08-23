@@ -1,12 +1,8 @@
 import { Loader2, Pause, Play } from "lucide-react";
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 
 import { Button } from "@/components/ui/button";
-import {
-  clipStreamUrl,
-  mediaProxyUrl,
-  mediaStreamUrl,
-} from "@/lib/api/client";
+import { mediaProxyUrl, mediaStreamUrl } from "@/lib/api/client";
 import { cn } from "@/lib/utils";
 import { seekVideo } from "@/lib/video-seek";
 import { useMediaStore } from "@/stores/media-store";
@@ -30,7 +26,6 @@ export function VideoPlayer() {
     clips,
     selectedClipId,
     selectedEntry,
-    activeClipVersionId,
     isLoading,
     isPickingFolder,
   } = useMediaStore();
@@ -47,44 +42,49 @@ export function VideoPlayer() {
 
   const selectedFile = files.find((f) => f.id === selectedId) ?? null;
   const selectedClip = clips.find((c) => c.id === selectedClipId) ?? null;
-  const silenceRange =
-    selectedEntry?.kind === "silence"
-      ? { start: selectedEntry.start, end: selectedEntry.end }
-      : null;
+
+  const playbackRange = useMemo(() => {
+    if (selectedEntry?.kind === "silence") {
+      return { start: selectedEntry.start, end: selectedEntry.end };
+    }
+    if (selectedClip) {
+      return { start: selectedClip.sourceStart, end: selectedClip.sourceEnd };
+    }
+    return null;
+  }, [selectedEntry, selectedClip]);
+
+  const isSilencePreview = selectedEntry?.kind === "silence";
+  const isClipPreview = selectedClip !== null;
 
   const src = (() => {
     if (!selectedFile) return "";
-    if (selectedClip) {
-      const filename = selectedClip.path.split("/").pop() ?? "";
-      return clipStreamUrl(selectedFile.id, filename, activeClipVersionId);
-    }
     if (selectedFile.needsProxy) {
       return mediaProxyUrl(selectedFile.id);
     }
     return mediaStreamUrl(selectedFile.id);
   })();
 
+  const rangeKey = playbackRange
+    ? `${playbackRange.start}-${playbackRange.end}`
+    : "source";
+
   const tick = useCallback(() => {
     const video = videoRef.current;
     if (!video) return;
 
-    if (silenceRange && Number.isFinite(video.currentTime)) {
-      if (video.currentTime >= silenceRange.end - 0.02) {
+    if (playbackRange && Number.isFinite(video.currentTime)) {
+      if (video.currentTime >= playbackRange.end - 0.02) {
         video.pause();
         setPlaying(false);
-        seekVideo(video, silenceRange.end);
+        seekVideo(video, playbackRange.end);
       }
-      setCurrentTime(
-        silenceRange
-          ? Math.max(0, video.currentTime - silenceRange.start)
-          : video.currentTime,
-      );
+      setCurrentTime(Math.max(0, video.currentTime - playbackRange.start));
     } else if (Number.isFinite(video.currentTime)) {
       setCurrentTime(video.currentTime);
     }
 
     rafRef.current = requestAnimationFrame(tick);
-  }, [silenceRange, setCurrentTime, setPlaying]);
+  }, [playbackRange, setCurrentTime, setPlaying]);
 
   useEffect(() => {
     reset();
@@ -104,11 +104,9 @@ export function VideoPlayer() {
     if (autoPlayToken <= handledAutoPlayRef.current) return;
     handledAutoPlayRef.current = autoPlayToken;
 
-    if (silenceRange) {
-      seekVideo(video, silenceRange.start);
+    if (playbackRange) {
+      seekVideo(video, playbackRange.start);
       setCurrentTime(0);
-    } else if (selectedClip) {
-      seekVideo(video, 0);
     }
 
     try {
@@ -117,7 +115,7 @@ export function VideoPlayer() {
     } catch {
       setPlaying(false);
     }
-  }, [autoPlayToken, selectedClip, silenceRange, setCurrentTime, setPlaying]);
+  }, [autoPlayToken, playbackRange, setCurrentTime, setPlaying]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -126,12 +124,9 @@ export function VideoPlayer() {
   }, [autoPlayToken, tryAutoPlay]);
 
   const handleLoadedMetadata = async (video: HTMLVideoElement) => {
-    if (selectedClip) {
-      setDuration(video.duration);
-      seekVideo(video, 0);
-    } else if (silenceRange) {
-      setDuration(silenceRange.end - silenceRange.start);
-      seekVideo(video, silenceRange.start);
+    if (playbackRange) {
+      setDuration(playbackRange.end - playbackRange.start);
+      seekVideo(video, playbackRange.start);
       setCurrentTime(0);
     } else {
       setDuration(video.duration);
@@ -144,23 +139,22 @@ export function VideoPlayer() {
     const video = videoRef.current;
     if (!video || !video.readyState) return;
 
-    if (selectedClip) {
-      seekVideo(video, 0);
-      return;
-    }
-    if (silenceRange) {
-      seekVideo(video, silenceRange.start);
+    if (playbackRange) {
+      seekVideo(video, playbackRange.start);
       setCurrentTime(0);
     }
-  }, [selectedClip, silenceRange, setCurrentTime]);
+  }, [playbackRange, setCurrentTime]);
 
   const togglePlay = async () => {
     const video = videoRef.current;
     if (!video) return;
     if (video.paused) {
-      if (silenceRange) {
-        if (video.currentTime < silenceRange.start || video.currentTime >= silenceRange.end) {
-          seekVideo(video, silenceRange.start);
+      if (playbackRange) {
+        if (
+          video.currentTime < playbackRange.start ||
+          video.currentTime >= playbackRange.end
+        ) {
+          seekVideo(video, playbackRange.start);
         }
       }
       await video.play();
@@ -174,18 +168,16 @@ export function VideoPlayer() {
   const onSeek = (value: number) => {
     const video = videoRef.current;
     if (!video) return;
-    const target = silenceRange ? silenceRange.start + value : value;
+    const target = playbackRange ? playbackRange.start + value : value;
     if (seekVideo(video, target)) {
       setCurrentTime(value);
     }
   };
 
-  const clipDuration =
-    selectedClip && Number.isFinite(duration) && duration > 0 ? duration : selectedClip?.duration;
-
-  const displayDuration =
-    clipDuration ?? (silenceRange ? silenceRange.end - silenceRange.start : duration);
-  const displayCurrentTime = silenceRange
+  const displayDuration = playbackRange
+    ? playbackRange.end - playbackRange.start
+    : duration;
+  const displayCurrentTime = playbackRange
     ? Math.max(0, Math.min(currentTime, displayDuration))
     : currentTime;
   const waiting = isLoading || isPickingFolder;
@@ -195,8 +187,8 @@ export function VideoPlayer() {
 
   const title = selectedClip
     ? selectedClip.text
-    : silenceRange
-      ? `Silence ${formatTime(silenceRange.start)}–${formatTime(silenceRange.end)}`
+    : isSilencePreview && playbackRange
+      ? `Silence ${formatTime(playbackRange.start)}–${formatTime(playbackRange.end)}`
       : selectedFile?.name ?? "";
 
   return (
@@ -219,7 +211,7 @@ export function VideoPlayer() {
             <div className="overflow-hidden rounded-xl border border-border bg-black shadow-2xl">
               <video
                 ref={videoRef}
-                key={`${src}-${selectedEntry?.kind === "silence" ? `${selectedEntry.start}-${selectedEntry.end}` : selectedClipId ?? "source"}`}
+                key={`${src}-${rangeKey}`}
                 src={src}
                 className="aspect-video w-full bg-black object-contain"
                 onLoadedMetadata={(e) => void handleLoadedMetadata(e.currentTarget)}
@@ -232,10 +224,10 @@ export function VideoPlayer() {
             {title && (
               <div className="px-1">
                 <p className="text-sm leading-relaxed text-foreground">{title}</p>
-                {silenceRange && (
+                {isSilencePreview && (
                   <p className="mt-1 text-xs text-red-300/80">Silence segment preview</p>
                 )}
-                {selectedClip && (
+                {isClipPreview && (
                   <p className="mt-1 text-xs text-primary">Clip preview</p>
                 )}
               </div>
