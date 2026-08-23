@@ -1,34 +1,16 @@
-# Krayon — macOS Apple Silicon (M4) Install Guide
+# Krayon — Install Guide
 
-Step-by-step commands to bootstrap the Krayon development environment on a fresh macOS Apple Silicon machine.
+Local-only setup for macOS (Apple Silicon or Intel). Linux should work with the same commands.
 
 ## Prerequisites
 
-### 1. Xcode Command Line Tools
+### 1. Xcode Command Line Tools (macOS)
 
 ```bash
 xcode-select --install
 ```
 
-Accept the license if prompted:
-
-```bash
-sudo xcodebuild -license accept
-```
-
-### 2. Rust (via rustup)
-
-```bash
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-source "$HOME/.cargo/env"
-rustup default stable
-rustc --version
-cargo --version
-```
-
-### 3. Node.js + pnpm
-
-Install Node.js 20+ (via [nvm](https://github.com/nvm-sh/nvm), Homebrew, or the official installer), then enable pnpm:
+### 2. Node.js + pnpm
 
 ```bash
 node -v   # should be v20+
@@ -37,85 +19,108 @@ corepack prepare pnpm@latest --activate
 pnpm -v
 ```
 
-## Clone & Scaffold
+### 3. Python 3.10+
+
+```bash
+python3 --version
+```
+
+### 4. FFmpeg
+
+```bash
+brew install ffmpeg
+ffmpeg -version
+ffprobe -version
+```
+
+## Clone & install
 
 ```bash
 git clone <your-repo-url> krayon
 cd krayon
-```
 
-If starting from an empty repo (docs + LICENSE only), scaffold Tauri v2 in place:
-
-```bash
-pnpm create tauri-app@latest . --manager pnpm --template react-ts --yes --force --identifier com.krayon.dev
+# Frontend
 pnpm install
+
+# Backend
+pnpm backend
 ```
 
-## Frontend Dependencies
+## Run locally
+
+**Option A — two terminals**
 
 ```bash
-# Tailwind v4 + UI stack
-pnpm add tailwindcss @tailwindcss/vite zustand gsap lucide-react
+# Terminal 1: backend
+pnpm backend
 
-# Tauri v2 plugins (JS)
-pnpm add @tauri-apps/plugin-shell @tauri-apps/plugin-dialog @tauri-apps/plugin-fs
-
-# Dev tooling
-pnpm add -D @types/node
+# Terminal 2: frontend
+pnpm dev
 ```
 
-Configure Vite path alias and Tailwind plugin in `vite.config.ts`, then initialize shadcn/ui:
+**Option B — one command**
 
 ```bash
-pnpm dlx shadcn@latest init --defaults --force -y
-pnpm dlx shadcn@latest add button scroll-area separator -y
+pnpm dev:all
 ```
 
-## Rust / Tauri Backend
+Open **http://localhost:5173**. Vite proxies `/api/*` to the FastAPI server on port 8000.
+
+## First use
+
+1. Click **Open** in the left sidebar — the native macOS folder picker appears.
+2. Select a folder with `.mov` or `.mp4` files.
+3. Pick a video from the list — it plays in the center player.
+4. Use **Analyze silence** or **Generate & group clips** on the right panel.
+
+The last selected folder is saved in browser `localStorage`.
+
+## Large files (> 1 GB)
+
+Files over 1 GB get a low-resolution proxy generated automatically (480p / 24fps). Proxies are cached at:
+
+```
+<your-folder>/.krayon/proxies/<filename>_proxy.mp4
+```
+
+Clips and transcripts are cached under:
+
+```
+<your-folder>/.krayon/clips/
+<your-folder>/.krayon/<stem>.wav
+```
+
+## Optional configuration
+
+Create `src/backend/.env`:
+
+```env
+KRAYON_WHISPER_MODEL=small
+KRAYON_FFMPEG=/opt/homebrew/bin/ffmpeg
+KRAYON_FFPROBE=/opt/homebrew/bin/ffprobe
+```
+
+Whisper model sizes: `tiny`, `base`, `small`, `medium`, `large-v3`. Larger = more accurate but slower.
+
+On first backend start, the Whisper model is downloaded once (~150 MB for `base`). Subsequent starts load it from cache. Disable startup loading with `KRAYON_WHISPER_WARMUP_ON_STARTUP=false` in `.env`.
+
+## Build for production
 
 ```bash
-cd src-tauri
-cargo add tauri-plugin-shell tauri-plugin-dialog tauri-plugin-fs
-cd ..
+pnpm build
+# Frontend output: dist/
+
+# Backend runs as-is:
+pnpm backend
 ```
 
-Register the plugins in `src-tauri/src/lib.rs` and configure capabilities in `src-tauri/capabilities/default.json` (see project files for the current state).
+Serve `dist/` with any static file server, keeping the API proxy pointed at localhost:8000.
 
-## Run the Dev Server
+## Troubleshooting
 
-From the project root:
-
-```bash
-source "$HOME/.cargo/env"   # if not already in your shell profile
-pnpm tauri dev
-```
-
-This starts the Vite dev server on `http://localhost:1420` and opens the Krayon window.
-
-> **First run:** The initial `cargo build` downloads and compiles Rust dependencies — expect several minutes. Subsequent runs are much faster.
-
-> **esbuild warning:** If pnpm reports ignored build scripts, add `allowBuilds: { esbuild: true }` to `pnpm-workspace.yaml` (already included in this repo), then re-run `pnpm install`.
-
-## Verify the Mock UI
-
-1. Click **Select Folder** in the sidebar.
-2. Choose a directory containing `.mp4` or `.mov` files.
-3. Confirm the video list appears in the sidebar — this validates the Tauri dialog → fs → React bridge.
-
-## Optional: FFmpeg Sidecar
-
-When ready to integrate video processing, follow [docs/ffmpeg-backend.md](docs/ffmpeg-backend.md):
-
-1. Download a static FFmpeg build for `aarch64-apple-darwin`.
-2. Place it at `src-tauri/binaries/ffmpeg-aarch64-apple-darwin`.
-3. Add `"externalBin": ["binaries/ffmpeg"]` to `src-tauri/tauri.conf.json` under `bundle`.
-
-The shell plugin and `shell:allow-execute` capability are already configured.
-
-## Build a Release Bundle
-
-```bash
-pnpm tauri build -- --bundles app
-```
-
-Output: `src-tauri/target/release/bundle/macos/Krayon.app`
+| Issue | Fix |
+|-------|-----|
+| `ffmpeg not found` | Install ffmpeg and ensure it is on PATH |
+| Backend connection refused | Start uvicorn on port 8000 |
+| Whisper slow on first run | Model downloads once on first `pnpm backend`; wait for "Whisper model ready" in logs |
+| Video won't seek | Ensure ffprobe works and the file is readable |

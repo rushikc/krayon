@@ -12,8 +12,10 @@ dist
 dist-ssr
 *.local
 
-# Sample media for the browser dev harness (see docs/editor-timeline.md)
-public/dev-media
+# Python backend
+src/backend/.krayonenv
+src/backend/**/__pycache__
+src/backend/logs/*.log
 
 # Editor directories and files
 .vscode/*

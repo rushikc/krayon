@@ -1,0 +1,4 @@
+.krayonenv/
+__pycache__/
+*.pyc
+.env

@@ -1,253 +1,122 @@
-Here is a complete guide and code template to build a macOS-style React interface using Tailwind CSS and `shadcn/ui`. This layout is designed specifically for a video editor like Krayon, focusing on a native feel, a sleek sidebar, and a workspace for your timeline and video preview.
+# UI Design
 
-### 1. Global Setup (Typography & Colors)
+Krayon uses a two-page flow: a **library dashboard** for browsing videos and an **editor** for processing a single video.
 
-To make it look like a real Mac app, you need to use Apple's system font (SF Pro) and set up Tailwind to support macOS "Vibrancy" (that frosted glass blur effect).
+## Pages
 
-Update your `globals.css` to include the standard macOS dark theme colors:
+| Route | Page | Purpose |
+|-------|------|---------|
+| `/` | Dashboard | Folder + video library, preview, metadata |
+| `/editor/:mediaId` | Editor | Single-video processing workspace |
 
-```css
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
-
-@layer base {
-  :root {
-    /* macOS Light Mode */
-    --background: 0 0% 100%;
-    --foreground: 240 10% 3.9%;
-    --card: 0 0% 100%;
-    --card-foreground: 240 10% 3.9%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 240 10% 3.9%;
-    --primary: 211 100% 50%; /* Apple Blue */
-    --primary-foreground: 0 0% 100%;
-    --secondary: 240 4.8% 95.9%;
-    --secondary-foreground: 240 5.9% 10%;
-    --muted: 240 4.8% 95.9%;
-    --muted-foreground: 240 3.8% 46.1%;
-    --accent: 240 4.8% 95.9%;
-    --accent-foreground: 240 5.9% 10%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 240 5.9% 90%;
-    --input: 240 5.9% 90%;
-    --ring: 211 100% 50%;
-    --radius: 0.5rem;
-  }
-
-  .dark {
-    /* macOS Dark Mode - Perfect for Video Editors */
-    --background: 240 5% 15%;
-    --foreground: 0 0% 98%;
-    --card: 240 5% 18%;
-    --card-foreground: 0 0% 98%;
-    --popover: 240 5% 15%;
-    --popover-foreground: 0 0% 98%;
-    --primary: 211 100% 50%;
-    --primary-foreground: 0 0% 100%;
-    --secondary: 240 3.7% 25%;
-    --secondary-foreground: 0 0% 98%;
-    --muted: 240 3.7% 25%;
-    --muted-foreground: 240 5% 64.9%;
-    --accent: 240 3.7% 25%;
-    --accent-foreground: 0 0% 98%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 240 3.7% 25%;
-    --input: 240 3.7% 25%;
-    --ring: 211 100% 50%;
-  }
-}
-
-@layer base {
-  * {
-    @apply border-border;
-  }
-  body {
-    @apply bg-background text-foreground;
-    /* Force Apple System Font */
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; 
-    /* Prevent text selection in desktop apps */
-    user-select: none; 
-  }
-}
-
+```mermaid
+flowchart LR
+  Dashboard["/ Dashboard"] -->|"Open in editor"| Editor["/editor/:mediaId"]
+  Editor -->|"Back to library"| Dashboard
 ```
 
-### 2. The Krayon App Layout
-
-macOS apps usually have a translucent sidebar on the left and a solid main content area. If you are using Tauri, you will also want a custom title bar area so users can drag the window.
-
-Here is the main `App.jsx` layout:
-
-```jsx
-import React from "react";
-import { Button } from "@/components/ui/button";
-import { Slider } from "@/components/ui/slider";
-import { Play, Pause, Scissors, Settings } from "lucide-react";
-
-export default function AppLayout() {
-  return (
-    <div className="flex h-screen w-full overflow-hidden bg-background text-foreground selection:bg-primary/30">
-      
-      {/* Sidebar - Uses backdrop-blur for macOS Vibrancy effect */}
-      <aside className="w-64 flex-shrink-0 border-r border-border bg-background/60 backdrop-blur-2xl flex flex-col">
-        {/* Tauri Drag Region for Custom Titlebar */}
-        <div data-tauri-drag-region className="h-10 w-full" /> 
-        
-        <div className="p-4 flex-1">
-          <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-4">
-            Library
-          </h2>
-          <ul className="space-y-1">
-            <li>
-              <Button variant="ghost" className="w-full justify-start text-sm h-8 px-2 bg-secondary/50">
-                Media Bin
-              </Button>
-            </li>
-            <li>
-              <Button variant="ghost" className="w-full justify-start text-sm h-8 px-2">
-                Export Settings
-              </Button>
-            </li>
-          </ul>
-        </div>
-        
-        <div className="p-4 border-t border-border">
-          <Button variant="ghost" className="w-full justify-start text-sm h-8 px-2">
-            <Settings className="w-4 h-4 mr-2" />
-            Preferences
-          </Button>
-        </div>
-      </aside>
-
-      {/* Main Content Area */}
-      <main className="flex-1 flex flex-col min-w-0">
-        {/* Top Toolbar */}
-        <header data-tauri-drag-region className="h-12 border-b border-border flex items-center justify-between px-4">
-          <div className="flex space-x-2">
-             <div className="text-sm font-medium">Reel Composer - Auto-Ducking Active</div>
-          </div>
-          <Button size="sm" className="h-7 text-xs rounded-full px-4">
-            Export 2K 60fps
-          </Button>
-        </header>
-
-        {/* Video Preview Area */}
-        <div className="flex-1 bg-black flex items-center justify-center relative">
-          <div className="w-[400px] h-[711px] bg-zinc-900 border border-zinc-800 rounded-lg shadow-2xl flex items-center justify-center text-zinc-500">
-            Video Preview (9:16)
-          </div>
-        </div>
-
-        {/* Timeline Area */}
-        <div className="h-64 border-t border-border bg-card flex flex-col">
-          {/* Timeline Controls */}
-          <div className="h-10 border-b border-border flex items-center px-4 space-x-4 bg-muted/30">
-            <Button variant="ghost" size="icon" className="h-7 w-7 rounded-md">
-              <Play className="w-4 h-4 fill-current" />
-            </Button>
-            <Button variant="ghost" size="icon" className="h-7 w-7 rounded-md">
-              <Scissors className="w-4 h-4" />
-            </Button>
-            <div className="w-32 flex items-center">
-              <Slider defaultValue={[50]} max={100} step={1} className="w-full" />
-            </div>
-          </div>
-          
-          {/* Tracks */}
-          <div className="flex-1 p-4 overflow-y-auto space-y-2">
-            <div className="h-12 bg-primary/20 border border-primary/30 rounded-md flex items-center px-4 text-xs font-mono text-primary-foreground">
-              Video Track 1
-            </div>
-            <div className="h-12 bg-green-500/20 border border-green-500/30 rounded-md flex items-center px-4 text-xs font-mono text-green-400">
-              Audio Track (Takes)
-            </div>
-          </div>
-        </div>
-      </main>
-    </div>
-  );
-}
+## Dashboard layout
 
 ```
-
-### 3. Adapting shadcn/ui to macOS Specs
-
-When you install `shadcn/ui` components (like Button, Input, or Slider), they default to a slightly chunky web style. To fix this, adjust the variants in `components/ui/button.tsx` to mimic Mac controls:
-
-1. **Reduce Padding & Height:** Mac buttons are compact. Change the default height in the `default` size variant to `h-8` instead of `h-10`.
-2. **Border Radius:** Use `rounded-md` (which maps to 6px or 8px) rather than large, pill-shaped buttons unless it is a primary call to action.
-3. **Shadows:** Add `shadow-sm` to default buttons to give them a slight 3D pop off the background.
-
-### 4. Tauri Window Settings
-
-To make the HTML UI blend perfectly with the OS, update your `tauri.conf.json` window settings:
-
-```json
-"windows": [
-  {
-    "title": "Krayon",
-    "width": 1280,
-    "height": 800,
-    "decorations": false,
-    "transparent": true,
-    "macOSPrivateApi": true
-  }
-]
-
+┌─────────────────────────────────────────────────────────────┐
+│  Krayon                                         library      │
+├──────────┬──────────────────────────────┬───────────────────┤
+│ Library  │         Video preview        │   Video details   │
+│ (videos) │         (center)             │  + Open in editor │
+└──────────┴──────────────────────────────┴───────────────────┘
 ```
 
-Setting `decorations: false` hides the standard OS window frame, allowing your React header (`data-tauri-drag-region`) to become the actual top of the application window.
+- **Left** — `LibrarySidebar`: folder path, Open folder, video list
+- **Center** — `VideoPlayer`: preview selected video
+- **Right** — `DashboardPanel`: metadata + **Open in editor** button
 
----
+No silence removal or clip controls on the dashboard.
 
-## 5. Current Implementation Notes (Initial Setup)
+## Editor layout
 
-The scaffolded Krayon app deviates from the Tailwind v3 snippets above in a few intentional ways:
+While **Analyze silence** is running, the center panel shows `PipelineStepper` (vertical step list with per-step % and elapsed time). When complete, it switches back to `VideoPlayer`. See [pipeline-stages.md](./pipeline-stages.md) for what each step does under the hood.
 
-### Tailwind CSS v4 (CSS-first)
+```
+┌─────────────────────────────────────────────────────────────┐
+│  ← Back to library   Krayon                    video.mov    │
+├──────────┬──────────────────────────────┬───────────────────┤
+│ Clips    │  Video player OR pipeline    │     Controls      │
+│ (after   │  stepper while running       │ Analyze silence,  │
+│ analysis)│                              │ list toggle, proxy│
+└──────────┴──────────────────────────────┴───────────────────┘
+```
 
-The project uses **Tailwind v4** with the `@tailwindcss/vite` plugin. There is no `tailwind.config.js`. Theme tokens live in [`src/index.css`](../src/index.css) using `@theme inline` blocks and CSS custom properties. Dark mode is enabled by default via `<html class="dark">` in [`index.html`](../index.html).
+- **Left** — `ClipsSidebar`: appears after analysis completes
+  - **Speech clips only** (default): grouped similar takes, play icon per row
+  - **All segments**: chronological speech + silence rows (silence in mild red)
+  - Truncated labels show full text on hover (tooltip)
+- **Center** — `VideoPlayer` or `PipelineStepper` during async job
+- **Right** — `ControlsPanel`: single **Analyze silence** button (transcribe + cut + group), **analysis run** version selector (when history exists), segment list toggle, proxy, tools
 
-### Component Structure
+### Clip list interactions
 
-The monolithic `App.jsx` layout above is split into feature-oriented components:
+| Action | Behavior |
+|--------|----------|
+| Click row | Preview in center (paused) |
+| Click play icon | Preview and start playback immediately |
+| Silence row | Seeks source video to gap range |
 
-| File | Purpose |
-|------|---------|
-| [`src/App.tsx`](../src/App.tsx) | Root shell layout |
-| [`src/components/layout/Sidebar.tsx`](../src/components/layout/Sidebar.tsx) | Translucent sidebar with vibrancy |
-| [`src/components/layout/TitleBar.tsx`](../src/components/layout/TitleBar.tsx) | Custom draggable title bar |
-| [`src/components/layout/MainStage.tsx`](../src/components/layout/MainStage.tsx) | Composes the preview, transport bar, and timeline |
-| [`src/features/media-bin/MediaBinPanel.tsx`](../src/features/media-bin/MediaBinPanel.tsx) | Folder picker; clicking an item adds it to the timeline |
-| [`src/features/editor/preview/`](../src/features/editor/preview) | 9:16 preview stage, transport controls, timecode |
-| [`src/features/editor/timeline/`](../src/features/editor/timeline) | Ruler, track headers and lanes, clip blocks, waveforms, playhead |
-| [`src/features/editor/playback/`](../src/features/editor/playback) | Master clock and the picture/audio sync loops |
+## Stack
 
-The placeholder timeline from the snippet above is gone: the tracks are now real,
-and the "Video Preview (9:16)" box holds live video. See
-[editor-timeline.md](./editor-timeline.md) for how playback and editing work.
+- **React Router** — `/` and `/editor/:mediaId`
+- **Zustand** — shared `media-store` and `silence-store` across routes
+- **SSE** — `/api/clips/generate/async` + `/api/clips/progress/{jobId}` for pipeline progress
+- **Tailwind CSS v4** — tokens in [`src/frontend/index.css`](../src/frontend/index.css)
 
-### Window chrome (Tauri)
+## Key components
 
-With `decorations: false`, Krayon renders a unified top bar via
-[`WindowChrome.tsx`](../src/components/layout/WindowChrome.tsx):
+| Path | Role |
+|------|------|
+| `src/frontend/pages/DashboardPage.tsx` | Library dashboard |
+| `src/frontend/pages/EditorPage.tsx` | Single-video editor |
+| `src/frontend/components/layout/LibrarySidebar.tsx` | Video list |
+| `src/frontend/components/layout/ClipsSidebar.tsx` | Grouped clips + all-segments timeline |
+| `src/frontend/components/layout/DashboardPanel.tsx` | Metadata + Open in editor |
+| `src/frontend/components/layout/ControlsPanel.tsx` | Analyze silence + version selector + list mode toggle |
+| `src/frontend/components/player/PipelineStepper.tsx` | Pipeline progress UI — see [pipeline-stages.md](./pipeline-stages.md) |
+| `src/frontend/components/layout/AppShell.tsx` | Shared header |
 
-- macOS traffic lights (close / minimize / maximize) on the left
-- Full-width drag region; double-click toggles maximize
-- Main content sits below the bar; the title row uses `pl-[78px]` so text clears the lights
-- Interactive controls (buttons, popovers) set `data-tauri-drag-region={false}`
+## Folder persistence
 
-### State Management: Zustand
+Last folder path stored in `localStorage` under key `krayon:lastFolder` and restored on app load.
 
-Two stores, split by lifetime. [`media-store.ts`](../src/stores/media-store.ts) holds the
-bin: the selected folder, the files found in it, and loading/error state.
-[`timeline-store.ts`](../src/stores/timeline-store.ts) holds the project — assets,
-tracks, clips, selection, zoom, and an undo stack.
+## Editor state persistence
 
-Anything that changes at frame rate deliberately stays out of both. The playhead
-position, the timecode, and video sync are written straight to the DOM from a
-clock subscription, and drag previews live in a small external store, so pointer
-moves and playback never re-render the timeline.
+Each **Analyze silence** run is saved under the video folder as versioned state. Re-opening `/editor/:mediaId` restores the last active run (clips sidebar, stats, options) without re-processing.
+
+### On-disk layout
+
+Co-located with the per-folder cache at `{video_folder}/.krayon/`:
+
+```
+.krayon/
+  state/
+    {mediaId}/
+      index.json                 # version list + activeVersionId
+      versions/
+        {versionId}/             # e.g. 2026-08-23T19-05-00_a1b2c3
+          manifest.json          # full persisted payload
+          clips/
+            seg_000.mp4
+            ...
+```
+
+- **mediaId** — `sha256(resolved_path)[:16]`, same as the editor URL param
+- **index.json** — append-only version history; `activeVersionId` points at the newest run after each analysis
+- **manifest.json** — options, analysis summary, clips, groups — everything needed to restore the UI
+
+### Version behavior
+
+| Action | Behavior |
+|--------|----------|
+| Open editor | `GET /api/editor/state/{mediaId}` loads active manifest into stores |
+| Re-analyze | Creates a new `versions/{versionId}/` folder; prior runs stay on disk |
+| Switch run | Version dropdown in Controls → `PUT /api/editor/state/{mediaId}/active` |
+| Clip playback | `/api/media/clip/{mediaId}/{filename}?version={versionId}` |
+
+The version selector appears only when saved history exists. **Analyze silence** never clears prior clips from disk or from the UI until the new run completes.

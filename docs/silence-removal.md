@@ -1,88 +1,134 @@
 # Silence Removal Pipeline
 
-Krayon removes dead air from long talking-head recordings and splits the result into back-to-back clips on the timeline — **non-destructively** (one source file, many clips with different `sourceIn` / `duration` values).
+Krayon removes dead air from talking-head recordings using **faster-whisper** word timestamps and gap-based segment building. Ported from [`krayon-reel/scripts/transcribe_and_cut.py`](../../krayon-reel/scripts/transcribe_and_cut.py).
 
-Ported from [`krayon-reel/scripts/transcribe_and_cut.py`](../../krayon-reel/scripts/transcribe_and_cut.py). The segment-building algorithm (`build_segments`) is faithful to that script; detection differs by mode.
+For a stage-by-stage breakdown of the **Analyze silence** stepper (what each step does, progress weighting, inputs/outputs, and disk artifacts), see [pipeline-stages.md](./pipeline-stages.md).
 
-## Modes
+## Flow
 
-| Mode | Engine | Speed (20 min video) | Best for |
-|------|--------|----------------------|----------|
-| **Fast** | FFmpeg `silencedetect` on audio only | Seconds | One-click cleanup, no transcript needed |
-| **Accurate** | whisper.cpp word timestamps + gap analysis | 1–3 minutes | Precise cuts aligned to speech, transcript cached for future multi-take selection |
-
-Both modes share the same post-processing:
-
-1. Expand each speech unit by `pad` (default **0.05s**), clamped to source duration
-2. Merge units when the gap between them is ≤ `silence_threshold` (default **0.4s**)
-3. Drop spans shorter than **0.05s**
-
-## Fast mode
-
-```bash
-ffmpeg -hide_banner -nostats -progress pipe:1 -i <input> -map 0:a:0 \
-  -af silencedetect=noise=-35dB:d=0.4 -f null -
+```mermaid
+flowchart LR
+  Video[Source video] --> Extract[ffmpeg: 16kHz mono WAV]
+  Extract --> Whisper[faster-whisper transcription]
+  Whisper --> Segments[Gap-based segment builder]
+  Segments --> Preview[UI: play kept speech only]
+  Segments --> Clips[Optional: cut MP4 segments]
 ```
 
-Silence ranges from stderr (`silence_start` / `silence_end`) are inverted to speech spans, then passed through the shared segment builder.
+## Algorithm
 
-Tune **noise floor** (default `-35 dB`) if quiet room noise is being kept, or speech is being cut.
+1. Extract 16 kHz mono PCM WAV via ffmpeg
+2. Transcribe with faster-whisper (`word_timestamps=True`, VAD filter)
+3. Build speech segments from inter-word gaps:
+   - Expand each word by `pad` (default **0.05s**)
+   - Merge when gap ≤ `silence_threshold` (default **0.4s**)
+   - Drop spans shorter than **0.05s**
 
-## Accurate mode
+## Configuration
 
-1. Extract 16 kHz mono PCM WAV via FFmpeg
-2. Transcribe with `whisper-cli` (word-level JSON, same flags as krayon-reel)
-3. Parse word timestamps (with token-level fallback)
-4. Run `build_segments` on word gaps
+| Setting | Default | Env / API |
+|---------|---------|-----------|
+| Silence threshold | 0.4s | `options.silenceThreshold` |
+| Pad | 0.05s | `options.pad` |
+| Language | en | `options.language` |
+| Whisper model | base | `KRAYON_WHISPER_MODEL` |
 
-Requires `whisper-cli` and a GGML model on disk.
-
-## Tool discovery
-
-Rust resolves binaries in this order:
-
-| Tool | Env override | Default fallback |
-|------|--------------|------------------|
-| ffmpeg | `KRAYON_FFMPEG` | `which ffmpeg`, then `/opt/homebrew/bin` |
-| ffprobe | `KRAYON_FFPROBE` | same pattern |
-| whisper-cli | `KRAYON_WHISPER_CLI` | `~/Desktop/Projects/whisper.cpp/build/bin/whisper-cli` |
-| whisper model | `KRAYON_WHISPER_MODEL` | `~/Desktop/Projects/whisper.cpp/models/ggml-large-v3-turbo.bin` |
-
-Use `check_media_tools_command` (exposed to the UI on load) to verify availability.
-
-## UI
-
-- **Timeline toolbar** — AudioLines button runs Fast mode; chevron opens options (mode, threshold, noise floor)
-- **Media bin** — Scissors icon on each video: adds to timeline + runs silence removal in one click
-- **Shift+S** — runs on the selected V1 clip
-
-Progress events: `silence://progress` with `{ jobId, phase, progress, message }`.
-
-## Rust modules
+## Backend modules
 
 ```
-src-tauri/src/
-├── ffmpeg.rs           # binary discovery, ffprobe, process runner
-└── silence/
-    ├── mod.rs          # Tauri commands + orchestration
-    ├── detect.rs       # Fast mode (silencedetect)
-    ├── whisper.rs      # Accurate mode (whisper.cpp)
-    └── segments.rs     # Shared build_segments + invert_silences
+src/backend/app/services/
+├── ffmpeg.py       # audio extraction, probing
+├── transcribe.py   # faster-whisper wrapper
+├── segments.py     # build_segments_from_words
+├── analysis.py     # orchestrates full pipeline
+└── clips.py        # ffmpeg segment cutting + fuzzy grouping
 ```
 
-## Timeline integration
+## API
 
-`replaceWithSegments()` in [`src/lib/timeline/ops.ts`](../src/lib/timeline/ops.ts):
+### Analyze silence
 
-- Intersects analysis segments with the clip's current `[sourceIn, sourceOut]` window
-- Replaces the clip (+ linked audio sibling) with N linked pairs laid back-to-back
-- Shifts later clips on affected tracks left by the removed duration
-- Wrapped in a single undo step via `applySilenceSegments()`
+```http
+POST /api/silence/analyze
+Content-Type: application/json
 
-Whisper words are cached in `silence-store` (`wordsByAssetPath`) for future multi-take selection.
+{
+  "path": "/Users/you/Videos/recording.mov",
+  "options": {
+    "silenceThreshold": 0.4,
+    "pad": 0.05,
+    "language": "en",
+    "threads": 4
+  }
+}
+```
 
-## Not yet implemented
+Response:
 
-- Physical `seg_NNN.mp4` export to disk
-- Multi-take / duplicate-sentence selection
-- BGM ducking envelopes (from krayon-reel cutlist)
+```json
+{
+  "sourceDuration": 130.5,
+  "fps": 30,
+  "segments": [{ "sourceStart": 0.1, "sourceEnd": 12.4 }],
+  "removedSeconds": 45.2,
+  "words": [{ "text": "hello", "start": 0.5, "end": 0.8 }]
+}
+```
+
+### Async with SSE progress
+
+```http
+POST /api/silence/analyze/async   → { "jobId": "..." }
+GET  /api/silence/progress/{jobId}  → text/event-stream
+```
+
+## UI integration
+
+- **Right panel → Analyze silence** runs the full async pipeline (transcribe + cut + group)
+- **Analysis run** dropdown appears when prior runs exist; switch versions without re-analyzing
+- **Speech clips only / Show all segments** toggles the left sidebar list mode
+- Opening the editor restores the last active run from `.krayon/state/{mediaId}/`
+
+## Persisted state
+
+After each pipeline run completes, Krayon writes versioned state next to the source file:
+
+```
+.krayon/state/{mediaId}/
+  index.json
+  versions/{versionId}/
+    manifest.json
+    clips/seg_000.mp4 ...
+```
+
+- **Append-only** — re-analyzing creates a new version folder; prior manifests and clip files are never deleted
+- **index.json** — version list with auto labels (`Run 1 · Aug 23, 7:05 PM`), `activeVersionId`, summary stats
+- **manifest.json** — silence options, segment analysis, clips, groups (words omitted by default to keep files small)
+
+### State API
+
+```http
+GET /api/editor/state/{mediaId}              → active manifest + version list (null if none)
+GET /api/editor/state/{mediaId}/versions/{id} → specific version
+PUT /api/editor/state/{mediaId}/active       → { "versionId": "..." }
+```
+
+Clip streaming resolves from the active or requested version:
+
+```http
+GET /api/media/clip/{mediaId}/{filename}?version={versionId}
+```
+
+If `version` is omitted, the server uses `activeVersionId` from `index.json`.
+
+## Clip grouping
+
+After cutting, clips with similar transcript text are grouped using normalized fuzzy string matching (`difflib.SequenceMatcher`, threshold **0.82**). Repeated takes like "using machine learning" × 5 appear under one collapsible group in the sidebar.
+
+## Tool check
+
+```http
+GET /api/tools/status
+```
+
+Returns `{ ffmpeg, ffprobe, whisperReady, whisperModel }`.
