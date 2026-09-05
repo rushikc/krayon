@@ -11,7 +11,6 @@ logger = logging.getLogger("krayon.request")
 
 STREAM_PREFIXES = (
     "/api/media/stream/",
-    "/api/media/proxy/",
     "/api/media/clip/",
 )
 

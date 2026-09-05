@@ -50,9 +50,10 @@ Overall progress is computed in [`pipeline_progress.py`](../src/backend/app/serv
 | Phase | Overall range | Typical duration |
 |-------|--------------|------------------|
 | `starting` | 0% → 2% | Instant |
-| `transcribing` | 2% → 88% | Longest (Whisper) |
-| `segmenting` | 88% → 94% | Milliseconds |
-| `grouping` | 94% → 99% | Metadata build + fuzzy clustering |
+| `transcribing` | 2% → 86% | Longest (Whisper) |
+| `segmenting` | 86% → 90% | Milliseconds |
+| `grouping` | 90% → 94% | Metadata build + fuzzy clustering |
+| `extracting_audio` | 94% → 99% | Per-clip WAV extraction |
 | `complete` | 100% | Delivers final JSON payload |
 
 ### SSE events
@@ -135,7 +136,7 @@ Converts the source video's audio track into a word-level transcript with precis
    ffmpeg -i source.mp4 -ar 16000 -ac 1 -c:a pcm_s16le {stem}.wav
    ```
    Cached at `{video_folder}/.krayon/{stem}.wav` so re-runs skip re-extraction if the file exists.
-3. **Load Whisper model** — faster-whisper loads the configured model (`KRAYON_WHISPER_MODEL`, default `base`). The model may already be warm from backend startup (`KRAYON_WHISPER_WARMUP_ON_STARTUP`).
+3. **Load Whisper model** — faster-whisper loads the configured model from `krayon.toml` (`[whisper] model`, default `base`). The model may already be warm from backend startup (`warmup_on_startup`).
 4. **Transcribe** — Whisper runs with:
    - `word_timestamps=True` — per-word start/end times
    - `vad_filter=True` — voice activity detection to skip non-speech regions
@@ -169,8 +170,9 @@ Progress within this stage maps Whisper's position through the audio duration: `
 | Setting | Source | Default |
 |---------|--------|---------|
 | `language` | Controls panel / API `options.language` | `en` |
-| Whisper model | `KRAYON_WHISPER_MODEL` env | `base` |
-| Device / compute | `KRAYON_WHISPER_DEVICE`, `KRAYON_WHISPER_COMPUTE_TYPE` | `auto` |
+| Whisper model | [`krayon.toml`](../src/backend/krayon.toml) `[whisper] model` | `base` |
+| Device / compute | `krayon.toml` `[whisper] device`, `compute_type` | `cpu`, `int8` |
+| Beam size | `krayon.toml` `[whisper] beam_size` | `1` |
 
 ---
 
@@ -295,14 +297,50 @@ None until the post-pipeline save step writes `manifest.json`.
 
 | Setting | Source | Default |
 |---------|--------|---------|
-| `similarityThreshold` | API request body | 0.65 |
-| | Backend config `KRAYON_CLIP_SIMILARITY_THRESHOLD` | 0.65 |
+| `similarityThreshold` | API request body | 0.5 |
+| | Backend config `KRAYON_CLIP_SIMILARITY_THRESHOLD` | 0.5 |
+
+---
+
+## Stage 5: Extracting clip audio
+
+| | |
+|---|---|
+| **UI label** | Extracting clip audio |
+| **Phase id** | `extracting_audio` |
+| **Code** | [`clip_audio.py`](../src/backend/app/services/clip_audio.py) |
+
+### What it does
+
+After grouping, ffmpeg extracts a 16 kHz mono WAV for each speech clip:
+
+```
+.krayon/state/{mediaId}/versions/{versionId}/audio/{clipId}.wav
+```
+
+Clips are served via `GET /api/media/clip/{mediaId}/{clipId}`.
 
 ---
 
 ## Clip preview (not a pipeline stage)
 
-Selecting a speech clip in the sidebar does **not** load a separate file. [`VideoPlayer.tsx`](../src/frontend/components/player/VideoPlayer.tsx) streams the source video (or proxy for large files) and plays the range `[sourceStart, sourceEnd]` — the same mechanism used for silence segment preview.
+Selecting a speech clip in the sidebar loads its **extracted audio WAV** in [`ClipAudioPlayer.tsx`](../src/frontend/components/player/ClipAudioPlayer.tsx). Silence segments show metadata only (no playback).
+
+---
+
+## Pipeline logging
+
+Every Analyze run writes structured lines to `src/backend/logs/krayon_*.log` under logger **`krayon.pipeline`**.
+
+Each line includes `job_id`, `version_id`, `media_id`, `source`, `phase`, and timing fields (`elapsed_ms`, counts).
+
+Example grep after a run:
+
+```bash
+rg "krayon.pipeline" src/backend/logs/krayon_*.log | rg "write_forward"
+```
+
+Key phases logged at INFO: `starting` → `transcribing` (10% ticks) → `segmenting` → `grouping` → `extracting_audio` → `save`. Failures include `exc_info` traceback at ERROR.
 
 ---
 
@@ -316,7 +354,7 @@ After grouping completes, one final backend step runs before the UI switches fro
 
 ### What it does
 
-1. Writes `manifest.json` to `.krayon/state/{mediaId}/versions/{versionId}/` containing options, analysis summary, clips, groups, and stats. Word-level timings are omitted from the manifest to keep files small.
+1. Writes `manifest.json` to `.krayon/state/{mediaId}/versions/{versionId}/` containing options, analysis (including word-level timings), clips (including per-clip words), groups, stats, `processingDurationSeconds`, `audioReady`, and `transcript`. Also writes `transcript.txt` beside the manifest for easy run-to-run diffs.
 2. Appends a version entry to `index.json` with auto-generated label (`Run 1 · Aug 23, 19:05`).
 3. Sets `activeVersionId` to the new version.
 4. Publishes SSE `complete` with JSON payload: `{ sourcePath, clips, groups, versionId }`.
@@ -350,10 +388,10 @@ Switching to a different video in the editor while a pipeline is running cancels
 | `silenceThreshold` | segmenting | 0.4s | Controls panel |
 | `pad` | segmenting | 0.05s | Controls panel |
 | `language` | transcribing | `en` | Controls panel |
-| `similarityThreshold` | grouping | 0.65 | API (not exposed in UI) |
-| `KRAYON_WHISPER_MODEL` | transcribing | `base` | Environment |
-| `KRAYON_WHISPER_DEVICE` | transcribing | `auto` | Environment |
-| `KRAYON_MIN_SEGMENT_SECONDS` | segmenting | 0.05s | Environment |
+| `similarityThreshold` | grouping | 0.5 | Controls panel |
+| `KRAYON_WHISPER_MODEL` | transcribing | `base` | `krayon.toml` or env override |
+| `KRAYON_WHISPER_DEVICE` | transcribing | `cpu` | `krayon.toml` or env override |
+| `KRAYON_MIN_SEGMENT_SECONDS` | segmenting | 0.05s | `krayon.toml` or env override |
 
 ---
 

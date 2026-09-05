@@ -110,9 +110,16 @@ export const useMediaStore = create<MediaState>((set, get) => ({
   setError: (error) => set({ error, isLoading: false, isPickingFolder: false }),
 
   updateFile: (id, patch) =>
-    set((state) => ({
-      files: state.files.map((f) => (f.id === id ? { ...f, ...patch } : f)),
-    })),
+    set((state) => {
+      const current = state.files.find((f) => f.id === id);
+      if (!current) return state;
+      if (Object.entries(patch).every(([key, value]) => current[key as keyof typeof current] === value)) {
+        return state;
+      }
+      return {
+        files: state.files.map((f) => (f.id === id ? { ...f, ...patch } : f)),
+      };
+    }),
 
   setClips: (clips, clipGroups) => set({ clips, clipGroups }),
 

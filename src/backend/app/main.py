@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 import logging
+import sys
 import threading
 
 from fastapi import FastAPI, HTTPException
@@ -40,7 +43,14 @@ app.include_router(editor_state.router)
 
 @app.on_event("startup")
 def on_startup() -> None:
-    logger.info("Krayon API started")
+    py_version = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+    logger.info(
+        "Krayon API started python=%s whisper_model=%s device=%s compute_type=%s",
+        py_version,
+        settings.whisper_model,
+        settings.whisper_device,
+        settings.whisper_compute_type,
+    )
 
     if not settings.whisper_warmup_on_startup:
         return

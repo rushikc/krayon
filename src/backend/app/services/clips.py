@@ -6,7 +6,7 @@ from collections.abc import Callable
 from difflib import SequenceMatcher
 
 from app.config import settings
-from app.schemas import ClipGroup, ClipItem
+from app.schemas import ClipGroup, ClipItem, WordTiming
 from app.services.segments import Segment, Word
 
 
@@ -109,7 +109,8 @@ def build_segment_clips(
 
     for index, segment in enumerate(segments):
         clip_id = f"{stem}_seg_{index:03d}"
-        text = segment_text(words, segment)
+        seg_words = words_in_segment(words, segment)
+        text = " ".join(w.text for w in seg_words).strip()
         duration = segment.source_end - segment.source_start
 
         item = ClipItem(
@@ -120,6 +121,7 @@ def build_segment_clips(
             duration=duration,
             text=text or f"Segment {index + 1}",
             group_id="pending",
+            words=[WordTiming(text=w.text, start=w.start, end=w.end) for w in seg_words],
         )
         raw_clips.append(item)
         clip_text_pairs.append((clip_id, item.text))

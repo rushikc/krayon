@@ -28,13 +28,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-export function mediaStreamUrl(id: string, proxy = false): string {
-  const qs = proxy ? "?proxy=true" : "";
-  return `${API_BASE}/api/media/stream/${id}${qs}`;
+export function mediaStreamUrl(id: string): string {
+  return `${API_BASE}/api/media/stream/${id}`;
 }
 
-export function mediaProxyUrl(id: string): string {
-  return `${API_BASE}/api/media/proxy/${id}`;
+export function clipAudioUrl(mediaId: string, clipId: string): string {
+  return `${API_BASE}/api/media/clip/${mediaId}/${clipId}`;
 }
 
 export async function getEditorState(mediaId: string): Promise<EditorStateResponse | null> {
@@ -73,10 +72,6 @@ export async function scanFolder(path: string): Promise<FolderScanResponse> {
   });
 }
 
-export async function generateProxy(mediaId: string): Promise<void> {
-  await request(`/api/media/${mediaId}/proxy/generate`, { method: "POST" });
-}
-
 export async function analyzeSilence(
   path: string,
   options: SilenceOptions,
@@ -90,7 +85,7 @@ export async function analyzeSilence(
 export async function startClipsJob(
   path: string,
   options: SilenceOptions,
-  similarityThreshold = 0.65,
+  similarityThreshold = 0.5,
 ): Promise<{ jobId: string }> {
   return request<{ jobId: string }>("/api/clips/generate/async", {
     method: "POST",
@@ -101,7 +96,7 @@ export async function startClipsJob(
 export async function generateClips(
   path: string,
   options: SilenceOptions,
-  similarityThreshold = 0.65,
+  similarityThreshold = 0.5,
 ): Promise<ClipsGenerateResponse> {
   return request<ClipsGenerateResponse>("/api/clips/generate", {
     method: "POST",

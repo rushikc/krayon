@@ -1,5 +1,6 @@
 import { Route, Routes } from "react-router-dom";
 
+import { Toaster } from "@/components/ui/toaster";
 import { useAppInit } from "@/hooks/useFolderLoader";
 import { DashboardPage } from "@/pages/DashboardPage";
 import { EditorPage } from "@/pages/EditorPage";
@@ -16,5 +17,10 @@ function AppRoutes() {
 }
 
 export default function App() {
-  return <AppRoutes />;
+  return (
+    <>
+      <AppRoutes />
+      <Toaster />
+    </>
+  );
 }

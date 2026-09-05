@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useRef } from "react";
 
-import { generateProxy, getToolsStatus, pickFolder, scanFolder } from "@/lib/api/client";
+import { getToolsStatus, pickFolder, scanFolder } from "@/lib/api/client";
 import { useMediaStore } from "@/stores/media-store";
 import { useSilenceStore } from "@/stores/silence-store";
 import { LAST_FOLDER_KEY } from "@/types/api";
 
 export function useAppInit() {
   const initialized = useRef(false);
-  const { setFolder, startFolderLoad, finishFolderLoad, updateFile } = useMediaStore();
+  const { setFolder, startFolderLoad, finishFolderLoad } = useMediaStore();
   const { setTools, setToolsLoading } = useSilenceStore();
 
   const loadFolder = useCallback(
@@ -17,22 +17,12 @@ export function useAppInit() {
         const result = await scanFolder(path);
         localStorage.setItem(LAST_FOLDER_KEY, path);
         setFolder(result.path, result.files);
-
-        for (const file of result.files) {
-          if (file.needsProxy && !file.proxyReady) {
-            void generateProxy(file.id)
-              .then(() => updateFile(file.id, { proxyReady: true }))
-              .catch(() => {
-                /* proxy generation is best-effort on scan */
-              });
-          }
-        }
       } catch (err) {
         const message = err instanceof Error ? err.message : "Failed to scan folder";
         finishFolderLoad(message);
       }
     },
-    [setFolder, startFolderLoad, finishFolderLoad, updateFile],
+    [setFolder, startFolderLoad, finishFolderLoad],
   );
 
   useEffect(() => {
@@ -53,8 +43,8 @@ export function useAppInit() {
 }
 
 export function useFolderActions() {
-  const { setPickingFolder, setError } = useMediaStore();
-  const { startFolderLoad, finishFolderLoad, setFolder, updateFile } = useMediaStore();
+  const { setPickingFolder, setError, startFolderLoad, finishFolderLoad, setFolder } =
+    useMediaStore();
 
   const loadFolder = useCallback(
     async (path: string) => {
@@ -63,20 +53,12 @@ export function useFolderActions() {
         const result = await scanFolder(path);
         localStorage.setItem(LAST_FOLDER_KEY, path);
         setFolder(result.path, result.files);
-
-        for (const file of result.files) {
-          if (file.needsProxy && !file.proxyReady) {
-            void generateProxy(file.id)
-              .then(() => updateFile(file.id, { proxyReady: true }))
-              .catch(() => {});
-          }
-        }
       } catch (err) {
         const message = err instanceof Error ? err.message : "Failed to scan folder";
         finishFolderLoad(message);
       }
     },
-    [setFolder, startFolderLoad, finishFolderLoad, updateFile],
+    [setFolder, startFolderLoad, finishFolderLoad],
   );
 
   const handleOpenFolder = useCallback(async () => {

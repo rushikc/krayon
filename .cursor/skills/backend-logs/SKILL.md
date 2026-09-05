@@ -1,5 +1,5 @@
 ---
-name: backend-logs
+name: rush-backend-logs
 description: Inspect Krayon backend session logs when debugging API, pipeline, ffmpeg, whisper, or SSE job failures. Use only when explicitly invoked via /backend-logs.
 disable-model-invocation: true
 ---
@@ -19,7 +19,7 @@ Logs live in [`src/backend/logs/`](src/backend/logs/) (`@logs`):
 ## What to do
 
 1. **Find the latest log** (most recent `krayon_*.log` by modification time).
-2. **Read the tail** around the failure: tracebacks, `ERROR`, ffmpeg/whisper output, and the request path (e.g. `/api/clips/generate/async`).
+2. **Read the tail** around the failure: tracebacks, `ERROR`, ffmpeg/whisper output, and **`krayon.pipeline`** phase lines (`phase=transcribing`, `realtime_factor`, etc.).
 3. **Correlate with the terminal** — one-line API logs appear in the uvicorn terminal; log files have full detail.
 4. **Reproduce once** if needed, then re-read the same or next log file.
 
@@ -27,7 +27,7 @@ Logs live in [`src/backend/logs/`](src/backend/logs/) (`@logs`):
 
 ```bash
 ls -lt src/backend/logs/krayon_*.log | head -3
-tail -n 80 src/backend/logs/krayon_*.log | tail -n 80
+rg "krayon.pipeline" src/backend/logs/krayon_*.log
 ```
 
 Or read the newest file directly with the Read tool.

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -17,6 +18,9 @@ from app.schemas import (
     SilenceOptions,
 )
 from app.services.ffmpeg import krayon_cache_dir, media_id_for_path
+from app.services.pipeline_log import PipelineContext
+
+logger = logging.getLogger("krayon.pipeline")
 
 
 def state_root_for_source(source: Path) -> Path:
@@ -83,11 +87,16 @@ def save_version(
     analysis: SilenceAnalysis,
     clips: list[ClipItem],
     groups: list[ClipGroup],
+    processing_duration_seconds: float | None = None,
+    clips_dir: str | None = None,
+    audio_ready: bool = False,
+    pipeline: PipelineContext | None = None,
 ) -> EditorStateManifest:
     created_at = datetime.now(timezone.utc)
     media_id = media_id_for_path(source)
     kept = sum(c.duration for c in clips)
     removed = max(0.0, analysis.source_duration - kept)
+    transcript = " ".join(w.text for w in analysis.words).strip()
 
     manifest = EditorStateManifest(
         version_id=version_id,
@@ -101,20 +110,26 @@ def save_version(
             fps=analysis.fps,
             segments=analysis.segments,
             removed_seconds=analysis.removed_seconds,
-            words=[],
+            words=analysis.words,
         ),
         clips=clips,
         groups=groups,
         clip_count=len(clips),
         removed_seconds=removed,
+        clips_dir=clips_dir,
+        processing_duration_seconds=processing_duration_seconds,
+        audio_ready=audio_ready,
+        transcript=transcript,
     )
 
     vdir = version_dir(source, version_id)
     vdir.mkdir(parents=True, exist_ok=True)
-    (vdir / "manifest.json").write_text(
+    manifest_path = vdir / "manifest.json"
+    manifest_path.write_text(
         json.dumps(manifest.model_dump(by_alias=True), indent=2),
         encoding="utf-8",
     )
+    (vdir / "transcript.txt").write_text(transcript + ("\n" if transcript else ""), encoding="utf-8")
 
     index = _read_index(source)
     run_number = len(index.versions) + 1 if index else 1
@@ -139,6 +154,17 @@ def save_version(
         index.versions.append(summary)
 
     _write_index(source, index)
+
+    if pipeline:
+        pipeline.phase(
+            "save",
+            "version saved",
+            version_id=version_id,
+            clip_count=len(clips),
+            processing_duration_s=round(processing_duration_seconds or 0, 2),
+        )
+        logger.debug("manifest path=%s", manifest_path)
+
     return manifest
 
 

@@ -1,11 +1,11 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
 import { AppShell } from "@/components/layout/AppShell";
 import { ClipsSidebar } from "@/components/layout/ClipsSidebar";
 import { ControlsPanel } from "@/components/layout/ControlsPanel";
+import { ClipAudioPlayer } from "@/components/player/ClipAudioPlayer";
 import { PipelineStepper } from "@/components/player/PipelineStepper";
-import { VideoPlayer } from "@/components/player/VideoPlayer";
 import { useMediaStore } from "@/stores/media-store";
 import { useSilenceStore } from "@/stores/silence-store";
 
@@ -17,23 +17,26 @@ export function EditorPage() {
   const { phase } = useSilenceStore();
   const selectedFile = files.find((f) => f.id === mediaId) ?? null;
   const showStepper = phase === "running";
+  const hydratedIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!mediaId) return;
     if (files.length === 0) return;
-    if (!selectedFile) {
+    if (!files.some((f) => f.id === mediaId)) {
       navigate("/", { replace: true });
       return;
     }
+    if (hydratedIdRef.current === mediaId) return;
+    hydratedIdRef.current = mediaId;
     setSelected(mediaId);
     clearSelection();
     void loadEditorState(mediaId);
-  }, [mediaId, files.length, selectedFile, setSelected, clearSelection, loadEditorState, navigate]);
+  }, [mediaId, files, setSelected, clearSelection, loadEditorState, navigate]);
 
   return (
     <AppShell showBack subtitle={selectedFile?.name ?? "editor"}>
       <ClipsSidebar />
-      {showStepper ? <PipelineStepper /> : <VideoPlayer />}
+      {showStepper ? <PipelineStepper /> : <ClipAudioPlayer />}
       <ControlsPanel />
     </AppShell>
   );

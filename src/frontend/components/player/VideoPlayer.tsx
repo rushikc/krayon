@@ -1,12 +1,13 @@
 import { Loader2, Pause, Play } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 
 import { Button } from "@/components/ui/button";
-import { mediaProxyUrl, mediaStreamUrl } from "@/lib/api/client";
+import { mediaStreamUrl } from "@/lib/api/client";
+import { formatDuration } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { seekVideo } from "@/lib/video-seek";
 import { useMediaStore } from "@/stores/media-store";
 import { usePlayerStore } from "@/stores/player-store";
+import { LIBRARY_PREVIEW_DURATION_SECONDS } from "@/types/api";
 
 function formatTime(seconds: number): string {
   if (!Number.isFinite(seconds)) return "0:00";
@@ -18,22 +19,11 @@ function formatTime(seconds: number): string {
 export function VideoPlayer() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const rafRef = useRef<number | null>(null);
-  const handledAutoPlayRef = useRef(0);
 
-  const {
-    files,
-    selectedId,
-    clips,
-    selectedClipId,
-    selectedEntry,
-    isLoading,
-    isPickingFolder,
-  } = useMediaStore();
+  const { files, selectedId, isLoading, isPickingFolder } = useMediaStore();
   const {
     isPlaying,
     currentTime,
-    duration,
-    autoPlayToken,
     setPlaying,
     setCurrentTime,
     setDuration,
@@ -41,55 +31,38 @@ export function VideoPlayer() {
   } = usePlayerStore();
 
   const selectedFile = files.find((f) => f.id === selectedId) ?? null;
-  const selectedClip = clips.find((c) => c.id === selectedClipId) ?? null;
+  const sourceDuration = selectedFile?.duration ?? null;
+  const src = selectedFile ? mediaStreamUrl(selectedFile.id) : "";
 
-  const playbackRange = useMemo(() => {
-    if (selectedEntry?.kind === "silence") {
-      return { start: selectedEntry.start, end: selectedEntry.end };
-    }
-    if (selectedClip) {
-      return { start: selectedClip.sourceStart, end: selectedClip.sourceEnd };
-    }
-    return null;
-  }, [selectedEntry, selectedClip]);
+  useEffect(() => {
+    const video = videoRef.current;
+    return () => {
+      if (!video) return;
+      video.pause();
+      video.removeAttribute("src");
+      video.load();
+    };
+  }, [selectedId]);
 
-  const isSilencePreview = selectedEntry?.kind === "silence";
-  const isClipPreview = selectedClip !== null;
-
-  const src = (() => {
-    if (!selectedFile) return "";
-    if (selectedFile.needsProxy) {
-      return mediaProxyUrl(selectedFile.id);
-    }
-    return mediaStreamUrl(selectedFile.id);
-  })();
-
-  const rangeKey = playbackRange
-    ? `${playbackRange.start}-${playbackRange.end}`
-    : "source";
+  useEffect(() => {
+    reset();
+  }, [selectedId, reset]);
 
   const tick = useCallback(() => {
     const video = videoRef.current;
     if (!video) return;
 
-    if (playbackRange && Number.isFinite(video.currentTime)) {
-      if (video.currentTime >= playbackRange.end - 0.02) {
+    if (Number.isFinite(video.currentTime)) {
+      const time = Math.min(video.currentTime, LIBRARY_PREVIEW_DURATION_SECONDS);
+      setCurrentTime(time);
+      if (video.currentTime >= LIBRARY_PREVIEW_DURATION_SECONDS - 0.02) {
         video.pause();
         setPlaying(false);
-        seekVideo(video, playbackRange.end);
       }
-      setCurrentTime(Math.max(0, video.currentTime - playbackRange.start));
-    } else if (Number.isFinite(video.currentTime)) {
-      setCurrentTime(video.currentTime);
     }
 
     rafRef.current = requestAnimationFrame(tick);
-  }, [playbackRange, setCurrentTime, setPlaying]);
-
-  useEffect(() => {
-    reset();
-    handledAutoPlayRef.current = 0;
-  }, [selectedId, selectedClipId, selectedEntry, reset]);
+  }, [setCurrentTime, setPlaying]);
 
   useEffect(() => {
     if (isPlaying) {
@@ -100,62 +73,18 @@ export function VideoPlayer() {
     };
   }, [isPlaying, tick]);
 
-  const tryAutoPlay = useCallback(async (video: HTMLVideoElement) => {
-    if (autoPlayToken <= handledAutoPlayRef.current) return;
-    handledAutoPlayRef.current = autoPlayToken;
-
-    if (playbackRange) {
-      seekVideo(video, playbackRange.start);
-      setCurrentTime(0);
-    }
-
-    try {
-      await video.play();
-      setPlaying(true);
-    } catch {
-      setPlaying(false);
-    }
-  }, [autoPlayToken, playbackRange, setCurrentTime, setPlaying]);
-
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video || video.readyState < 1) return;
-    void tryAutoPlay(video);
-  }, [autoPlayToken, tryAutoPlay]);
-
-  const handleLoadedMetadata = async (video: HTMLVideoElement) => {
-    if (playbackRange) {
-      setDuration(playbackRange.end - playbackRange.start);
-      seekVideo(video, playbackRange.start);
-      setCurrentTime(0);
-    } else {
-      setDuration(video.duration);
-    }
-
-    await tryAutoPlay(video);
+  const handleLoadedMetadata = () => {
+    setDuration(LIBRARY_PREVIEW_DURATION_SECONDS);
+    setCurrentTime(0);
   };
-
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video || !video.readyState) return;
-
-    if (playbackRange) {
-      seekVideo(video, playbackRange.start);
-      setCurrentTime(0);
-    }
-  }, [playbackRange, setCurrentTime]);
 
   const togglePlay = async () => {
     const video = videoRef.current;
     if (!video) return;
     if (video.paused) {
-      if (playbackRange) {
-        if (
-          video.currentTime < playbackRange.start ||
-          video.currentTime >= playbackRange.end
-        ) {
-          seekVideo(video, playbackRange.start);
-        }
+      if (video.currentTime >= LIBRARY_PREVIEW_DURATION_SECONDS) {
+        video.currentTime = 0;
+        setCurrentTime(0);
       }
       await video.play();
       setPlaying(true);
@@ -168,28 +97,15 @@ export function VideoPlayer() {
   const onSeek = (value: number) => {
     const video = videoRef.current;
     if (!video) return;
-    const target = playbackRange ? playbackRange.start + value : value;
-    if (seekVideo(video, target)) {
-      setCurrentTime(value);
-    }
+    video.currentTime = value;
+    setCurrentTime(value);
   };
 
-  const displayDuration = playbackRange
-    ? playbackRange.end - playbackRange.start
-    : duration;
-  const displayCurrentTime = playbackRange
-    ? Math.max(0, Math.min(currentTime, displayDuration))
-    : currentTime;
   const waiting = isLoading || isPickingFolder;
-  const scrubValue = Number.isFinite(displayCurrentTime)
-    ? Math.min(displayCurrentTime, displayDuration || 0)
+  const displayDuration = LIBRARY_PREVIEW_DURATION_SECONDS;
+  const scrubValue = Number.isFinite(currentTime)
+    ? Math.min(currentTime, displayDuration)
     : 0;
-
-  const title = selectedClip
-    ? selectedClip.text
-    : isSilencePreview && playbackRange
-      ? `Silence ${formatTime(playbackRange.start)}–${formatTime(playbackRange.end)}`
-      : selectedFile?.name ?? "";
 
   return (
     <main className="flex min-w-0 flex-1 flex-col bg-background">
@@ -211,27 +127,25 @@ export function VideoPlayer() {
             <div className="overflow-hidden rounded-xl border border-border bg-black shadow-2xl">
               <video
                 ref={videoRef}
-                key={`${src}-${rangeKey}`}
+                key={`${selectedId}-${src}`}
                 src={src}
                 className="aspect-video w-full bg-black object-contain"
-                onLoadedMetadata={(e) => void handleLoadedMetadata(e.currentTarget)}
+                onLoadedMetadata={() => handleLoadedMetadata()}
                 onPlay={() => setPlaying(true)}
                 onPause={() => setPlaying(false)}
                 onEnded={() => setPlaying(false)}
               />
             </div>
 
-            {title && (
-              <div className="px-1">
-                <p className="text-sm leading-relaxed text-foreground">{title}</p>
-                {isSilencePreview && (
-                  <p className="mt-1 text-xs text-red-300/80">Silence segment preview</p>
-                )}
-                {isClipPreview && (
-                  <p className="mt-1 text-xs text-primary">Clip preview</p>
-                )}
-              </div>
-            )}
+            <div className="px-1">
+              <p className="text-sm leading-relaxed text-foreground">{selectedFile.name}</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Showing first {LIBRARY_PREVIEW_DURATION_SECONDS}s
+                {sourceDuration != null && sourceDuration > LIBRARY_PREVIEW_DURATION_SECONDS
+                  ? ` · full duration ${formatDuration(sourceDuration)}`
+                  : ""}
+              </p>
+            </div>
 
             <div className="rounded-xl border border-border bg-card/60 p-4 backdrop-blur">
               <div className="flex items-center gap-4">
@@ -246,7 +160,7 @@ export function VideoPlayer() {
                     className={cn("h-1.5 w-full cursor-pointer accent-primary")}
                   />
                   <div className="mt-1 flex justify-between text-xs tabular-nums text-muted-foreground">
-                    <span>{formatTime(displayCurrentTime)}</span>
+                    <span>{formatTime(currentTime)}</span>
                     <span>{formatTime(displayDuration)}</span>
                   </div>
                 </div>

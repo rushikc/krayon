@@ -30,7 +30,7 @@ flowchart LR
 | Silence threshold | 0.4s | `options.silenceThreshold` |
 | Pad | 0.05s | `options.pad` |
 | Language | en | `options.language` |
-| Whisper model | base | `KRAYON_WHISPER_MODEL` |
+| Whisper model | base | `krayon.toml` `[whisper] model` |
 
 ## Backend modules
 
@@ -97,11 +97,14 @@ After each pipeline run completes, Krayon writes versioned state next to the sou
   index.json
   versions/{versionId}/
     manifest.json
+    transcript.txt
+    audio/
 ```
 
 - **Append-only** — re-analyzing creates a new version folder; prior manifests are never deleted
 - **index.json** — version list with auto labels (`Run 1 · Aug 23, 7:05 PM`), `activeVersionId`, summary stats
-- **manifest.json** — silence options, segment analysis, clip metadata (timestamps + text + groups). Words omitted by default to keep files small. No per-segment MP4 files.
+- **manifest.json** — silence options, analysis (including word timings), clips (timestamps + text + per-clip words + groups), and full `transcript`
+- **transcript.txt** — plain-text full-run transcript for comparing versions on disk
 
 ### State API
 
@@ -113,11 +116,11 @@ PUT /api/editor/state/{mediaId}/active       → { "versionId": "..." }
 
 ### Clip preview
 
-Speech clips play as **source video ranges** — the player seeks to `sourceStart` and stops at `sourceEnd` on the original (or proxy) stream. No separate clip files are cut or served.
+Speech clips play as **extracted audio WAVs** served from `/api/media/clip/{mediaId}/{clipId}`. Files are written during the extracting_audio pipeline stage.
 
 ## Clip grouping
 
-After segment metadata is built, clips with similar transcript text are grouped using normalized fuzzy string matching plus shared-prefix detection (default threshold **0.65**). Takes that share the same opening line (common in retakes) merge even when the rest of the transcript diverges.
+After segment metadata is built, clips with similar transcript text are grouped using normalized fuzzy string matching plus shared-prefix detection (default threshold **0.5**). Takes that share the same opening line (common in retakes) merge even when the rest of the transcript diverges.
 
 ## Tool check
 

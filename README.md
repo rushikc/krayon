@@ -24,7 +24,7 @@ Open **http://localhost:5173**
 ## Prerequisites
 
 - **Node.js 20+** and **pnpm**
-- **Python 3.10+**
+- **Python 3.12 recommended** (`brew install python@3.12`)
 - **ffmpeg** and **ffprobe** on your PATH (`brew install ffmpeg`)
 
 On first silence-removal run, **faster-whisper** downloads its model automatically.
@@ -64,11 +64,13 @@ Log files are gitignored — do not commit them.
 - [Silence removal pipeline](docs/silence-removal.md)
 - [What is Krayon?](docs/what-is-kyaon.md)
 
-## Environment variables
+## Configuration
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `KRAYON_FFMPEG` | `ffmpeg` | Path to ffmpeg binary |
-| `KRAYON_FFPROBE` | `ffprobe` | Path to ffprobe binary |
-| `KRAYON_WHISPER_MODEL` | `base` | faster-whisper model size |
-| `KRAYON_PROXY_SIZE_THRESHOLD_BYTES` | `1073741824` | Auto-proxy threshold (1 GB) |
+Edit [`src/backend/krayon.toml`](src/backend/krayon.toml) for Whisper model, device, and silence defaults. Optional `KRAYON_*` env vars override individual settings.
+
+| Setting (krayon.toml) | Default | Description |
+|-----------------------|---------|-------------|
+| `whisper.model` | `base` | faster-whisper model size |
+| `whisper.device` | `cpu` | Inference device |
+| `whisper.compute_type` | `int8` | Quantization |
+| `paths.ffmpeg` | `ffmpeg` | Path to ffmpeg binary |

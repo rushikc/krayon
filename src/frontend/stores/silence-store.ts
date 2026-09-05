@@ -1,7 +1,7 @@
 import { create } from "zustand";
 
 import type { EditorStateManifest, EditorVersionSummary, SilenceOptions, ToolStatus } from "@/types/api";
-import { DEFAULT_SILENCE_OPTIONS } from "@/types/api";
+import { DEFAULT_SILENCE_OPTIONS, DEFAULT_SIMILARITY_THRESHOLD } from "@/types/api";
 
 export type JobPhase = "idle" | "running" | "done" | "error";
 export type ListMode = "speech" | "all";
@@ -20,6 +20,7 @@ const PIPELINE_STEP_DEFS = [
   { id: "transcribing", label: "Transcribing speech" },
   { id: "segmenting", label: "Building speech segments" },
   { id: "grouping", label: "Grouping similar takes" },
+  { id: "extracting_audio", label: "Extracting clip audio" },
 ] as const;
 
 const PHASE_ORDER = PIPELINE_STEP_DEFS.map((s) => s.id);
@@ -54,9 +55,13 @@ interface SilenceStoreState {
   jobStartedAt: number | null;
   clipCount: number;
   removedSeconds: number;
+  similarityThreshold: number;
+  analysisDurationSeconds: number | null;
   activeVersionId: string | null;
   versions: EditorVersionSummary[];
+  transcript: string;
   setOptions: (patch: Partial<SilenceOptions>) => void;
+  setSimilarityThreshold: (value: number) => void;
   setJobState: (patch: Partial<{
     phase: JobPhase;
     progress: number;
@@ -68,7 +73,11 @@ interface SilenceStoreState {
   setToolsLoading: (loading: boolean) => void;
   setListMode: (mode: ListMode) => void;
   setPipelineFromEvent: (phase: string, progress: number, stepProgress: number, message: string) => void;
-  setJobSummary: (clipCount: number, removedSeconds: number) => void;
+  setJobSummary: (
+    clipCount: number,
+    removedSeconds: number,
+    analysisDurationSeconds?: number | null,
+  ) => void;
   setVersionState: (activeVersionId: string | null, versions: EditorVersionSummary[]) => void;
   hydrateFromManifest: (manifest: EditorStateManifest, versions: EditorVersionSummary[]) => void;
   resetAnalysisState: () => void;
@@ -91,11 +100,16 @@ export const useSilenceStore = create<SilenceStoreState>((set) => ({
   jobStartedAt: null,
   clipCount: 0,
   removedSeconds: 0,
+  similarityThreshold: DEFAULT_SIMILARITY_THRESHOLD,
+  analysisDurationSeconds: null,
   activeVersionId: null,
   versions: [],
+  transcript: "",
 
   setOptions: (patch) =>
     set((state) => ({ options: { ...state.options, ...patch } })),
+
+  setSimilarityThreshold: (similarityThreshold) => set({ similarityThreshold }),
 
   setJobState: (patch) =>
     set((state) => ({
@@ -140,17 +154,25 @@ export const useSilenceStore = create<SilenceStoreState>((set) => ({
       };
     }),
 
-  setJobSummary: (clipCount, removedSeconds) => set({ clipCount, removedSeconds }),
+  setJobSummary: (clipCount, removedSeconds, analysisDurationSeconds = null) =>
+    set({
+      clipCount,
+      removedSeconds,
+      analysisDurationSeconds: analysisDurationSeconds ?? null,
+    }),
 
   setVersionState: (activeVersionId, versions) => set({ activeVersionId, versions }),
 
   hydrateFromManifest: (manifest, versions) =>
     set({
       options: { ...manifest.options },
+      similarityThreshold: manifest.similarityThreshold,
       clipCount: manifest.clipCount,
       removedSeconds: manifest.removedSeconds,
+      analysisDurationSeconds: manifest.processingDurationSeconds ?? null,
       activeVersionId: manifest.versionId,
       versions,
+      transcript: manifest.transcript ?? "",
       phase: "done",
       message: `Restored ${manifest.clipCount} clips`,
       error: null,
@@ -160,8 +182,11 @@ export const useSilenceStore = create<SilenceStoreState>((set) => ({
     set({
       clipCount: 0,
       removedSeconds: 0,
+      similarityThreshold: DEFAULT_SIMILARITY_THRESHOLD,
+      analysisDurationSeconds: null,
       activeVersionId: null,
       versions: [],
+      transcript: "",
       phase: "idle",
       progress: 0,
       stepProgress: 0,

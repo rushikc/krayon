@@ -50,12 +50,6 @@ export function DashboardPanel() {
                     <dd>{Math.round(selectedFile.fps)} fps</dd>
                   </div>
                 )}
-                {selectedFile.needsProxy && (
-                  <div className="flex justify-between gap-4">
-                    <dt className="text-muted-foreground">Proxy</dt>
-                    <dd>{selectedFile.proxyReady ? "ready" : "needed"}</dd>
-                  </div>
-                )}
               </dl>
             </section>
 

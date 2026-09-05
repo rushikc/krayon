@@ -26,8 +26,6 @@ class MediaFileInfo(BaseModel):
     height: int | None = None
     duration: float | None = None
     fps: float | None = None
-    needs_proxy: bool = False
-    proxy_ready: bool = False
 
 
 class FolderScanRequest(BaseModel):
@@ -85,6 +83,7 @@ class ClipItem(BaseModel):
     duration: float
     text: str
     group_id: str = Field(alias="groupId")
+    words: list[WordTiming] = Field(default_factory=list)
 
     model_config = {"populate_by_name": True}
 
@@ -100,7 +99,7 @@ class ClipGroup(BaseModel):
 class ClipsGenerateRequest(BaseModel):
     path: str
     options: SilenceOptions = Field(default_factory=SilenceOptions)
-    similarity_threshold: float = Field(default=0.65, alias="similarityThreshold")
+    similarity_threshold: float = Field(default=0.5, alias="similarityThreshold")
 
     model_config = {"populate_by_name": True}
 
@@ -158,6 +157,9 @@ class EditorStateManifest(BaseModel):
     clip_count: int
     removed_seconds: float
     clips_dir: str | None = None
+    processing_duration_seconds: float | None = None
+    audio_ready: bool = False
+    transcript: str = ""
 
 
 class EditorStateResponse(BaseModel):

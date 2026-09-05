@@ -8,7 +8,7 @@ Krayon is a local video editor for creating short reels from long talking-head r
 - Folder-based media library with local file access
 - Silence removal via faster-whisper transcription
 - Automatic clip generation with fuzzy grouping of similar sentences
-- Low-res proxy playback for files over 1 GB
+- Per-clip audio extraction and audio-only preview in the editor
 
 ## Architecture
 
@@ -27,16 +27,15 @@ Everything runs locally — no cloud, no uploads.
 ## UI layout
 
 - **Left** — video list and grouped clip takes
-- **Center** — HTML5 video player
-- **Right** — silence removal, clip generation, proxy controls
+- **Center** — dashboard: video preview (20s cap); editor: clip audio player
+- **Right** — silence removal and clip generation controls
 
 No multi-track timeline. Simple preview-and-process workflow.
 
 ## Processing pipeline
 
 1. Select a folder → backend scans for `.mov` / `.mp4` files
-2. Large files → auto-generate 480p proxy for smooth playback
-3. Silence removal → faster-whisper word timestamps → gap-based segments
-4. Clip generation → ffmpeg cuts + fuzzy grouping of repeated phrases
+2. Analyze silence → faster-whisper word timestamps → gap-based segments
+3. Clip generation → per-clip audio WAVs + fuzzy grouping of repeated phrases
 
 See [silence-removal.md](silence-removal.md) and [ffmpeg-backend.md](ffmpeg-backend.md) for details.

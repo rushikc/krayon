@@ -1,16 +1,28 @@
-import { Loader2, VolumeX, Wand2 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { Copy, Loader2, VolumeX, Wand2 } from "lucide-react";
+import { useEffect, useRef } from "react";
 
 import { Button } from "@/components/ui/button";
+import { FieldLabel } from "@/components/ui/field-label";
 import {
-  generateProxy,
+  Popover,
+  PopoverContent,
+  PopoverDescription,
+  PopoverHeader,
+  PopoverTitle,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import {
   getToolsStatus,
   listenJobProgress,
   startClipsJob,
 } from "@/lib/api/client";
+import { formatElapsedHuman } from "@/lib/format";
 import type { ClipsGenerateResponse } from "@/types/api";
 import { useMediaStore } from "@/stores/media-store";
 import { useSilenceStore } from "@/stores/silence-store";
+import { toast } from "@/stores/toast-store";
 
 export function ControlsPanel() {
   const {
@@ -19,7 +31,6 @@ export function ControlsPanel() {
     setClips,
     loadEditorState,
     switchEditorVersion,
-    updateFile,
   } = useMediaStore();
   const {
     options,
@@ -32,9 +43,13 @@ export function ControlsPanel() {
     listMode,
     clipCount,
     removedSeconds,
+    similarityThreshold,
+    analysisDurationSeconds,
     activeVersionId,
     versions,
+    transcript,
     setOptions,
+    setSimilarityThreshold,
     setJobState,
     setTools,
     setToolsLoading,
@@ -44,12 +59,21 @@ export function ControlsPanel() {
     startPipeline,
   } = useSilenceStore();
 
-  const [proxyLoading, setProxyLoading] = useState(false);
   const unsubscribeRef = useRef<(() => void) | null>(null);
 
   const selectedFile = files.find((f) => f.id === selectedId) ?? null;
-  const busy = phase === "running" || proxyLoading;
+  const busy = phase === "running";
   const hasClips = clipCount > 0;
+
+  const copyTranscript = async () => {
+    if (!transcript) return;
+    try {
+      await navigator.clipboard.writeText(transcript);
+      toast("Transcript copied to clipboard");
+    } catch {
+      toast("Could not copy transcript");
+    }
+  };
 
   useEffect(() => {
     unsubscribeRef.current?.();
@@ -76,7 +100,11 @@ export function ControlsPanel() {
     startPipeline();
 
     try {
-      const { jobId } = await startClipsJob(selectedFile.path, options);
+      const { jobId } = await startClipsJob(
+        selectedFile.path,
+        options,
+        similarityThreshold,
+      );
 
       unsubscribeRef.current = listenJobProgress(
         "/api/clips/progress",
@@ -115,8 +143,13 @@ export function ControlsPanel() {
             const sourceDuration = selectedFile.duration ?? kept;
             const removed = Math.max(0, sourceDuration - kept);
 
-            setJobSummary(result.clips.length, removed);
-            setPipelineFromEvent("grouping", 1, 1, `Generated ${result.clips.length} clips`);
+            const startedAt = useSilenceStore.getState().jobStartedAt;
+            const durationSec = startedAt
+              ? (Date.now() - startedAt) / 1000
+              : null;
+
+            setJobSummary(result.clips.length, removed, durationSec);
+            setPipelineFromEvent("extracting_audio", 1, 1, `Generated ${result.clips.length} clips`);
             setJobState({
               phase: "done",
               progress: 1,
@@ -145,21 +178,7 @@ export function ControlsPanel() {
     }
   };
 
-  const runGenerateProxy = async () => {
-    if (!selectedFile) return;
-    setProxyLoading(true);
-    try {
-      await generateProxy(selectedFile.id);
-      updateFile(selectedFile.id, { proxyReady: true });
-    } catch (err) {
-      setJobState({
-        phase: "error",
-        error: err instanceof Error ? err.message : "Proxy generation failed",
-      });
-    } finally {
-      setProxyLoading(false);
-    }
-  };
+  const elapsedLabel = formatElapsedHuman(analysisDurationSeconds);
 
   return (
     <aside className="flex w-80 shrink-0 flex-col border-l border-border bg-background/60 backdrop-blur-2xl">
@@ -177,16 +196,20 @@ export function ControlsPanel() {
         {selectedFile && (
           <>
             <section className="space-y-3 rounded-xl border border-border bg-card/50 p-4">
+              <TooltipProvider>
               <div className="flex items-center gap-2 text-sm font-medium">
                 <VolumeX className="size-4 text-primary" />
                 Silence removal
               </div>
               <p className="text-xs text-muted-foreground">
-                Transcribes speech, cuts clips, and groups similar takes automatically.
+                Transcribes speech, detects segments, and groups similar takes.
               </p>
 
               <label className="block space-y-1 text-xs">
-                <span className="text-muted-foreground">Silence threshold (s)</span>
+                <FieldLabel
+                  label="Silence threshold (s)"
+                  help="Maximum gap between words (seconds) still treated as the same speech segment. Lower values remove more silence."
+                />
                 <input
                   type="number"
                   min={0.1}
@@ -201,7 +224,10 @@ export function ControlsPanel() {
               </label>
 
               <label className="block space-y-1 text-xs">
-                <span className="text-muted-foreground">Pad (s)</span>
+                <FieldLabel
+                  label="Pad (s)"
+                  help="Extra time added before and after each word when building segments. Helps avoid cutting off syllables at edges."
+                />
                 <input
                   type="number"
                   min={0}
@@ -209,6 +235,22 @@ export function ControlsPanel() {
                   step={0.01}
                   value={options.pad}
                   onChange={(e) => setOptions({ pad: Number(e.target.value) })}
+                  className="w-full rounded-md border border-input bg-background px-2 py-1.5"
+                />
+              </label>
+
+              <label className="block space-y-1 text-xs">
+                <FieldLabel
+                  label="Similarity threshold"
+                  help="How similar two clip transcripts must be to group as the same take (0–1). Lower values merge more takes into one group."
+                />
+                <input
+                  type="number"
+                  min={0.1}
+                  max={1}
+                  step={0.05}
+                  value={similarityThreshold}
+                  onChange={(e) => setSimilarityThreshold(Number(e.target.value))}
                   className="w-full rounded-md border border-input bg-background px-2 py-1.5"
                 />
               </label>
@@ -228,7 +270,10 @@ export function ControlsPanel() {
 
               {versions.length > 0 && (
                 <label className="block space-y-1 text-xs">
-                  <span className="text-muted-foreground">Analysis run</span>
+                  <FieldLabel
+                    label="Analysis run"
+                    help="Switch between saved analysis runs for this video."
+                  />
                   <select
                     value={activeVersionId ?? ""}
                     disabled={busy}
@@ -259,33 +304,71 @@ export function ControlsPanel() {
               )}
 
               {hasClips && (
+                <Popover>
+                  <PopoverTrigger
+                    render={
+                      <Button
+                        variant="outline"
+                        className="w-full"
+                        disabled={busy || !transcript}
+                      />
+                    }
+                  >
+                    View transcript
+                  </PopoverTrigger>
+                  <PopoverContent
+                    side="left"
+                    align="start"
+                    className="w-[min(28rem,calc(100vw-2rem))] p-3"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <PopoverHeader className="min-w-0 flex-1">
+                        <PopoverTitle>Full transcript</PopoverTitle>
+                        <PopoverDescription>
+                          From the active analysis run
+                        </PopoverDescription>
+                      </PopoverHeader>
+                      <Tooltip>
+                        <TooltipTrigger
+                          render={
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon-sm"
+                              aria-label="Copy transcript"
+                              disabled={!transcript}
+                              onClick={() => void copyTranscript()}
+                            />
+                          }
+                        >
+                          <Copy className="size-4" />
+                        </TooltipTrigger>
+                        <TooltipContent>Copy transcript</TooltipContent>
+                      </Tooltip>
+                    </div>
+                    {transcript ? (
+                      <ScrollArea className="h-72 pr-2">
+                        <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">
+                          {transcript}
+                        </p>
+                      </ScrollArea>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">
+                        No transcript for this run
+                      </p>
+                    )}
+                  </PopoverContent>
+                </Popover>
+              )}
+
+              {hasClips && (
                 <p className="text-xs text-muted-foreground">
+                  {elapsedLabel ? `in ${elapsedLabel} · ` : ""}
                   {clipCount} clips · removed {removedSeconds.toFixed(1)}s
                 </p>
               )}
+              </TooltipProvider>
             </section>
-
-            {selectedFile.needsProxy && !selectedFile.proxyReady && (
-              <section className="space-y-3 rounded-xl border border-border bg-card/50 p-4">
-                <p className="text-sm font-medium">Large file proxy</p>
-                <p className="text-xs text-muted-foreground">
-                  This file is over 1 GB. Generate a low-res proxy for smooth playback.
-                </p>
-                <Button
-                  variant="outline"
-                  className="w-full"
-                  disabled={busy}
-                  onClick={() => void runGenerateProxy()}
-                >
-                  {proxyLoading ? (
-                    <Loader2 className="size-4 animate-spin" />
-                  ) : (
-                    <Wand2 className="size-4" />
-                  )}
-                  Generate proxy
-                </Button>
-              </section>
-            )}
           </>
         )}
 

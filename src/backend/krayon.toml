@@ -1,0 +1,19 @@
+[whisper]
+model = "base"
+device = "cpu"
+compute_type = "int8"
+warmup_on_startup = true
+beam_size = 1
+condition_on_previous_text = false
+
+[silence]
+threshold = 0.4
+pad = 0.05
+min_segment_seconds = 0.05
+
+[clips]
+similarity_threshold = 0.5
+
+[paths]
+ffmpeg = "ffmpeg"
+ffprobe = "ffprobe"

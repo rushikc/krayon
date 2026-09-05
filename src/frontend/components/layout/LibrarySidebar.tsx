@@ -39,12 +39,6 @@ function VideoRow({
         <span>{formatDuration(file.duration)}</span>
         <span>·</span>
         <span>{formatSize(file.size)}</span>
-        {file.needsProxy && (
-          <>
-            <span>·</span>
-            <span>{file.proxyReady ? "proxy ready" : "needs proxy"}</span>
-          </>
-        )}
       </div>
     </button>
   );

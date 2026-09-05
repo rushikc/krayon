@@ -7,8 +7,6 @@ export interface MediaFileInfo {
   height?: number | null;
   duration?: number | null;
   fps?: number | null;
-  needsProxy: boolean;
-  proxyReady: boolean;
 }
 
 export interface PickFolderResponse {
@@ -63,6 +61,7 @@ export interface ClipItem {
   duration: number;
   text: string;
   groupId: string;
+  words?: WordTiming[];
 }
 
 export interface ClipGroup {
@@ -107,6 +106,9 @@ export interface EditorStateManifest {
   clipCount: number;
   removedSeconds: number;
   clipsDir?: string | null;
+  processingDurationSeconds?: number | null;
+  audioReady?: boolean;
+  transcript?: string;
 }
 
 export interface EditorStateResponse {
@@ -122,6 +124,11 @@ export interface JobProgress {
   stepProgress: number;
   message: string;
 }
+
+export const DEFAULT_SIMILARITY_THRESHOLD = 0.5;
+
+/** Dashboard library player: cap playback/scrub at this many seconds. */
+export const LIBRARY_PREVIEW_DURATION_SECONDS = 20;
 
 export const DEFAULT_SILENCE_OPTIONS: SilenceOptions = {
   silenceThreshold: 0.4,

@@ -19,11 +19,14 @@ corepack prepare pnpm@latest --activate
 pnpm -v
 ```
 
-### 3. Python 3.10+
+### 3. Python 3.12 (recommended)
 
 ```bash
-python3 --version
+brew install python@3.12
+python3.12 --version
 ```
+
+Krayon’s backend venv prefers `python3.12`, then `python3.11`. After upgrading, delete `src/backend/.krayonenv` and re-run `pnpm backend`.
 
 ### 4. FFmpeg
 
@@ -75,12 +78,12 @@ Open **http://localhost:5173**. Vite proxies `/api/*` to the FastAPI server on p
 
 The last selected folder is saved in browser `localStorage`.
 
-## Large files (> 1 GB)
+## Large files
 
-Files over 1 GB get a low-resolution proxy generated automatically (480p / 24fps). Proxies are cached at:
+The **dashboard** streams the original file with playback capped at 20 seconds in the UI. The **editor** does not preview full video — after **Analyze silence**, each speech clip gets an extracted WAV under:
 
 ```
-<your-folder>/.krayon/proxies/<filename>_proxy.mp4
+<your-folder>/.krayon/state/{mediaId}/versions/{versionId}/audio/{clipId}.wav
 ```
 
 Transcripts are cached under:
@@ -91,19 +94,22 @@ Transcripts are cached under:
 
 Analysis state (segment timestamps, groups) is saved under `<your-folder>/.krayon/state/{mediaId}/`.
 
-## Optional configuration
+## Configuration
 
-Create `src/backend/.env`:
+Edit [`src/backend/krayon.toml`](src/backend/krayon.toml):
 
-```env
-KRAYON_WHISPER_MODEL=small
-KRAYON_FFMPEG=/opt/homebrew/bin/ffmpeg
-KRAYON_FFPROBE=/opt/homebrew/bin/ffprobe
+```toml
+[whisper]
+model = "base"    # or small, medium, large-v3
+device = "cpu"
+compute_type = "int8"
 ```
 
 Whisper model sizes: `tiny`, `base`, `small`, `medium`, `large-v3`. Larger = more accurate but slower.
 
-On first backend start, the Whisper model is downloaded once (~150 MB for `base`). Subsequent starts load it from cache. Disable startup loading with `KRAYON_WHISPER_WARMUP_ON_STARTUP=false` in `.env`.
+On first backend start, the Whisper model is downloaded once (~150 MB for `base`). Set `warmup_on_startup = false` in krayon.toml to skip startup loading.
+
+Optional env overrides: `KRAYON_FFMPEG`, `KRAYON_WHISPER_MODEL`, etc.
 
 ## Build for production
 
@@ -123,5 +129,5 @@ Serve `dist/` with any static file server, keeping the API proxy pointed at loca
 |-------|-----|
 | `ffmpeg not found` | Install ffmpeg and ensure it is on PATH |
 | Backend connection refused | Start uvicorn on port 8000 |
-| Whisper slow on first run | Model downloads once on first `pnpm backend`; wait for "Whisper model ready" in logs |
+| Whisper slow | Delete `.krayonenv`, recreate with Python 3.12; check `krayon.pipeline` logs for `realtime_factor` |
 | Video won't seek | Ensure ffprobe works and the file is readable |

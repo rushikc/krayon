@@ -27,14 +27,14 @@ flowchart LR
 ```
 
 - **Left** — `LibrarySidebar`: folder path, Open folder, video list
-- **Center** — `VideoPlayer`: preview selected video
+- **Center** — `VideoPlayer`: streams original with 20s UI cap for all file sizes
 - **Right** — `DashboardPanel`: metadata + **Open in editor** button
 
 No silence removal or clip controls on the dashboard.
 
 ## Editor layout
 
-While **Analyze silence** is running, the center panel shows `PipelineStepper` (vertical step list with per-step % and elapsed time). When complete, it switches back to `VideoPlayer`. See [pipeline-stages.md](./pipeline-stages.md) for what each step does under the hood.
+While **Analyze silence** is running, the center panel shows `PipelineStepper` (vertical step list with per-step % and elapsed time). When complete, it switches to `ClipAudioPlayer`. See [pipeline-stages.md](./pipeline-stages.md) for what each step does under the hood.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -42,7 +42,7 @@ While **Analyze silence** is running, the center panel shows `PipelineStepper` (
 ├──────────┬──────────────────────────────┬───────────────────┤
 │ Clips    │  Video player OR pipeline    │     Controls      │
 │ (after   │  stepper while running       │ Analyze silence,  │
-│ analysis)│                              │ list toggle, proxy│
+│ analysis)│                              │ list toggle, tools│
 └──────────┴──────────────────────────────┴───────────────────┘
 ```
 
@@ -50,8 +50,8 @@ While **Analyze silence** is running, the center panel shows `PipelineStepper` (
   - **Speech clips only** (default): grouped similar takes, play icon per row
   - **All segments**: chronological speech + silence rows (silence in mild red)
   - Truncated labels show full text on hover (tooltip)
-- **Center** — `VideoPlayer` or `PipelineStepper` during async job
-- **Right** — `ControlsPanel`: single **Analyze silence** button (transcribe + cut + group), **analysis run** version selector (when history exists), segment list toggle, proxy, tools
+- **Center** — `ClipAudioPlayer` or `PipelineStepper` during async job
+- **Right** — `ControlsPanel`: **Analyze silence** (transcribe + segment + group + extract clip audio), editable thresholds with help tooltips, **analysis run** version selector, stats footer, segment list toggle, tools
 
 ### Clip list interactions
 
@@ -77,8 +77,10 @@ While **Analyze silence** is running, the center panel shows `PipelineStepper` (
 | `src/frontend/components/layout/LibrarySidebar.tsx` | Video list |
 | `src/frontend/components/layout/ClipsSidebar.tsx` | Grouped clips + all-segments timeline |
 | `src/frontend/components/layout/DashboardPanel.tsx` | Metadata + Open in editor |
-| `src/frontend/components/layout/ControlsPanel.tsx` | Analyze silence + version selector + list mode toggle |
+| `src/frontend/components/layout/ControlsPanel.tsx` | Analyze silence + threshold inputs (with help) + version selector + stats footer + list mode toggle |
 | `src/frontend/components/player/PipelineStepper.tsx` | Pipeline progress UI — see [pipeline-stages.md](./pipeline-stages.md) |
+| `src/frontend/components/player/ClipAudioPlayer.tsx` | Editor clip audio preview |
+| `src/frontend/components/player/VideoPlayer.tsx` | Dashboard library video preview |
 | `src/frontend/components/layout/AppShell.tsx` | Shared header |
 
 ## Folder persistence
@@ -100,12 +102,13 @@ Co-located with the per-folder cache at `{video_folder}/.krayon/`:
       index.json                 # version list + activeVersionId
       versions/
         {versionId}/             # e.g. 2026-08-23T19-05-00_a1b2c3
-          manifest.json          # full persisted payload
+          manifest.json          # full persisted payload (words + transcript)
+          transcript.txt         # plain full-run transcript
 ```
 
 - **mediaId** — `sha256(resolved_path)[:16]`, same as the editor URL param
 - **index.json** — append-only version history; `activeVersionId` points at the newest run after each analysis
-- **manifest.json** — options, analysis summary, segment metadata (timestamps + text + groups)
+- **manifest.json** — options, analysis (incl. word timings), clips (incl. per-clip words), groups, and `transcript`
 
 ### Version behavior
 
@@ -114,6 +117,6 @@ Co-located with the per-folder cache at `{video_folder}/.krayon/`:
 | Open editor | `GET /api/editor/state/{mediaId}` loads active manifest into stores |
 | Re-analyze | Creates a new `versions/{versionId}/` folder; prior runs stay on disk |
 | Switch run | Version dropdown in Controls → `PUT /api/editor/state/{mediaId}/active` |
-| Clip playback | Source video stream with seek to `[sourceStart, sourceEnd]` (or proxy for large files) |
+| Clip playback | Editor: extracted clip audio WAV; Dashboard: 20s original stream |
 
 The version selector appears only when saved history exists. **Analyze silence** never clears prior segment data from the UI until the new run completes.

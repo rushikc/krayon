@@ -140,15 +140,6 @@ def krayon_cache_dir(folder: Path) -> Path:
     return folder / ".krayon"
 
 
-def proxy_cache_dir(folder: Path) -> Path:
-    return krayon_cache_dir(folder) / "proxies"
-
-
-def proxy_path_for(source: Path) -> Path:
-    folder = source.parent
-    return proxy_cache_dir(folder) / f"{source.stem}_proxy.mp4"
-
-
 def parse_range_header(range_header: str | None, file_size: int) -> tuple[int, int] | None:
     if not range_header:
         return None

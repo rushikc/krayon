@@ -8,19 +8,19 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
 
 from app.schemas import FolderScanRequest, FolderScanResponse, MediaFileInfo
+from app.services.clip_audio import clip_audio_path
+from app.services.editor_state import load_active_state, load_manifest
 from app.services.ffmpeg import (
     is_video_file,
     media_id_for_path,
     parse_range_header,
     probe_media,
 )
-from app.services.proxy import generate_proxy, needs_proxy, proxy_exists, proxy_path_for
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["media"])
 
-# In-memory registry path -> id for streaming
 _media_registry: dict[str, str] = {}
 _id_to_path: dict[str, Path] = {}
 
@@ -62,7 +62,6 @@ def scan_folder(body: FolderScanRequest) -> FolderScanResponse:
             continue
 
         mid = register_media(child)
-        needs = needs_proxy(probe.size)
         files.append(
             MediaFileInfo(
                 id=mid,
@@ -73,22 +72,10 @@ def scan_folder(body: FolderScanRequest) -> FolderScanResponse:
                 height=probe.height,
                 duration=probe.duration,
                 fps=probe.fps,
-                needs_proxy=needs,
-                proxy_ready=proxy_exists(child) if needs else False,
             )
         )
 
     return FolderScanResponse(path=str(folder), files=files)
-
-
-@router.post("/media/{media_id}/proxy/generate")
-def create_proxy(media_id: str) -> dict:
-    source = resolve_media_id(media_id)
-    probe = probe_media(source)
-    if not needs_proxy(probe.size):
-        return {"status": "skipped", "reason": "below threshold"}
-    output = generate_proxy(source)
-    return {"status": "ready", "path": str(output)}
 
 
 def _stream_file(path: Path, request: Request) -> FileResponse | StreamingResponse:
@@ -126,20 +113,25 @@ def _stream_file(path: Path, request: Request) -> FileResponse | StreamingRespon
 
 
 @router.get("/media/stream/{media_id}", response_model=None)
-def stream_media(media_id: str, request: Request, proxy: bool = False):
+def stream_media(media_id: str, request: Request):
     source = resolve_media_id(media_id)
-    path = source
-    if proxy or needs_proxy(probe_media(source).size):
-        candidate = proxy_path_for(source)
-        if candidate.exists():
-            path = candidate
-    return _stream_file(path, request)
+    return _stream_file(source, request)
 
 
-@router.get("/media/proxy/{media_id}", response_model=None)
-def stream_proxy(media_id: str, request: Request):
+@router.get("/media/clip/{media_id}/{clip_id}", response_model=None)
+def stream_clip_audio(media_id: str, clip_id: str, request: Request):
     source = resolve_media_id(media_id)
-    proxy = proxy_path_for(source)
-    if not proxy.exists():
-        proxy = generate_proxy(source)
-    return _stream_file(proxy, request)
+    state = load_active_state(source)
+    if state is None or not state.active_version.audio_ready:
+        raise HTTPException(status_code=404, detail="Clip audio not ready")
+
+    clip_path = clip_audio_path(source, state.index.active_version_id, clip_id)
+    if not clip_path.exists():
+        manifest = load_manifest(source, state.index.active_version_id)
+        if manifest is None:
+            raise HTTPException(status_code=404, detail="Clip not found")
+        if not any(c.id == clip_id for c in manifest.clips):
+            raise HTTPException(status_code=404, detail="Clip not found")
+        raise HTTPException(status_code=404, detail="Clip audio file missing")
+
+    return _stream_file(clip_path, request)
