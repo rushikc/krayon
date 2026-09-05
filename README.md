@@ -39,9 +39,13 @@ src/
 
 ### Layout
 
-**Dashboard (`/`)** — video library + preview + metadata panel
+**Home (`/`)** — two tiles: Audio analysis, Reel animations
+
+**Audio library (`/audio`)** — video library + preview + metadata panel
 
 **Editor (`/editor/:mediaId`)** — single-video workspace with processing controls; clips sidebar appears after generation
+
+**Reel animations (`/reel-animations`)** — placeholder for later work
 
 ## Debugging / logs
 

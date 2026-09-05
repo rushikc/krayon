@@ -1,0 +1,226 @@
+import {
+  useRef,
+  type KeyboardEvent,
+  type PointerEvent,
+  type RefObject,
+} from "react";
+
+import { clampBoxBounds, DEFAULT_BOX_FONT_SIZE, scaleBox, ZOOM_FACTOR } from "@/lib/canvas-geometry";
+import { isZoomInKey, isZoomOutKey } from "@/lib/canvas-keyboard";
+import { cn } from "@/lib/utils";
+import { useCanvasStore } from "@/stores/canvas-store";
+import type { BoxNode, ColorTheme } from "@/types/canvas";
+
+interface BoxComponentProps {
+  node: BoxNode;
+  selected: boolean;
+  canvasRef: RefObject<HTMLDivElement | null>;
+}
+
+const themeStyles: Record<ColorTheme, string> = {
+  ink: "bg-canvas-ink",
+  violet: "bg-canvas-violet",
+  green: "bg-canvas-green",
+  blue: "bg-canvas-blue",
+  sky: "bg-canvas-sky",
+  lavender: "bg-canvas-lavender",
+  mint: "bg-canvas-mint",
+  tan: "bg-canvas-tan",
+  yellow: "bg-canvas-yellow",
+  orange: "bg-canvas-orange",
+  pink: "bg-canvas-pink",
+  salmon: "bg-canvas-salmon",
+};
+
+const NUDGE_STEP = 1;
+const NUDGE_STEP_SHIFT = 5;
+
+export function BoxComponent({
+  node,
+  selected,
+  canvasRef,
+}: BoxComponentProps) {
+  const selectElement = useCanvasStore((state) => state.selectElement);
+  const updateElement = useCanvasStore((state) => state.updateElement);
+  const dragOffset = useRef<{
+    pointerId: number;
+    dx: number;
+    dy: number;
+  } | null>(null);
+  const labelSize = node.fontSize ?? DEFAULT_BOX_FONT_SIZE;
+  const sublabelSize = labelSize * 0.75;
+
+  function toPercent(event: PointerEvent<HTMLDivElement>) {
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (!rect || rect.width === 0 || rect.height === 0) {
+      return null;
+    }
+
+    return {
+      x: ((event.clientX - rect.left) / rect.width) * 100,
+      y: ((event.clientY - rect.top) / rect.height) * 100,
+    };
+  }
+
+  function moveTo(x: number, y: number) {
+    const next = clampBoxBounds({
+      x,
+      y,
+      width: node.width,
+      height: node.height,
+    });
+
+    if (next.x === node.x && next.y === node.y) {
+      return;
+    }
+
+    updateElement(node.id, { x: next.x, y: next.y });
+  }
+
+  function handlePointerDown(event: PointerEvent<HTMLDivElement>) {
+    if (event.button !== 0) {
+      return;
+    }
+
+    event.stopPropagation();
+    selectElement(node.id);
+    event.currentTarget.focus();
+
+    const pointer = toPercent(event);
+    if (!pointer) {
+      return;
+    }
+
+    dragOffset.current = {
+      pointerId: event.pointerId,
+      dx: pointer.x - node.x,
+      dy: pointer.y - node.y,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
+  function handlePointerMove(event: PointerEvent<HTMLDivElement>) {
+    const drag = dragOffset.current;
+    if (!drag || drag.pointerId !== event.pointerId) {
+      return;
+    }
+
+    const pointer = toPercent(event);
+    if (!pointer) {
+      return;
+    }
+
+    moveTo(pointer.x - drag.dx, pointer.y - drag.dy);
+  }
+
+  function handlePointerEnd(event: PointerEvent<HTMLDivElement>) {
+    const drag = dragOffset.current;
+    if (!drag || drag.pointerId !== event.pointerId) {
+      return;
+    }
+
+    dragOffset.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  }
+
+  function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      event.stopPropagation();
+      selectElement(node.id);
+      return;
+    }
+
+    if (isZoomInKey(event) || isZoomOutKey(event)) {
+      event.preventDefault();
+      event.stopPropagation();
+      const next = scaleBox(
+        node,
+        isZoomInKey(event) ? ZOOM_FACTOR : 1 / ZOOM_FACTOR,
+      );
+      updateElement(node.id, next);
+      return;
+    }
+
+    const step = event.shiftKey ? NUDGE_STEP_SHIFT : NUDGE_STEP;
+    let nextX = node.x;
+    let nextY = node.y;
+
+    switch (event.key) {
+      case "ArrowLeft":
+        nextX -= step;
+        break;
+      case "ArrowRight":
+        nextX += step;
+        break;
+      case "ArrowUp":
+        nextY -= step;
+        break;
+      case "ArrowDown":
+        nextY += step;
+        break;
+      default:
+        return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    selectElement(node.id);
+    moveTo(nextX, nextY);
+  }
+
+  return (
+    <div
+      className="absolute cursor-grab touch-none rounded-lg outline-none active:cursor-grabbing focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas-surface"
+      role="button"
+      tabIndex={0}
+      aria-pressed={selected}
+      aria-label={`Select and drag ${node.label}`}
+      style={{
+        left: `${node.x}%`,
+        top: `${node.y}%`,
+        width: `${node.width}%`,
+        height: `${node.height}%`,
+      }}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerEnd}
+      onPointerCancel={handlePointerEnd}
+      onClick={(event) => event.stopPropagation()}
+      onKeyDown={handleKeyDown}
+    >
+      <div
+        className={cn(
+          "flex size-full flex-col justify-center gap-0.5 rounded-lg border-2 border-canvas-ink px-3 font-canvas shadow-[3px_3px_0_0_var(--canvas-ink)] transition-shadow",
+          node.sublabel ? "items-start text-left" : "items-center text-center",
+          themeStyles[node.colorTheme],
+          node.colorTheme === "ink" ? "text-canvas-surface" : "text-canvas-ink",
+          selected &&
+            "ring-2 ring-primary ring-offset-2 ring-offset-canvas-surface",
+        )}
+      >
+        <span
+          className="w-full truncate font-bold"
+          style={{ fontSize: `${labelSize}px` }}
+        >
+          {node.label}
+        </span>
+        {node.sublabel && (
+          <span
+            className={cn(
+              "w-full truncate font-medium",
+              node.colorTheme === "ink"
+                ? "text-canvas-surface/75"
+                : "text-canvas-ink/75",
+            )}
+            style={{ fontSize: `${sublabelSize}px` }}
+          >
+            {node.sublabel}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}

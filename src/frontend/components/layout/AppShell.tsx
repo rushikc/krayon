@@ -7,21 +7,29 @@ import { ThemeToggle } from "@/components/layout/ThemeToggle";
 interface AppShellProps {
   children: ReactNode;
   showBack?: boolean;
+  backTo?: string;
+  backLabel?: string;
   subtitle?: string;
 }
 
-export function AppShell({ children, showBack = false, subtitle = "local video editor" }: AppShellProps) {
+export function AppShell({
+  children,
+  showBack = false,
+  backTo = "/",
+  backLabel = "Back to library",
+  subtitle = "local video editor",
+}: AppShellProps) {
   return (
     <div className="flex h-screen w-full flex-col overflow-hidden bg-background text-foreground selection:bg-primary/30">
       <header className="flex h-11 shrink-0 items-center border-b border-border px-4">
         <div className="flex min-w-0 items-center">
           {showBack && (
             <Link
-              to="/"
+              to={backTo}
               className="mr-3 flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
             >
               <ArrowLeft className="size-3.5" />
-              Back to library
+              {backLabel}
             </Link>
           )}
           <h1 className="text-sm font-semibold tracking-tight">Krayon</h1>

@@ -23,7 +23,7 @@ export function EditorPage() {
     if (!mediaId) return;
     if (files.length === 0) return;
     if (!files.some((f) => f.id === mediaId)) {
-      navigate("/", { replace: true });
+      navigate("/audio", { replace: true });
       return;
     }
     if (hydratedIdRef.current === mediaId) return;
@@ -34,7 +34,12 @@ export function EditorPage() {
   }, [mediaId, files, setSelected, clearSelection, loadEditorState, navigate]);
 
   return (
-    <AppShell showBack subtitle={selectedFile?.name ?? "editor"}>
+    <AppShell
+      showBack
+      backTo="/audio"
+      backLabel="Back to library"
+      subtitle={selectedFile?.name ?? "editor"}
+    >
       <ClipsSidebar />
       {showStepper ? <PipelineStepper /> : <ClipAudioPlayer />}
       <ControlsPanel />

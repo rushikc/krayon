@@ -4,13 +4,17 @@ import { Toaster } from "@/components/ui/toaster";
 import { useAppInit } from "@/hooks/useFolderLoader";
 import { DashboardPage } from "@/pages/DashboardPage";
 import { EditorPage } from "@/pages/EditorPage";
+import { HomePage } from "@/pages/HomePage";
+import { ReelAnimationsPage } from "@/pages/ReelAnimationsPage";
 
 function AppRoutes() {
   useAppInit();
 
   return (
     <Routes>
-      <Route path="/" element={<DashboardPage />} />
+      <Route path="/" element={<HomePage />} />
+      <Route path="/audio" element={<DashboardPage />} />
+      <Route path="/reel-animations" element={<ReelAnimationsPage />} />
       <Route path="/editor/:mediaId" element={<EditorPage />} />
     </Routes>
   );

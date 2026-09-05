@@ -1,19 +1,27 @@
 # UI Design
 
-Krayon uses a two-page flow: a **library dashboard** for browsing videos and an **editor** for processing a single video.
+Krayon uses a home screen with two product tiles, then an **audio library** for browsing videos and an **editor** for processing a single video. Reel animations is a placeholder route for later work.
 
 ## Pages
 
 | Route | Page | Purpose |
 |-------|------|---------|
-| `/` | Dashboard | Folder + video library, preview, metadata |
+| `/` | Home | Two tiles: Audio analysis, Reel animations |
+| `/audio` | Dashboard | Folder + video library, preview, metadata |
+| `/reel-animations` | Reel animations | Placeholder (coming soon) |
 | `/editor/:mediaId` | Editor | Single-video processing workspace |
 
 ```mermaid
 flowchart LR
-  Dashboard["/ Dashboard"] -->|"Open in editor"| Editor["/editor/:mediaId"]
-  Editor -->|"Back to library"| Dashboard
+  Home["/ Home"] -->|"Audio analysis"| Audio["/audio library"]
+  Home -->|"Reel animations"| Reels["/reel-animations"]
+  Audio -->|"Open in editor"| Editor["/editor/:mediaId"]
+  Editor -->|"Back to library"| Audio
 ```
+
+## Home layout
+
+Two equal tiles centered in the shell: **Audio analysis** (silence removal & clip grouping) and **Reel animations** (coming soon).
 
 ## Dashboard layout
 
@@ -63,7 +71,7 @@ While **Analyze silence** is running, the center panel shows `PipelineStepper` (
 
 ## Stack
 
-- **React Router** — `/` and `/editor/:mediaId`
+- **React Router** — `/`, `/audio`, `/reel-animations`, `/editor/:mediaId`
 - **Zustand** — shared `media-store` and `silence-store` across routes
 - **SSE** — `/api/clips/generate/async` + `/api/clips/progress/{jobId}` for pipeline progress
 - **Tailwind CSS v4** — tokens in [`src/frontend/index.css`](../src/frontend/index.css)
@@ -72,7 +80,9 @@ While **Analyze silence** is running, the center panel shows `PipelineStepper` (
 
 | Path | Role |
 |------|------|
-| `src/frontend/pages/DashboardPage.tsx` | Library dashboard |
+| `src/frontend/pages/HomePage.tsx` | Two-tile product home |
+| `src/frontend/pages/DashboardPage.tsx` | Audio library dashboard |
+| `src/frontend/pages/ReelAnimationsPage.tsx` | Reel animations placeholder |
 | `src/frontend/pages/EditorPage.tsx` | Single-video editor |
 | `src/frontend/components/layout/LibrarySidebar.tsx` | Video list |
 | `src/frontend/components/layout/ClipsSidebar.tsx` | Grouped clips + all-segments timeline |
