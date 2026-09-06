@@ -9,6 +9,10 @@ import { clampBoxBounds, DEFAULT_BOX_FONT_SIZE, scaleBox, ZOOM_FACTOR } from "@/
 import { isZoomInKey, isZoomOutKey } from "@/lib/canvas-keyboard";
 import { cn } from "@/lib/utils";
 import { useCanvasStore } from "@/stores/canvas-store";
+import {
+  beginTimelineHistoryTransaction,
+  endTimelineHistoryTransaction,
+} from "@/stores/timeline-history";
 import type { BoxNode, ColorTheme } from "@/types/canvas";
 
 interface BoxComponentProps {
@@ -97,6 +101,7 @@ export function BoxComponent({
       dy: pointer.y - node.y,
     };
     event.currentTarget.setPointerCapture(event.pointerId);
+    beginTimelineHistoryTransaction();
   }
 
   function handlePointerMove(event: PointerEvent<HTMLDivElement>) {
@@ -120,13 +125,14 @@ export function BoxComponent({
     }
 
     dragOffset.current = null;
+    endTimelineHistoryTransaction();
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
   }
 
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
-    if (event.key === "Enter" || event.key === " ") {
+    if (event.key === "Enter") {
       event.preventDefault();
       event.stopPropagation();
       selectElement(node.id);
@@ -173,7 +179,7 @@ export function BoxComponent({
 
   return (
     <div
-      className="absolute cursor-grab touch-none rounded-lg outline-none active:cursor-grabbing focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas-surface"
+      className="absolute cursor-grab touch-none rounded-lg outline-none animate-in fade-in-0 slide-in-from-bottom-2 duration-300 active:cursor-grabbing focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas-surface"
       role="button"
       tabIndex={0}
       aria-pressed={selected}
@@ -183,6 +189,7 @@ export function BoxComponent({
         top: `${node.y}%`,
         width: `${node.width}%`,
         height: `${node.height}%`,
+        zIndex: 100 - node.time.track,
       }}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}

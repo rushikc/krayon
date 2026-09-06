@@ -9,6 +9,10 @@ import { clampNumberBounds, scaleNumber, ZOOM_FACTOR } from "@/lib/canvas-geomet
 import { isZoomInKey, isZoomOutKey } from "@/lib/canvas-keyboard";
 import { cn } from "@/lib/utils";
 import { useCanvasStore } from "@/stores/canvas-store";
+import {
+  beginTimelineHistoryTransaction,
+  endTimelineHistoryTransaction,
+} from "@/stores/timeline-history";
 import type { ColorTheme, NumberNode } from "@/types/canvas";
 
 interface NumberComponentProps {
@@ -94,6 +98,7 @@ export function NumberComponent({
       dy: pointer.y - node.y,
     };
     event.currentTarget.setPointerCapture(event.pointerId);
+    beginTimelineHistoryTransaction();
   }
 
   function handlePointerMove(event: PointerEvent<HTMLDivElement>) {
@@ -117,13 +122,14 @@ export function NumberComponent({
     }
 
     dragOffset.current = null;
+    endTimelineHistoryTransaction();
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
   }
 
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
-    if (event.key === "Enter" || event.key === " ") {
+    if (event.key === "Enter") {
       event.preventDefault();
       event.stopPropagation();
       selectElement(node.id);
@@ -170,7 +176,7 @@ export function NumberComponent({
 
   return (
     <div
-      className="absolute cursor-grab touch-none rounded-full outline-none active:cursor-grabbing focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas-surface"
+      className="absolute cursor-grab touch-none rounded-full outline-none animate-in fade-in-0 slide-in-from-bottom-2 duration-300 active:cursor-grabbing focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas-surface"
       role="button"
       tabIndex={0}
       aria-pressed={selected}
@@ -180,6 +186,7 @@ export function NumberComponent({
         top: `${node.y}%`,
         width: `${node.size}%`,
         aspectRatio: "1",
+        zIndex: 100 - node.time.track,
       }}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
@@ -190,7 +197,7 @@ export function NumberComponent({
     >
       <div
         className={cn(
-          "flex size-full items-center justify-center rounded-full border-2 border-canvas-ink font-canvas text-sm font-bold shadow-[2px_2px_0_0_var(--canvas-ink)] transition-shadow",
+          "flex size-full items-center justify-center rounded-full border-2 border-canvas-ink font-canvas text-sm font-bold",
           themeStyles[node.colorTheme],
           selected &&
             "ring-2 ring-primary ring-offset-2 ring-offset-canvas-surface",

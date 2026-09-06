@@ -1,7 +1,7 @@
 import path from "path";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
-import { defineConfig } from "vite";
+import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   root: "src/frontend",
@@ -28,5 +28,12 @@ export default defineConfig({
         },
       },
     },
+  },
+  test: {
+    environment: "jsdom",
+    globals: true,
+    setupFiles: path.resolve(__dirname, "src/frontend/test/setup.ts"),
+    include: ["src/frontend/**/*.test.{ts,tsx}"],
+    root: path.resolve(__dirname),
   },
 });

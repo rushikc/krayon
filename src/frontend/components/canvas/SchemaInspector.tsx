@@ -1,17 +1,21 @@
-import type { ChangeEvent } from "react";
+import { useEffect, useState, type ChangeEvent } from "react";
+import { ArrowLeft, Braces, SlidersHorizontal } from "lucide-react";
 
+import { clampElementTime } from "@/components/editor/timeline/lib/timeMath";
 import { FieldLabel } from "@/components/ui/field-label";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Separator } from "@/components/ui/separator";
 import { clampBoxBounds, clampNumberBounds, clampBoxFontSize, DEFAULT_BOX_FONT_SIZE, MAX_BOX_FONT_SIZE, MIN_BOX_FONT_SIZE } from "@/lib/canvas-geometry";
+import { cn } from "@/lib/utils";
 import { useCanvasStore } from "@/stores/canvas-store";
 import {
+  getElementLabel,
   isArrowNode,
   isBoxNode,
   isNumberNode,
   type ArrowNode,
   type ArrowVariant,
   type BoxNode,
+  type CanvasElement,
   type ColorTheme,
   type NumberNode,
 } from "@/types/canvas";
@@ -40,6 +44,55 @@ function parseNumber(raw: string) {
     return null;
   }
   return value;
+}
+
+function TimeFields({ element }: { element: CanvasElement }) {
+  const duration = useCanvasStore((state) => state.duration);
+  const updateElement = useCanvasStore((state) => state.updateElement);
+
+  function updateTime(field: "start" | "end", event: ChangeEvent<HTMLInputElement>) {
+    const next = parseNumber(event.target.value);
+    if (next === null) {
+      return;
+    }
+
+    const clamped = clampElementTime(
+      field === "start" ? next : element.time.start,
+      field === "end" ? next : element.time.end,
+      duration,
+    );
+
+    updateElement(element.id, {
+      time: {
+        ...element.time,
+        start: clamped.start,
+        end: clamped.end,
+      },
+    });
+  }
+
+  return (
+    <div className="grid grid-cols-2 gap-3">
+      <NumberField
+        label="start"
+        help="Clip start time in seconds on the reel timeline."
+        value={element.time.start}
+        min={0}
+        max={duration}
+        step={0.1}
+        onChange={(event) => updateTime("start", event)}
+      />
+      <NumberField
+        label="end"
+        help="Clip end time in seconds. Minimum duration is 0.5s."
+        value={element.time.end}
+        min={0}
+        max={duration}
+        step={0.1}
+        onChange={(event) => updateTime("end", event)}
+      />
+    </div>
+  );
 }
 
 function BoxConfigForm({ node }: { node: BoxNode }) {
@@ -130,9 +183,21 @@ function BoxConfigForm({ node }: { node: BoxNode }) {
               label="fontSize"
               help="Label text size in pixels. Sublabel scales proportionally."
             />
-            <span className="font-mono text-[11px] text-muted-foreground">
-              {node.fontSize ?? DEFAULT_BOX_FONT_SIZE}px
-            </span>
+            <input
+              type="number"
+              min={MIN_BOX_FONT_SIZE}
+              max={MAX_BOX_FONT_SIZE}
+              step={1}
+              className="w-16 rounded-md border border-border bg-background px-2 py-0.5 font-mono text-[11px] text-foreground outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              value={node.fontSize ?? DEFAULT_BOX_FONT_SIZE}
+              onChange={(event) => {
+                const next = Number(event.target.value);
+                if (Number.isNaN(next)) {
+                  return;
+                }
+                updateElement(node.id, { fontSize: clampBoxFontSize(next) });
+              }}
+            />
           </span>
           <input
             type="range"
@@ -176,6 +241,8 @@ function BoxConfigForm({ node }: { node: BoxNode }) {
           onChange={(event) => updateGeometry("height", event)}
         />
       </div>
+
+      <TimeFields element={node} />
     </div>
   );
 }
@@ -270,6 +337,8 @@ function NumberConfigForm({ node }: { node: NumberNode }) {
           onChange={(event) => updateGeometry("size", event)}
         />
       </div>
+
+      <TimeFields element={node} />
     </div>
   );
 }
@@ -344,6 +413,8 @@ function ArrowConfigForm({
           </select>
         </label>
       </div>
+
+      <TimeFields element={node} />
     </div>
   );
 }
@@ -372,20 +443,26 @@ function NumberField({
   help,
   value,
   onChange,
+  min = 0,
+  max = 100,
+  step = 1,
 }: {
   label: string;
   help: string;
   value: number;
   onChange: (event: ChangeEvent<HTMLInputElement>) => void;
+  min?: number;
+  max?: number;
+  step?: number;
 }) {
   return (
     <label className="block space-y-1.5">
       <FieldLabel label={label} help={help} />
       <input
         type="number"
-        min={0}
-        max={100}
-        step={1}
+        min={min}
+        max={max}
+        step={step}
         className={inputClassName}
         value={value}
         onChange={onChange}
@@ -394,66 +471,158 @@ function NumberField({
   );
 }
 
-export function SchemaInspector() {
+export function SchemaInspector({ width }: { width: number }) {
   const elements = useCanvasStore((state) => state.elements);
   const selectedId = useCanvasStore((state) => state.selectedId);
+  const selectElement = useCanvasStore((state) => state.selectElement);
   const selected = elements.find((element) => element.id === selectedId) ?? null;
   const boxes = elements.filter(isBoxNode);
-  const boxCount = boxes.length;
-  const arrowCount = elements.filter(isArrowNode).length;
-  const numberCount = elements.filter(isNumberNode).length;
+  const [tab, setTab] = useState<"config" | "json">("config");
+
+  useEffect(() => {
+    if (selectedId) {
+      setTab("config");
+    }
+  }, [selectedId]);
 
   return (
-    <aside className="flex w-[40rem] shrink-0 flex-col border-l border-border bg-card/20">
-      <div className="shrink-0 border-b border-border px-5 py-3">
-        {selected ? (
-          <div>
-            <h2 className="text-sm font-semibold tracking-tight">{selected.type}</h2>
-            <p className="mt-0.5 text-[11px] text-muted-foreground">{selected.id}</p>
+    <aside
+      className="flex h-full min-h-0 shrink-0 border-l border-border bg-card"
+      style={{ width }}
+    >
+      <nav
+        aria-label="Inspector"
+        className="flex w-14 shrink-0 flex-col gap-1 border-r border-border bg-card px-1.5 py-3"
+      >
+        <RailButton
+          label="Config"
+          active={tab === "config"}
+          onClick={() => setTab("config")}
+          icon={SlidersHorizontal}
+        />
+        <RailButton
+          label="JSON"
+          active={tab === "json"}
+          onClick={() => setTab("json")}
+          icon={Braces}
+        />
+      </nav>
+
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <div className="flex shrink-0 items-center gap-2 border-b border-border px-4 py-3">
+          {tab === "config" && selected ? (
+            <button
+              type="button"
+              aria-label="Back to element list"
+              className="flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              onClick={() => selectElement(null)}
+            >
+              <ArrowLeft className="size-3.5" />
+            </button>
+          ) : null}
+          <div className="min-w-0">
+            <h2 className="text-sm font-semibold tracking-tight">
+              {tab === "json" ? "JSON" : "Config"}
+            </h2>
+            {tab === "config" && selected ? (
+              <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
+                {selected.type} · {selected.id}
+              </p>
+            ) : null}
           </div>
-        ) : (
-          <>
-            <h2 className="text-xs font-semibold tracking-tight">Scene schema</h2>
-            <p className="mt-1 text-[11px] text-muted-foreground">
-              Click a box, number, or arrow to edit
-            </p>
-          </>
-        )}
-      </div>
-
-      <div className="shrink-0 border-b border-border">
-        {selected && isBoxNode(selected) ? (
-          <BoxConfigForm node={selected} />
-        ) : selected && isNumberNode(selected) ? (
-          <NumberConfigForm node={selected} />
-        ) : selected && isArrowNode(selected) ? (
-          <ArrowConfigForm
-            node={selected}
-            boxIds={boxes.map((box) => box.id)}
-          />
-        ) : (
-          <p className="px-5 py-6 text-[11px] leading-5 text-muted-foreground">
-            Select an element on the canvas to edit its configuration. Changes
-            update the live UI and the JSON below.
-          </p>
-        )}
-      </div>
-
-      <div className="flex min-h-0 flex-1 flex-col">
-        <div className="shrink-0 px-5 py-2">
-          <p className="text-[11px] text-muted-foreground">
-            {boxCount} {boxCount === 1 ? "box" : "boxes"} · {numberCount}{" "}
-            {numberCount === 1 ? "number" : "numbers"} · {arrowCount}{" "}
-            {arrowCount === 1 ? "connection" : "connections"}
-          </p>
         </div>
-        <Separator />
+
         <ScrollArea className="min-h-0 flex-1">
-          <pre className="select-text p-5 font-mono text-[11px] leading-5 text-muted-foreground">
-            {JSON.stringify(elements, null, 2)}
-          </pre>
+          {tab === "json" ? (
+            <pre className="select-text p-5 font-mono text-[11px] leading-5 text-muted-foreground">
+              {JSON.stringify(elements, null, 2)}
+            </pre>
+          ) : selected && isBoxNode(selected) ? (
+            <BoxConfigForm node={selected} />
+          ) : selected && isNumberNode(selected) ? (
+            <NumberConfigForm node={selected} />
+          ) : selected && isArrowNode(selected) ? (
+            <ArrowConfigForm
+              node={selected}
+              boxIds={boxes.map((box) => box.id)}
+            />
+          ) : (
+            <ElementList
+              elements={elements}
+              onSelect={selectElement}
+            />
+          )}
         </ScrollArea>
       </div>
     </aside>
+  );
+}
+
+function RailButton({
+  label,
+  active,
+  onClick,
+  icon: Icon,
+}: {
+  label: string;
+  active: boolean;
+  onClick: () => void;
+  icon: typeof SlidersHorizontal;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      aria-pressed={active}
+      onClick={onClick}
+      className={cn(
+        "flex h-14 w-full flex-col items-center justify-center gap-1 rounded-lg border px-1 py-2 transition-colors",
+        active
+          ? "border-primary/20 bg-primary/10 text-primary"
+          : "border-transparent text-muted-foreground hover:bg-muted hover:text-foreground",
+      )}
+    >
+      <Icon className="size-4" />
+      <span className="text-center text-[10px] font-medium leading-tight">
+        {label}
+      </span>
+    </button>
+  );
+}
+
+function ElementList({
+  elements,
+  onSelect,
+}: {
+  elements: CanvasElement[];
+  onSelect: (id: string) => void;
+}) {
+  if (elements.length === 0) {
+    return (
+      <p className="px-5 py-6 text-[11px] leading-5 text-muted-foreground">
+        No elements on the canvas yet.
+      </p>
+    );
+  }
+
+  return (
+    <ul className="p-2">
+      {elements.map((element) => (
+        <li key={element.id}>
+          <button
+            type="button"
+            className="flex w-full flex-col items-start gap-0.5 rounded-md px-3 py-2.5 text-left transition-colors hover:bg-muted"
+            onClick={() => onSelect(element.id)}
+          >
+            <span className="text-xs font-medium text-foreground">
+              {getElementLabel(element)}
+            </span>
+            <span className="font-mono text-[11px] text-muted-foreground">
+              {element.type} · {element.id}
+            </span>
+          </button>
+        </li>
+      ))}
+    </ul>
   );
 }

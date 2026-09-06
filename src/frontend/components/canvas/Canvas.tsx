@@ -1,43 +1,49 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 
 import { ArrowComponent } from "@/components/canvas/ArrowComponent";
 import { BoxComponent } from "@/components/canvas/BoxComponent";
 import { NumberComponent } from "@/components/canvas/NumberComponent";
+import { ReelPreviewOverlay } from "@/components/canvas/ReelPreviewOverlay";
 import {
   scaleBox,
   scaleNumber,
   ZOOM_FACTOR,
 } from "@/lib/canvas-geometry";
-import { isZoomInKey, isZoomKey } from "@/lib/canvas-keyboard";
+import { isZoomInKey, isZoomKey, isEditableTarget } from "@/lib/canvas-keyboard";
+import { isElementActiveAt } from "@/lib/element-visibility";
 import { useCanvasStore } from "@/stores/canvas-store";
 import {
   isArrowNode,
   isBoxNode,
   isNumberNode,
+  type CanvasElement,
 } from "@/types/canvas";
 
-function isEditableTarget(target: EventTarget | null) {
-  if (!(target instanceof HTMLElement)) {
-    return false;
-  }
-
-  const tag = target.tagName;
-  return (
-    tag === "INPUT" ||
-    tag === "TEXTAREA" ||
-    tag === "SELECT" ||
-    target.isContentEditable
-  );
+/** Higher track index paints first (back); track 0 is on top. */
+function byTrackDescending(a: CanvasElement, b: CanvasElement) {
+  return b.time.track - a.time.track;
 }
 
-export function Canvas() {
+export function Canvas({ showReelPreview = false }: { showReelPreview?: boolean }) {
   const canvasRef = useRef<HTMLDivElement>(null);
   const elements = useCanvasStore((state) => state.elements);
   const selectedId = useCanvasStore((state) => state.selectedId);
   const selectElement = useCanvasStore((state) => state.selectElement);
+  const currentTime = useCanvasStore((state) => state.currentTime);
+
+  const visible = useMemo(
+    () =>
+      [...elements]
+        .filter((el) => isElementActiveAt(el.time, currentTime))
+        .sort(byTrackDescending),
+    [elements, currentTime],
+  );
   const boxes = elements.filter(isBoxNode);
-  const arrows = elements.filter(isArrowNode);
-  const numbers = elements.filter(isNumberNode);
+  const htmlNodes = visible.filter(
+    (el): el is Extract<CanvasElement, { type: "box" | "number" }> =>
+      isBoxNode(el) || isNumberNode(el),
+  );
+  const arrows = visible.filter(isArrowNode);
 
   useEffect(() => {
     function resizeSelected(factor: number) {
@@ -149,23 +155,25 @@ export function Canvas() {
       </svg>
 
       <div className="absolute inset-0">
-        {boxes.map((node) => (
-          <BoxComponent
-            key={node.id}
-            node={node}
-            selected={node.id === selectedId}
-            canvasRef={canvasRef}
-          />
-        ))}
-        {numbers.map((node) => (
-          <NumberComponent
-            key={node.id}
-            node={node}
-            selected={node.id === selectedId}
-            canvasRef={canvasRef}
-          />
-        ))}
+        {htmlNodes.map((node) =>
+          isBoxNode(node) ? (
+            <BoxComponent
+              key={node.id}
+              node={node}
+              selected={node.id === selectedId}
+              canvasRef={canvasRef}
+            />
+          ) : (
+            <NumberComponent
+              key={node.id}
+              node={node}
+              selected={node.id === selectedId}
+              canvasRef={canvasRef}
+            />
+          ),
+        )}
       </div>
+      {showReelPreview ? <ReelPreviewOverlay /> : null}
     </div>
   );
 }

@@ -8,7 +8,10 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "backend": "bash src/backend/bash.sh",
-    "dev:all": "concurrently -n fe,be -c blue,green \"pnpm dev\" \"pnpm backend\""
+    "dev:all": "concurrently -n fe,be -c blue,green \"pnpm dev\" \"pnpm backend\"",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:backend": "bash src/backend/test.sh"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",
@@ -27,13 +30,18 @@
     "zustand": "^5.0.14"
   },
   "devDependencies": {
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.7",
     "@types/node": "^22.15.0",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^4.6.0",
     "concurrently": "^9.2.1",
+    "jsdom": "^30.0.1",
     "typescript": "~5.8.3",
-    "vite": "^7.0.4"
+    "vite": "^7.0.4",
+    "vitest": "^5.0.0"
   },
   "packageManager": "pnpm@11.18.0+sha512.33d83c77da82f49fba836925c6f1b841181ec3132b670639bd012f7075f5c7cf634c5f870147c19aae7478fac01df09d8892e880454896edd23ee9b33757563c"
 }

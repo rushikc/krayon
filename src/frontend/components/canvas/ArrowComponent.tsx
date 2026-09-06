@@ -32,7 +32,7 @@ export function ArrowComponent({ arrow, boxes, selected }: ArrowComponentProps) 
   }
 
   return (
-    <g>
+    <g className="origin-center animate-in fade-in-0 slide-in-from-bottom-2 duration-300">
       <line
         x1={`${geometry.x1}%`}
         y1={`${geometry.y1}%`}

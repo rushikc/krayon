@@ -14,6 +14,13 @@ export type ColorTheme =
 
 export type ArrowVariant = "solid" | "dashed";
 
+/** Absolute seconds on the reel timeline. track 0 = top = highest z-index. */
+export interface ElementTime {
+  start: number;
+  end: number;
+  track: number;
+}
+
 /**
  * All geometry values are percentages (0-100) of the canvas.
  * The x and y coordinates describe the box's top-left corner.
@@ -30,6 +37,7 @@ export interface BoxNode {
   /** Label font size in px. Omit to use the default (14). */
   fontSize?: number;
   colorTheme: ColorTheme;
+  time: ElementTime;
 }
 
 export interface ArrowNode {
@@ -38,6 +46,7 @@ export interface ArrowNode {
   sourceId: string;
   targetId: string;
   variant?: ArrowVariant;
+  time: ElementTime;
 }
 
 /**
@@ -52,6 +61,7 @@ export interface NumberNode {
   size: number;
   value: number;
   colorTheme: ColorTheme;
+  time: ElementTime;
 }
 
 export type CanvasElement = BoxNode | ArrowNode | NumberNode;
@@ -66,4 +76,14 @@ export function isArrowNode(element: CanvasElement): element is ArrowNode {
 
 export function isNumberNode(element: CanvasElement): element is NumberNode {
   return element.type === "number";
+}
+
+export function getElementLabel(element: CanvasElement): string {
+  if (isBoxNode(element)) {
+    return element.label;
+  }
+  if (isNumberNode(element)) {
+    return String(element.value);
+  }
+  return `${element.sourceId} → ${element.targetId}`;
 }
