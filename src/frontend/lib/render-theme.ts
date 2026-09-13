@@ -1,15 +1,24 @@
 import type { ColorTheme } from "@/types/canvas";
 
-export type RenderTheme = "bright" | "scalidraw-light" | "scalidraw-dark";
+export type RenderTheme =
+  | "bright"
+  | "dark"
+  | "calidraw-light"
+  | "calidraw-dark";
 
 export const RENDER_THEMES: { id: RenderTheme; label: string }[] = [
   { id: "bright", label: "Bright" },
-  { id: "scalidraw-light", label: "Scalidraw light" },
-  { id: "scalidraw-dark", label: "Scalidraw dark" },
+  { id: "dark", label: "Dark" },
+  { id: "calidraw-light", label: "Calidraw light" },
+  { id: "calidraw-dark", label: "Calidraw dark" },
 ];
 
-export function isScalidrawTheme(theme: RenderTheme): boolean {
-  return theme !== "bright";
+export function isCalidrawTheme(theme: RenderTheme): boolean {
+  return theme === "calidraw-light" || theme === "calidraw-dark";
+}
+
+export function isFilledTheme(theme: RenderTheme): boolean {
+  return theme === "bright" || theme === "dark";
 }
 
 const LIGHT_STROKES: Record<ColorTheme, string> = {
@@ -42,11 +51,11 @@ const DARK_STROKES: Record<ColorTheme, string> = {
   salmon: "#f0a8a8",
 };
 
-export function scalidrawStroke(
+export function calidrawStroke(
   colorTheme: ColorTheme,
   renderTheme: RenderTheme,
 ): string {
-  if (renderTheme === "scalidraw-dark") {
+  if (renderTheme === "calidraw-dark") {
     return DARK_STROKES[colorTheme];
   }
   return LIGHT_STROKES[colorTheme];

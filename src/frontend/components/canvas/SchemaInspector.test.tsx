@@ -18,18 +18,21 @@ describe("SchemaInspector rail", () => {
   });
 
   it("lists seed elements until one is selected", () => {
-    render(<SchemaInspector width={640} />);
+    render(<SchemaInspector />);
     expect(screen.getByRole("button", { name: "Config" })).toHaveAttribute(
       "aria-pressed",
       "true",
     );
     expect(screen.getByText("API Gateway")).toBeInTheDocument();
     expect(screen.getByText("Lambda Function")).toBeInTheDocument();
-    expect(screen.getByText(/gw-to-lambda/)).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Project name" })).toHaveValue(
+      "krayon-reel",
+    );
+    expect(screen.getByText("Project name")).toBeInTheDocument();
   });
 
   it("shows a time range on each element row", () => {
-    render(<SchemaInspector width={640} />);
+    render(<SchemaInspector />);
     const row = screen.getByRole("button", { name: /^Client/ });
     const { start, end } = useCanvasStore
       .getState()
@@ -39,7 +42,7 @@ describe("SchemaInspector rail", () => {
 
   it("filters the element list by label, type, and id", async () => {
     const user = userEvent.setup();
-    render(<SchemaInspector width={640} />);
+    render(<SchemaInspector />);
 
     const search = screen.getByRole("textbox", { name: "Search elements" });
     await user.type(search, "lambda");
@@ -58,7 +61,7 @@ describe("SchemaInspector rail", () => {
 
   it("opens a form from the list and returns with Back", async () => {
     const user = userEvent.setup();
-    render(<SchemaInspector width={640} />);
+    render(<SchemaInspector />);
 
     await user.click(screen.getByRole("button", { name: /^API Gateway/ }));
     expect(screen.getByDisplayValue("API Gateway")).toBeInTheDocument();
@@ -69,17 +72,51 @@ describe("SchemaInspector rail", () => {
   });
 
   it("opens the selected canvas element config", () => {
-    render(<SchemaInspector width={640} />);
+    render(<SchemaInspector />);
     act(() => {
       useCanvasStore.getState().selectElement("lambda");
     });
     expect(screen.getByDisplayValue("Lambda Function")).toBeInTheDocument();
+    expect(screen.getByText("Color Theme")).toBeInTheDocument();
   });
 
   it("shows raw scene JSON on the JSON tab", async () => {
     const user = userEvent.setup();
-    render(<SchemaInspector width={640} />);
+    render(<SchemaInspector />);
     await user.click(screen.getByRole("button", { name: "JSON" }));
-    expect(screen.getByText(/"id": "api-gateway"/)).toBeInTheDocument();
+    const editor = screen.getByRole("textbox", { name: "Scene JSON" });
+    expect(editor).toHaveValue(JSON.stringify(useCanvasStore.getState().elements, null, 2));
+  });
+
+  it("does not write the store when JSON is invalid", async () => {
+    const user = userEvent.setup();
+    render(<SchemaInspector />);
+    await user.click(screen.getByRole("button", { name: "JSON" }));
+    const editor = screen.getByRole("textbox", { name: "Scene JSON" });
+    const before = useCanvasStore.getState().elements;
+    await user.clear(editor);
+    await user.type(editor, "{{");
+    await user.tab();
+    expect(screen.getByText("JSON is not valid.")).toBeInTheDocument();
+    expect(useCanvasStore.getState().elements).toEqual(before);
+  });
+
+  it("copies the JSON draft to the clipboard", async () => {
+    if (!navigator.clipboard) {
+      Object.defineProperty(navigator, "clipboard", {
+        configurable: true,
+        value: { writeText: vi.fn() },
+      });
+    }
+    const writeText = vi
+      .spyOn(navigator.clipboard, "writeText")
+      .mockResolvedValue(undefined);
+    const user = userEvent.setup();
+    render(<SchemaInspector />);
+    await user.click(screen.getByRole("button", { name: "JSON" }));
+    await user.click(screen.getByRole("button", { name: "Copy" }));
+    expect(writeText).toHaveBeenCalledWith(
+      JSON.stringify(useCanvasStore.getState().elements, null, 2),
+    );
   });
 });

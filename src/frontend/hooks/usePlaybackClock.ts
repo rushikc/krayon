@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 
 import { useCanvasStore } from "@/stores/canvas-store";
+import { lastVisibleTime } from "@/lib/reel-duration";
 
 export function usePlaybackClock() {
   const isPlaying = useCanvasStore((state) => state.isPlaying);
@@ -20,7 +21,7 @@ export function usePlaybackClock() {
         useCanvasStore.getState();
       const next = currentTime + dt;
       if (next >= duration) {
-        setCurrentTime(duration);
+        setCurrentTime(lastVisibleTime(duration));
         pause();
         return;
       }

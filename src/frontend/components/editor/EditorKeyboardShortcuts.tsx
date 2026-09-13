@@ -56,6 +56,15 @@ export function EditorKeyboardShortcuts() {
         }
         event.preventDefault();
         useCanvasStore.getState().cutAtPlayhead();
+        return;
+      }
+
+      if (event.code === "Delete" || event.code === "Backspace") {
+        if (isEditableTarget(event.target)) {
+          return;
+        }
+        event.preventDefault();
+        useCanvasStore.getState().deleteSelectedElement();
       }
     }
 

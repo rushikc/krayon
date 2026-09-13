@@ -10,6 +10,7 @@ interface AppShellProps {
   backTo?: string;
   backLabel?: string;
   subtitle?: string;
+  hideHeader?: boolean;
 }
 
 export function AppShell({
@@ -18,27 +19,30 @@ export function AppShell({
   backTo = "/",
   backLabel = "Back to library",
   subtitle = "local video editor",
+  hideHeader = false,
 }: AppShellProps) {
   return (
     <div className="flex h-screen w-full flex-col overflow-hidden bg-background text-foreground selection:bg-primary/30">
-      <header className="flex h-11 shrink-0 items-center border-b border-border px-4">
-        <div className="flex min-w-0 items-center">
-          {showBack && (
-            <Link
-              to={backTo}
-              className="mr-3 flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
-            >
-              <ArrowLeft className="size-3.5" />
-              {backLabel}
-            </Link>
-          )}
-          <h1 className="text-sm font-semibold tracking-tight">Krayon</h1>
-          <span className="ml-2 text-xs text-muted-foreground">{subtitle}</span>
-        </div>
-        <div className="ml-auto">
-          <ThemeToggle />
-        </div>
-      </header>
+      {hideHeader ? null : (
+        <header className="flex h-11 shrink-0 items-center border-b border-border px-4">
+          <div className="flex min-w-0 items-center">
+            {showBack && (
+              <Link
+                to={backTo}
+                className="mr-3 flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
+              >
+                <ArrowLeft className="size-3.5" />
+                {backLabel}
+              </Link>
+            )}
+            <h1 className="text-sm font-semibold tracking-tight">Krayon</h1>
+            <span className="ml-2 text-xs text-muted-foreground">{subtitle}</span>
+          </div>
+          <div className="ml-auto">
+            <ThemeToggle />
+          </div>
+        </header>
+      )}
       <div className="flex min-h-0 flex-1 overflow-hidden">{children}</div>
     </div>
   );

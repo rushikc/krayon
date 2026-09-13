@@ -20,6 +20,7 @@
     "@tailwindcss/vite": "^4.3.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "cn": "^0.2.5",
     "html-to-image": "^1.11.13",
     "lucide-react": "^1.30.0",
     "mp4-muxer": "^5.2.2",

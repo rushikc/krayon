@@ -61,8 +61,9 @@
   --border: hsl(240 3.7% 25%);
   --input: hsl(240 3.7% 25%);
   --ring: hsl(211 100% 50%);
+}
 
-  /* Infographic canvas */
+[data-render-theme="dark"] {
   --canvas-surface: hsl(240 5% 12%);
   --canvas-ink: hsl(0 0% 96%);
   --canvas-violet: #4b3a6d;
@@ -112,7 +113,7 @@
   --color-canvas-pink: var(--canvas-pink);
   --color-canvas-salmon: var(--canvas-salmon);
   --font-canvas: "Geist Variable", sans-serif;
-  --font-scalidraw: "Architects Daughter", cursive;
+  --font-calidraw: "Architects Daughter", cursive;
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: var(--radius);
   --radius-lg: calc(var(--radius) + 2px);

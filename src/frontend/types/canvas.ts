@@ -21,17 +21,18 @@ export interface ElementTime {
   track: number;
 }
 
+/** Inclusive cell span on the 18×32 reel grid. Length 2 is a single cell. */
+export type GridMatrix =
+  | readonly [number, number]
+  | readonly [number, number, number, number];
+
 /**
- * All geometry values are percentages (0-100) of the canvas.
- * The x and y coordinates describe the box's top-left corner.
+ * Box occupies cells [X1, Y1] through [X2, Y2] inclusive on the 18×32 grid.
  */
 export interface BoxNode {
   id: string;
   type: "box";
-  x: number;
-  y: number;
-  width: number;
-  height: number;
+  matrix: readonly [number, number, number, number];
   label: string;
   sublabel?: string;
   /** Label font size in px. Omit to use the default (14). */
@@ -50,15 +51,12 @@ export interface ArrowNode {
 }
 
 /**
- * Circular numbered badge. `size` is diameter as a percentage of canvas width,
- * rendered with aspect-ratio 1 so it stays visually circular on the 9:16 reel.
+ * Circular numbered badge. `matrix` is `[X, Y]` (one cell) or `[X1, Y1, X2, Y2]`.
  */
 export interface NumberNode {
   id: string;
   type: "number";
-  x: number;
-  y: number;
-  size: number;
+  matrix: GridMatrix;
   value: number;
   colorTheme: ColorTheme;
   time: ElementTime;

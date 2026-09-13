@@ -7,25 +7,29 @@ import {
   ENCODE_WIDTH,
   EXPORT_HEIGHT,
   EXPORT_WIDTH,
+  formatExportEta,
   isEvenExportSize,
   reelFrameTimes,
   reelVideoEncoderConfig,
+  sanitizeExportFilename,
 } from "@/lib/export-reel";
 
 describe("reel export helpers", () => {
-  it("builds 30fps timestamps up to duration", () => {
+  it("builds 30fps timestamps that stay strictly before duration", () => {
     const times = reelFrameTimes(1, 30);
     expect(times).toHaveLength(30);
     expect(times[0]).toBe(0);
     expect(times[1]).toBeCloseTo(1 / 30);
     expect(times[29]).toBeCloseTo(29 / 30);
-    expect(times.every((time) => time <= 1)).toBe(true);
+    expect(times.every((time) => time < 1)).toBe(true);
   });
 
-  it("clamps the last frame to duration and never goes empty", () => {
+  it("never emits a timestamp at or past duration", () => {
     expect(reelFrameTimes(0)).toEqual([0]);
     const times = reelFrameTimes(0.04, 30);
-    expect(times[times.length - 1]).toBeLessThanOrEqual(0.04);
+    expect(times[times.length - 1]).toBeLessThan(0.04);
+    const long = reelFrameTimes(80, 30);
+    expect(long[long.length - 1]).toBeLessThan(80);
   });
 
   it("uses a 9:16 capture size and 16-aligned H.264 High Level 4+ encode size", () => {
@@ -52,5 +56,16 @@ describe("reel export helpers", () => {
       true,
     );
     expect(cssValueNeedsRgbFallback("rgb(255, 255, 255)")).toBe(false);
+  });
+
+  it("sanitizes download names without doubling .mp4", () => {
+    expect(sanitizeExportFilename("My Reel.mp4")).toBe("My Reel.mp4");
+    expect(sanitizeExportFilename("  ")).toBe("krayon-reel.mp4");
+    expect(sanitizeExportFilename("a/b:c")).toBe("abc.mp4");
+  });
+
+  it("estimates remaining export time from elapsed progress", () => {
+    expect(formatExportEta(4000, 0.5)).toBe("About 4s left");
+    expect(formatExportEta(1000, 0)).toBe("Calculating…");
   });
 });

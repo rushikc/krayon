@@ -1,7 +1,7 @@
 import type { MouseEvent } from "react";
 
 import { findBoxById, getArrowGeometry } from "@/lib/canvas-geometry";
-import { isScalidrawTheme } from "@/lib/render-theme";
+import { isCalidrawTheme } from "@/lib/render-theme";
 import { sketchArrowCurve } from "@/lib/sketch-path";
 import { cn } from "@/lib/utils";
 import { useCanvasStore } from "@/stores/canvas-store";
@@ -22,7 +22,7 @@ export function ArrowComponent({
 }: ArrowComponentProps) {
   const selectElement = useCanvasStore((state) => state.selectElement);
   const renderTheme = useCanvasStore((state) => state.renderTheme);
-  const scalidraw = isScalidrawTheme(renderTheme);
+  const calidraw = isCalidrawTheme(renderTheme);
   const source = findBoxById(boxes, arrow.sourceId);
   const target = findBoxById(boxes, arrow.targetId);
 
@@ -43,7 +43,7 @@ export function ArrowComponent({
 
   const strokeClass = selected
     ? "stroke-primary"
-    : renderTheme === "scalidraw-dark"
+    : renderTheme === "calidraw-dark"
       ? "stroke-neutral-100"
       : "stroke-canvas-ink";
 
@@ -60,7 +60,7 @@ export function ArrowComponent({
         vectorEffect="non-scaling-stroke"
         onClick={handleSelect}
       />
-      {scalidraw ? (
+      {calidraw ? (
         <path
           d={sketchArrowCurve(
             arrow.id,
@@ -74,7 +74,7 @@ export function ArrowComponent({
           strokeWidth={2.2}
           strokeLinecap="round"
           strokeDasharray={arrow.variant === "dashed" ? "6 5" : undefined}
-          markerEnd={`url(#${markerPrefix}-arrowhead-scalidraw)`}
+          markerEnd={`url(#${markerPrefix}-arrowhead-calidraw)`}
         />
       ) : (
         <line

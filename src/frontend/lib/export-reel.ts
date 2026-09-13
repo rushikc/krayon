@@ -1,7 +1,31 @@
+import { lastVisibleTime } from "@/lib/reel-duration";
+
 export const EXPORT_WIDTH = 1080;
 export const EXPORT_HEIGHT = 1920;
 export const EXPORT_FPS = 30;
 export const EXPORT_BITRATE = 8_000_000;
+
+const UNSAFE_FILENAME = /[/\\?%*:|"<>]/g;
+
+export function sanitizeExportFilename(name: string): string {
+  const trimmed = name.trim().replace(/\.mp4$/i, "");
+  const safe = trimmed.replace(UNSAFE_FILENAME, "").trim();
+  return `${safe || "krayon-reel"}.mp4`;
+}
+
+export function formatExportEta(elapsedMs: number, progress: number): string {
+  if (progress <= 0) {
+    return "Calculating…";
+  }
+  const remainingMs = elapsedMs * (1 / progress - 1);
+  const seconds = Math.max(0, Math.round(remainingMs / 1000));
+  if (seconds < 60) {
+    return `About ${seconds}s left`;
+  }
+  const minutes = Math.floor(seconds / 60);
+  const remainder = seconds % 60;
+  return `About ${minutes}m ${remainder}s left`;
+}
 
 /** H.264 macroblocks are 16×16; 1080 is not 16-aligned. */
 export function alignH264Size(value: number): number {
@@ -20,10 +44,11 @@ const CODEC_CANDIDATES = [
 
 export function reelFrameTimes(duration: number, fps = EXPORT_FPS): number[] {
   const safe = Math.max(duration, 0);
+  const last = lastVisibleTime(safe, fps);
   const count = Math.max(1, Math.round(safe * fps));
   const times: number[] = [];
   for (let i = 0; i < count; i += 1) {
-    times.push(Math.min(i / fps, safe));
+    times.push(Math.min(i / fps, last));
   }
   return times;
 }
@@ -144,7 +169,10 @@ export function cssValueNeedsRgbFallback(value: string): boolean {
 
 function captureBackground(element: HTMLElement): string {
   const theme = element.getAttribute("data-render-theme");
-  if (theme === "scalidraw-dark") {
+  if (theme === "dark") {
+    return "hsl(240 5% 12%)";
+  }
+  if (theme === "calidraw-dark") {
     return "#1a1a1a";
   }
   return "#ffffff";
@@ -264,6 +292,7 @@ async function snapshotReel(
 
   const { toCanvas } = await import("html-to-image");
   const pixelRatio = Math.max(EXPORT_WIDTH / width, EXPORT_HEIGHT / height);
+  const theme = element.getAttribute("data-render-theme");
   const backgroundColor = captureBackground(element);
 
   return withForeignObjectSafeStyles(element, () =>
@@ -275,9 +304,11 @@ async function snapshotReel(
       style: {
         backgroundColor,
         backgroundImage:
-          element.getAttribute("data-render-theme") === "bright"
+          theme === "bright"
             ? "radial-gradient(circle, rgba(0, 0, 0, 0.1) 1px, transparent 1px)"
-            : "none",
+            : theme === "dark"
+              ? "radial-gradient(circle, rgba(255, 255, 255, 0.12) 1px, transparent 1px)"
+              : "none",
         backgroundSize: "24px 24px",
       },
     }),
@@ -290,6 +321,7 @@ export async function exportReelMp4(options: {
   setCurrentTime: (time: number) => void;
   onProgress?: (ratio: number) => void;
   filename?: string;
+  signal?: AbortSignal;
 }): Promise<void> {
   const { Muxer, ArrayBufferTarget } = await import("mp4-muxer");
   const { flushSync } = await import("react-dom");
@@ -325,6 +357,9 @@ export async function exportReelMp4(options: {
 
   try {
     for (let i = 0; i < times.length; i += 1) {
+      if (options.signal?.aborted) {
+        throw new DOMException("Export cancelled", "AbortError");
+      }
       if (encoderError) {
         throw encoderError;
       }

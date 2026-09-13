@@ -1,9 +1,11 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
+import { act } from "react";
 import { MemoryRouter } from "react-router-dom";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { exportReelMp4 } from "@/lib/export-reel";
 import { HomePage } from "@/pages/HomePage";
 import { ReelAnimationsPage } from "@/pages/ReelAnimationsPage";
 import { useCanvasStore } from "@/stores/canvas-store";
@@ -12,6 +14,14 @@ vi.mock("@/components/ui/scroll-area", () => ({
   ScrollArea: ({ children }: { children: ReactNode }) => <div>{children}</div>,
   ScrollBar: () => null,
 }));
+
+vi.mock("@/lib/export-reel", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/export-reel")>();
+  return {
+    ...actual,
+    exportReelMp4: vi.fn(actual.exportReelMp4),
+  };
+});
 
 describe("home navigation", () => {
   it("links to audio analysis and reel animations", () => {
@@ -28,12 +38,17 @@ describe("home navigation", () => {
       "href",
       "/reel-animations",
     );
+    expect(screen.getByRole("heading", { name: "Krayon" })).toBeInTheDocument();
   });
 });
 
 describe("reel animations layout", () => {
   beforeEach(() => {
     useCanvasStore.getState().reset();
+  });
+
+  afterEach(() => {
+    vi.mocked(exportReelMp4).mockReset();
   });
 
   it("shows the timeline, editor, and seed clips", () => {
@@ -55,7 +70,7 @@ describe("reel animations layout", () => {
     ).toHaveAttribute("aria-pressed", "false");
     expect(screen.queryByTestId("reel-preview-overlay")).not.toBeInTheDocument();
     expect(screen.getByRole("separator", { name: /resize timeline/i })).toBeInTheDocument();
-    expect(screen.getByRole("separator", { name: /resize editor/i })).toBeInTheDocument();
+    expect(screen.queryByRole("separator", { name: /resize editor/i })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Config" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "JSON" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Play" })).toBeInTheDocument();
@@ -69,11 +84,15 @@ describe("reel animations layout", () => {
       "aria-pressed",
       "true",
     );
-    expect(screen.getByRole("button", { name: "Scalidraw light" })).toHaveAttribute(
+    expect(screen.getByRole("button", { name: "Dark" })).toHaveAttribute(
       "aria-pressed",
       "false",
     );
-    expect(screen.getByRole("button", { name: "Scalidraw dark" })).toHaveAttribute(
+    expect(screen.getByRole("button", { name: "Calidraw light" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+    expect(screen.getByRole("button", { name: "Calidraw dark" })).toHaveAttribute(
       "aria-pressed",
       "false",
     );
@@ -89,9 +108,19 @@ describe("reel animations layout", () => {
     expect(
       screen.getByRole("group", { name: "Panels" }),
     ).toContainElement(screen.getByRole("button", { name: "Reel preview" }));
-    expect(screen.getByRole("group", { name: "Canvas skin" })).toContainElement(
+    expect(
+      screen.getByRole("group", { name: "Canvas skin" }),
+    ).toContainElement(
       screen.getByRole("button", { name: "Bright" }),
     );
+    expect(screen.getByRole("link", { name: "Back to home" })).toHaveAttribute(
+      "href",
+      "/",
+    );
+    expect(screen.queryByRole("heading", { name: "Krayon" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /switch to (dark|light) mode/i }),
+    ).not.toBeInTheDocument();
   });
 
   it("hides timeline and editor when toggled off", async () => {
@@ -153,6 +182,33 @@ describe("reel animations layout", () => {
     expect(useCanvasStore.getState().elements.length).toBeGreaterThan(before);
   });
 
+  it("deletes the selected element with Delete unless an input is focused", async () => {
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter>
+        <ReelAnimationsPage />
+      </MemoryRouter>,
+    );
+
+    act(() => {
+      useCanvasStore.getState().selectElement("lambda");
+    });
+    const before = useCanvasStore.getState().elements.length;
+    await user.keyboard("{Delete}");
+    expect(useCanvasStore.getState().elements.length).toBe(before - 1);
+    expect(useCanvasStore.getState().elements.find((el) => el.id === "lambda")).toBeUndefined();
+    expect(useCanvasStore.getState().selectedId).toBeNull();
+
+    act(() => {
+      useCanvasStore.getState().selectElement("client");
+    });
+    const afterFirst = useCanvasStore.getState().elements.length;
+    await user.click(screen.getByDisplayValue("Client"));
+    await user.keyboard("{Backspace}");
+    expect(useCanvasStore.getState().elements.length).toBe(afterFirst);
+    expect(useCanvasStore.getState().elements.find((el) => el.id === "client")).toBeDefined();
+  });
+
   it("switches canvas skins without changing element JSON", async () => {
     const user = userEvent.setup();
     render(
@@ -162,8 +218,19 @@ describe("reel animations layout", () => {
     );
 
     const json = JSON.stringify(useCanvasStore.getState().elements);
-    await user.click(screen.getByRole("button", { name: "Scalidraw light" }));
-    expect(screen.getByRole("button", { name: "Scalidraw light" })).toHaveAttribute(
+    await user.click(screen.getByRole("button", { name: "Dark" }));
+    expect(screen.getByRole("button", { name: "Dark" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(document.querySelector("[data-render-theme]")).toHaveAttribute(
+      "data-render-theme",
+      "dark",
+    );
+    expect(JSON.stringify(useCanvasStore.getState().elements)).toBe(json);
+
+    await user.click(screen.getByRole("button", { name: "Calidraw light" }));
+    expect(screen.getByRole("button", { name: "Calidraw light" })).toHaveAttribute(
       "aria-pressed",
       "true",
     );
@@ -173,15 +240,43 @@ describe("reel animations layout", () => {
     );
     expect(document.querySelector("[data-render-theme]")).toHaveAttribute(
       "data-render-theme",
-      "scalidraw-light",
+      "calidraw-light",
     );
     expect(JSON.stringify(useCanvasStore.getState().elements)).toBe(json);
 
-    await user.click(screen.getByRole("button", { name: "Scalidraw dark" }));
+    await user.click(screen.getByRole("button", { name: "Calidraw dark" }));
     expect(document.querySelector("[data-render-theme]")).toHaveAttribute(
       "data-render-theme",
-      "scalidraw-dark",
+      "calidraw-dark",
     );
     expect(JSON.stringify(useCanvasStore.getState().elements)).toBe(json);
+  });
+
+  it("opens a blocking export dialog and cancel aborts the encoder", async () => {
+    const user = userEvent.setup();
+    vi.mocked(exportReelMp4).mockImplementation(async ({ signal }) => {
+      await new Promise<void>((_, reject) => {
+        signal?.addEventListener("abort", () => {
+          reject(new DOMException("Export cancelled", "AbortError"));
+        });
+      });
+    });
+
+    render(
+      <MemoryRouter>
+        <ReelAnimationsPage />
+      </MemoryRouter>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Export MP4" }));
+    expect(await screen.findByText("Exporting Video")).toBeInTheDocument();
+    expect(screen.getByText("Please do not leave this tab until the export is complete.")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => {
+      expect(screen.queryByText("Exporting Video")).not.toBeInTheDocument();
+    });
+    const signal = vi.mocked(exportReelMp4).mock.calls[0][0].signal;
+    expect(signal?.aborted).toBe(true);
   });
 });

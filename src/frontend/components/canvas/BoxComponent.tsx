@@ -5,11 +5,18 @@ import {
   type RefObject,
 } from "react";
 
-import { clampBoxBounds, DEFAULT_BOX_FONT_SIZE, scaleBox, ZOOM_FACTOR } from "@/lib/canvas-geometry";
+import {
+  clampBoxBounds,
+  DEFAULT_BOX_FONT_SIZE,
+  matrixToPercents,
+  percentsToMatrix,
+  scaleBox,
+  ZOOM_FACTOR,
+} from "@/lib/canvas-geometry";
 import { isZoomInKey, isZoomOutKey } from "@/lib/canvas-keyboard";
 import {
-  isScalidrawTheme,
-  scalidrawStroke,
+  isCalidrawTheme,
+  calidrawStroke,
 } from "@/lib/render-theme";
 import { cn } from "@/lib/utils";
 import { useCanvasStore } from "@/stores/canvas-store";
@@ -53,11 +60,12 @@ export function BoxComponent({
   const selectElement = useCanvasStore((state) => state.selectElement);
   const updateElement = useCanvasStore((state) => state.updateElement);
   const renderTheme = useCanvasStore((state) => state.renderTheme);
-  const scalidraw = isScalidrawTheme(renderTheme);
-  const stroke = scalidrawStroke(node.colorTheme, renderTheme);
-  const ink = renderTheme === "scalidraw-dark" ? "#f0f0f0" : "#1a1a1a";
-  const fill = renderTheme === "scalidraw-dark" ? "#1a1a1a" : "#ffffff";
-  const aspect = node.height > 0 ? node.width / node.height : 1;
+  const calidraw = isCalidrawTheme(renderTheme);
+  const stroke = calidrawStroke(node.colorTheme, renderTheme);
+  const ink = renderTheme === "calidraw-dark" ? "#f0f0f0" : "#1a1a1a";
+  const fill = renderTheme === "calidraw-dark" ? "#1a1a1a" : "#ffffff";
+  const rect = matrixToPercents(node.matrix);
+  const aspect = rect.height > 0 ? rect.width / rect.height : 1;
   const dragOffset = useRef<{
     pointerId: number;
     dx: number;
@@ -82,15 +90,26 @@ export function BoxComponent({
     const next = clampBoxBounds({
       x,
       y,
-      width: node.width,
-      height: node.height,
+      width: rect.width,
+      height: rect.height,
+    });
+    const matrix = percentsToMatrix({
+      left: next.x,
+      top: next.y,
+      width: next.width,
+      height: next.height,
     });
 
-    if (next.x === node.x && next.y === node.y) {
+    if (
+      matrix[0] === node.matrix[0] &&
+      matrix[1] === node.matrix[1] &&
+      matrix[2] === node.matrix[2] &&
+      matrix[3] === node.matrix[3]
+    ) {
       return;
     }
 
-    updateElement(node.id, { x: next.x, y: next.y });
+    updateElement(node.id, { matrix });
   }
 
   function handlePointerDown(event: PointerEvent<HTMLDivElement>) {
@@ -109,8 +128,8 @@ export function BoxComponent({
 
     dragOffset.current = {
       pointerId: event.pointerId,
-      dx: pointer.x - node.x,
-      dy: pointer.y - node.y,
+      dx: pointer.x - rect.left,
+      dy: pointer.y - rect.top,
     };
     event.currentTarget.setPointerCapture(event.pointerId);
     beginTimelineHistoryTransaction();
@@ -154,17 +173,29 @@ export function BoxComponent({
     if (isZoomInKey(event) || isZoomOutKey(event)) {
       event.preventDefault();
       event.stopPropagation();
-      const next = scaleBox(
-        node,
+      const scaled = scaleBox(
+        {
+          x: rect.left,
+          y: rect.top,
+          width: rect.width,
+          height: rect.height,
+        },
         isZoomInKey(event) ? ZOOM_FACTOR : 1 / ZOOM_FACTOR,
       );
-      updateElement(node.id, next);
+      updateElement(node.id, {
+        matrix: percentsToMatrix({
+          left: scaled.x,
+          top: scaled.y,
+          width: scaled.width,
+          height: scaled.height,
+        }),
+      });
       return;
     }
 
     const step = event.shiftKey ? NUDGE_STEP_SHIFT : NUDGE_STEP;
-    let nextX = node.x;
-    let nextY = node.y;
+    let nextX = rect.left;
+    let nextY = rect.top;
 
     switch (event.key) {
       case "ArrowLeft":
@@ -197,10 +228,10 @@ export function BoxComponent({
       aria-pressed={selected}
       aria-label={`Select and drag ${node.label}`}
       style={{
-        left: `${node.x}%`,
-        top: `${node.y}%`,
-        width: `${node.width}%`,
-        height: `${node.height}%`,
+        left: `${rect.left}%`,
+        top: `${rect.top}%`,
+        width: `${rect.width}%`,
+        height: `${rect.height}%`,
         zIndex: 100 - node.time.track,
       }}
       onPointerDown={handlePointerDown}
@@ -213,8 +244,8 @@ export function BoxComponent({
       <div
         className={cn(
           "flex size-full flex-col justify-center gap-0.5",
-          scalidraw
-            ? "relative items-start rounded-none border-0 bg-transparent px-4 py-2 text-left font-scalidraw shadow-none"
+          calidraw
+            ? "relative items-start rounded-none border-0 bg-transparent px-4 py-2 text-left font-calidraw shadow-none"
             : cn(
                 "rounded-lg border-2 border-canvas-ink px-3 font-canvas shadow-[3px_3px_0_0_var(--canvas-ink)] transition-shadow",
                 node.sublabel ? "items-start text-left" : "items-center text-center",
@@ -226,9 +257,9 @@ export function BoxComponent({
           selected &&
             "ring-2 ring-primary ring-offset-2 ring-offset-canvas-surface",
         )}
-        style={scalidraw ? { color: ink } : undefined}
+        style={calidraw ? { color: ink } : undefined}
       >
-        {scalidraw ? (
+        {calidraw ? (
           <SketchFrame
             id={node.id}
             kind="rect"
@@ -240,7 +271,7 @@ export function BoxComponent({
         <span
           className={cn(
             "relative z-[1] w-full font-bold",
-            scalidraw ? "whitespace-normal break-words" : "truncate",
+            calidraw ? "whitespace-normal break-words" : "truncate",
           )}
           style={{ fontSize: `${labelSize}px` }}
         >
@@ -250,7 +281,7 @@ export function BoxComponent({
           <span
             className={cn(
               "relative z-[1] w-full font-medium",
-              scalidraw
+              calidraw
                 ? "whitespace-normal break-words"
                 : cn(
                     "truncate",
@@ -261,7 +292,7 @@ export function BoxComponent({
             )}
             style={{
               fontSize: `${sublabelSize}px`,
-              opacity: scalidraw ? 0.72 : undefined,
+              opacity: calidraw ? 0.72 : undefined,
             }}
           >
             {node.sublabel}

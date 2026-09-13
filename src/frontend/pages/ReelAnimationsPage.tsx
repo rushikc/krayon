@@ -3,6 +3,7 @@ import { useCallback, useRef, useState, type PointerEvent as ReactPointerEvent }
 import { Canvas } from "@/components/canvas/Canvas";
 import { SchemaInspector } from "@/components/canvas/SchemaInspector";
 import { EditorKeyboardShortcuts } from "@/components/editor/EditorKeyboardShortcuts";
+import { ExportProgressDialog } from "@/components/editor/ExportProgressDialog";
 import { PlaybackBar } from "@/components/editor/PlaybackBar";
 import { Timeline } from "@/components/editor/timeline/Timeline";
 import { WorkspaceToolbar } from "@/components/editor/WorkspaceToolbar";
@@ -17,18 +18,21 @@ import { PanelResizeHandle } from "@/components/layout/PanelResizeHandle";
 import { usePlaybackClock } from "@/hooks/usePlaybackClock";
 import {
   exportReelMp4,
+  sanitizeExportFilename,
 } from "@/lib/export-reel";
 import { useCanvasStore } from "@/stores/canvas-store";
 import { toast } from "@/stores/toast-store";
 
-const DEFAULT_INSPECTOR_WIDTH = 640;
-const MIN_INSPECTOR_WIDTH = 240;
-const MIN_MIDDLE_WIDTH = 180;
 const MIN_TIMELINE_HEIGHT = TIMELINE_RULER_HEIGHT + TRACK_ROW_HEIGHT;
 
+function isAbortError(error: unknown) {
+  return (
+    (error instanceof DOMException && error.name === "AbortError") ||
+    (error instanceof Error && error.name === "AbortError")
+  );
+}
+
 export function ReelAnimationsPage() {
-  const workspaceRef = useRef<HTMLDivElement>(null);
-  const canvasColRef = useRef<HTMLDivElement>(null);
   const middleRef = useRef<HTMLDivElement>(null);
   const elements = useCanvasStore((state) => state.elements);
   const duration = useCanvasStore((state) => state.duration);
@@ -49,9 +53,11 @@ export function ReelAnimationsPage() {
   const [showEditor, setShowEditor] = useState(true);
   const [showReelPreview, setShowReelPreview] = useState(false);
   const [timelineHeight, setTimelineHeight] = useState(DEFAULT_TIMELINE_HEIGHT);
-  const [inspectorWidth, setInspectorWidth] = useState(DEFAULT_INSPECTOR_WIDTH);
   const [exporting, setExporting] = useState(false);
-  const [exportProgress, setExportProgress] = useState<number | null>(null);
+  const [exportProgress, setExportProgress] = useState(0);
+  const [exportStartedAt, setExportStartedAt] = useState<number | null>(null);
+  const [projectName, setProjectName] = useState("krayon-reel");
+  const exportAbortRef = useRef<AbortController | null>(null);
 
   const onTimelineResizeStart = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -93,50 +99,6 @@ export function ReelAnimationsPage() {
     [timelineHeight],
   );
 
-  const onInspectorResizeStart = useCallback(
-    (event: ReactPointerEvent<HTMLDivElement>) => {
-      if (event.button !== 0) {
-        return;
-      }
-      event.preventDefault();
-      const handle = event.currentTarget;
-      handle.setPointerCapture(event.pointerId);
-      const startX = event.clientX;
-      const startWidth = inspectorWidth;
-      const workspace = workspaceRef.current?.clientWidth ?? 1200;
-      const canvasWidth = canvasColRef.current?.clientWidth ?? 0;
-
-      function onMove(moveEvent: PointerEvent) {
-        if (moveEvent.pointerId !== event.pointerId) {
-          return;
-        }
-        const maxWidth = Math.max(
-          MIN_INSPECTOR_WIDTH,
-          workspace - canvasWidth - MIN_MIDDLE_WIDTH,
-        );
-        const next = startWidth + (startX - moveEvent.clientX);
-        setInspectorWidth(clamp(next, MIN_INSPECTOR_WIDTH, maxWidth));
-      }
-
-      function onUp(upEvent: PointerEvent) {
-        if (upEvent.pointerId !== event.pointerId) {
-          return;
-        }
-        handle.removeEventListener("pointermove", onMove);
-        handle.removeEventListener("pointerup", onUp);
-        handle.removeEventListener("pointercancel", onUp);
-        if (handle.hasPointerCapture(upEvent.pointerId)) {
-          handle.releasePointerCapture(upEvent.pointerId);
-        }
-      }
-
-      handle.addEventListener("pointermove", onMove);
-      handle.addEventListener("pointerup", onUp);
-      handle.addEventListener("pointercancel", onUp);
-    },
-    [inspectorWidth],
-  );
-
   const onExport = useCallback(async () => {
     if (exporting) {
       return;
@@ -146,9 +108,13 @@ export function ReelAnimationsPage() {
     const store = useCanvasStore.getState();
     store.pause();
     const restoreTime = store.currentTime;
+    const filename = sanitizeExportFilename(projectName);
+    const controller = new AbortController();
+    exportAbortRef.current = controller;
     flushSync(() => {
       setExporting(true);
       setExportProgress(0);
+      setExportStartedAt(Date.now());
     });
 
     try {
@@ -163,30 +129,30 @@ export function ReelAnimationsPage() {
         duration: store.duration,
         setCurrentTime: useCanvasStore.getState().setCurrentTime,
         onProgress: setExportProgress,
+        filename,
+        signal: controller.signal,
       });
-      toast("Exported krayon-reel.mp4");
+      toast(`Exported ${filename}`);
     } catch (error) {
-      toast(error instanceof Error ? error.message : "Export failed");
+      if (isAbortError(error)) {
+        toast("Export cancelled");
+      } else {
+        toast(error instanceof Error ? error.message : "Export failed");
+      }
     } finally {
+      exportAbortRef.current = null;
       useCanvasStore.getState().setCurrentTime(restoreTime);
       setExporting(false);
-      setExportProgress(null);
+      setExportProgress(0);
+      setExportStartedAt(null);
     }
-  }, [exporting]);
+  }, [exporting, projectName]);
 
   return (
-    <AppShell
-      showBack
-      backTo="/"
-      backLabel="Back to home"
-      subtitle="reel animations"
-    >
+    <AppShell hideHeader>
       <EditorKeyboardShortcuts />
-      <div ref={workspaceRef} className="flex min-h-0 min-w-0 flex-1">
-        <div
-          ref={canvasColRef}
-          className="flex h-full min-h-0 shrink-0 items-stretch p-2"
-        >
+      <div className="flex min-h-0 min-w-0 flex-1">
+        <div className="flex h-full min-h-0 shrink-0 items-stretch p-2">
           <Canvas
             showReelPreview={showReelPreview}
             exporting={exporting}
@@ -207,22 +173,15 @@ export function ReelAnimationsPage() {
             renderTheme={renderTheme}
             onRenderThemeChange={setRenderTheme}
             exporting={exporting}
-            exportProgress={exportProgress}
             onExport={() => void onExport()}
           />
 
-          <div className="flex min-h-0 min-w-0 flex-1">
-            <div className="min-h-0 min-w-0 flex-1" />
-
+          <div className="flex min-h-0 min-w-0 flex-1 p-2">
             {showEditor ? (
-              <div className="relative flex h-full min-h-0 shrink-0">
-                <PanelResizeHandle
-                  orientation="vertical"
-                  label="Resize editor"
-                  onPointerDown={onInspectorResizeStart}
-                />
-                <SchemaInspector width={inspectorWidth} />
-              </div>
+              <SchemaInspector
+                projectName={projectName}
+                onProjectNameChange={setProjectName}
+              />
             ) : null}
           </div>
 
@@ -254,6 +213,12 @@ export function ReelAnimationsPage() {
           ) : null}
         </div>
       </div>
+      <ExportProgressDialog
+        open={exporting}
+        progress={exportProgress}
+        startedAt={exportStartedAt}
+        onCancel={() => exportAbortRef.current?.abort()}
+      />
     </AppShell>
   );
 }

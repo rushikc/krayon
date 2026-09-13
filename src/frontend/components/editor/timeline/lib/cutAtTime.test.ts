@@ -12,10 +12,7 @@ function box(
   return {
     id,
     type: "box",
-    x: 10,
-    y: 10,
-    width: 20,
-    height: 10,
+    matrix: [2, 3, 5, 5],
     label: id,
     colorTheme: "ink",
     time: { start, end, track },

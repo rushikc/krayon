@@ -1,20 +1,24 @@
-import { useEffect, useState, type ChangeEvent } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import {
   ArrowLeft,
   ArrowRight,
   Braces,
   ChevronRight,
+  Copy,
   Search,
   SlidersHorizontal,
 } from "lucide-react";
 
 import { clampElementTime } from "@/components/editor/timeline/lib/timeMath";
 import { FieldLabel } from "@/components/ui/field-label";
+import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { clampBoxBounds, clampNumberBounds, clampBoxFontSize, DEFAULT_BOX_FONT_SIZE, MAX_BOX_FONT_SIZE, MIN_BOX_FONT_SIZE } from "@/lib/canvas-geometry";
+import { clampBoxBounds, clampNumberBounds, clampBoxFontSize, DEFAULT_BOX_FONT_SIZE, matrixToPercents, MAX_BOX_FONT_SIZE, MIN_BOX_FONT_SIZE, MIN_BOX_SIZE, percentsToMatrix } from "@/lib/canvas-geometry";
 import { isElementActiveAt } from "@/lib/element-visibility";
+import { parseCanvasElementsJson } from "@/lib/parse-canvas-json";
 import { cn } from "@/lib/utils";
 import { useCanvasStore } from "@/stores/canvas-store";
+import { toast } from "@/stores/toast-store";
 import {
   getElementLabel,
   isArrowNode,
@@ -60,8 +64,10 @@ const swatchStyles: Record<ColorTheme, string> = {
   salmon: "bg-canvas-salmon",
 };
 
-const inputClassName =
-  "w-full rounded-md border border-border bg-background px-2 py-1.5 text-xs text-foreground outline-none focus-visible:ring-1 focus-visible:ring-ring";
+const configControlClass =
+  "h-8 w-full rounded-md border border-border bg-background px-2.5 py-1 text-xs text-foreground outline-none transition-colors hover:border-foreground/30 focus-visible:ring-1 focus-visible:ring-primary";
+const configNumberClass = `${configControlClass} font-mono`;
+const fieldLabelClass = "text-xs text-foreground";
 
 function parseNumber(raw: string) {
   const value = Number(raw);
@@ -71,20 +77,65 @@ function parseNumber(raw: string) {
   return value;
 }
 
+function ConfigSection({
+  title,
+  children,
+}: {
+  title: string;
+  children: ReactNode;
+}) {
+  return (
+    <section className="mb-6 last:mb-0">
+      <h3 className="mb-2 text-[10px] font-semibold tracking-wider text-muted-foreground uppercase">
+        {title}
+      </h3>
+      <div className="grid gap-y-2">{children}</div>
+    </section>
+  );
+}
+
+function ConfigField({
+  label,
+  help,
+  compact = false,
+  children,
+}: {
+  label: string;
+  help?: string;
+  compact?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <label
+      className={
+        compact
+          ? "flex items-center gap-3"
+          : "grid grid-cols-[7rem_minmax(0,1fr)] items-center gap-x-3"
+      }
+    >
+      <FieldLabel
+        label={label}
+        help={help}
+        className={
+          compact
+            ? "shrink-0 min-w-fit text-xs text-foreground"
+            : fieldLabelClass
+        }
+      />
+      <div className={compact ? "min-w-0 flex-1" : "min-w-0"}>{children}</div>
+    </label>
+  );
+}
+
 function TimeFields({ element }: { element: CanvasElement }) {
   const duration = useCanvasStore((state) => state.duration);
   const updateElement = useCanvasStore((state) => state.updateElement);
 
-  function updateTime(field: "start" | "end", event: ChangeEvent<HTMLInputElement>) {
-    const next = parseNumber(event.target.value);
-    if (next === null) {
-      return;
-    }
-
+  function updateTime(field: "start" | "end", next: number) {
     const clamped = clampElementTime(
       field === "start" ? next : element.time.start,
       field === "end" ? next : element.time.end,
-      duration,
+      Number.POSITIVE_INFINITY,
     );
 
     updateElement(element.id, {
@@ -97,24 +148,26 @@ function TimeFields({ element }: { element: CanvasElement }) {
   }
 
   return (
-    <div className="grid grid-cols-2 gap-3">
+    <div className="grid grid-cols-2 gap-6">
       <NumberField
+        compact
         label="start"
         help="Clip start time in seconds on the reel timeline."
         value={element.time.start}
         min={0}
         max={duration}
         step={0.1}
-        onChange={(event) => updateTime("start", event)}
+        onValueChange={(next) => updateTime("start", next)}
       />
       <NumberField
+        compact
         label="end"
         help="Clip end time in seconds. Minimum duration is 0.5s."
         value={element.time.end}
         min={0}
-        max={duration}
+        max={10_000}
         step={0.1}
-        onChange={(event) => updateTime("end", event)}
+        onValueChange={(next) => updateTime("end", next)}
       />
     </div>
   );
@@ -122,53 +175,48 @@ function TimeFields({ element }: { element: CanvasElement }) {
 
 function BoxConfigForm({ node }: { node: BoxNode }) {
   const updateElement = useCanvasStore((state) => state.updateElement);
+  const rect = matrixToPercents(node.matrix);
 
   function updateGeometry(
     field: "x" | "y" | "width" | "height",
-    event: ChangeEvent<HTMLInputElement>,
+    next: number,
   ) {
-    const next = parseNumber(event.target.value);
-    if (next === null) {
-      return;
-    }
-
     const clamped = clampBoxBounds({
-      x: node.x,
-      y: node.y,
-      width: node.width,
-      height: node.height,
+      x: rect.left,
+      y: rect.top,
+      width: rect.width,
+      height: rect.height,
       [field]: next,
     });
 
-    updateElement(node.id, clamped);
+    updateElement(node.id, {
+      matrix: percentsToMatrix({
+        left: clamped.x,
+        top: clamped.y,
+        width: clamped.width,
+        height: clamped.height,
+      }),
+    });
   }
 
   return (
-    <div className="space-y-3 px-5 py-3">
-      <div className="grid grid-cols-2 gap-3">
-        <ReadOnlyField label="id" value={node.id} help="Stable element identifier." />
-        <ReadOnlyField label="type" value={node.type} help="Element kind." />
-      </div>
-
-      <div className="grid grid-cols-2 gap-3">
-        <label className="block space-y-1.5">
-          <FieldLabel label="label" help="Visible text shown inside the box." />
+    <div className="px-4 py-3">
+      <ConfigSection title="Content">
+        <ConfigField label="label" help="Visible text shown inside the box.">
           <input
-            className={inputClassName}
+            className={configControlClass}
             value={node.label}
             onChange={(event) =>
               updateElement(node.id, { label: event.target.value })
             }
           />
-        </label>
-
-        <label className="block space-y-1.5">
-          <FieldLabel
-            label="sublabel"
-            help="Optional supporting text shown below the main label."
-          />
+        </ConfigField>
+        <ConfigField
+          label="sublabel"
+          help="Optional supporting text shown below the main label."
+        >
           <input
-            className={inputClassName}
+            className={configControlClass}
             value={node.sublabel ?? ""}
             onChange={(event) =>
               updateElement(node.id, {
@@ -176,17 +224,16 @@ function BoxConfigForm({ node }: { node: BoxNode }) {
               })
             }
           />
-        </label>
-      </div>
+        </ConfigField>
+      </ConfigSection>
 
-      <div className="grid grid-cols-2 gap-3">
-        <label className="block space-y-1.5">
-          <FieldLabel
-            label="colorTheme"
-            help="Fill color used by the infographic box."
-          />
+      <ConfigSection title="Style">
+        <ConfigField
+          label="colorTheme"
+          help="Fill color used by the infographic box."
+        >
           <select
-            className={inputClassName}
+            className={configControlClass}
             value={node.colorTheme}
             onChange={(event) =>
               updateElement(node.id, {
@@ -200,114 +247,94 @@ function BoxConfigForm({ node }: { node: BoxNode }) {
               </option>
             ))}
           </select>
-        </label>
+        </ConfigField>
+        <SliderNumberField
+          label="fontSize"
+          help="Label text size in pixels. Sublabel scales proportionally."
+          value={node.fontSize ?? DEFAULT_BOX_FONT_SIZE}
+          min={MIN_BOX_FONT_SIZE}
+          max={MAX_BOX_FONT_SIZE}
+          step={1}
+          onValueChange={(next) =>
+            updateElement(node.id, { fontSize: clampBoxFontSize(next) })
+          }
+        />
+      </ConfigSection>
 
-        <label className="block space-y-1.5">
-          <span className="flex items-center justify-between gap-2">
-            <FieldLabel
-              label="fontSize"
-              help="Label text size in pixels. Sublabel scales proportionally."
-            />
-            <input
-              type="number"
-              min={MIN_BOX_FONT_SIZE}
-              max={MAX_BOX_FONT_SIZE}
-              step={1}
-              className="w-16 rounded-md border border-border bg-background px-2 py-0.5 font-mono text-[11px] text-foreground outline-none focus-visible:ring-1 focus-visible:ring-ring"
-              value={node.fontSize ?? DEFAULT_BOX_FONT_SIZE}
-              onChange={(event) => {
-                const next = Number(event.target.value);
-                if (Number.isNaN(next)) {
-                  return;
-                }
-                updateElement(node.id, { fontSize: clampBoxFontSize(next) });
-              }}
-            />
-          </span>
-          <input
-            type="range"
-            min={MIN_BOX_FONT_SIZE}
-            max={MAX_BOX_FONT_SIZE}
-            step={1}
-            className="h-8 w-full cursor-pointer accent-primary"
-            value={node.fontSize ?? DEFAULT_BOX_FONT_SIZE}
-            onChange={(event) =>
-              updateElement(node.id, {
-                fontSize: clampBoxFontSize(Number(event.target.value)),
-              })
-            }
+      <ConfigSection title="Layout">
+        <div className="grid grid-cols-2 gap-6">
+          <NumberField
+            compact
+            label="x"
+            help="Left edge as a percentage of canvas width (0–100)."
+            value={rect.left}
+            onValueChange={(next) => updateGeometry("x", next)}
           />
-        </label>
-      </div>
-
-      <div className="grid grid-cols-4 gap-3">
-        <NumberField
-          label="x"
-          help="Left edge as a percentage of canvas width (0–100)."
-          value={node.x}
-          onChange={(event) => updateGeometry("x", event)}
-        />
-        <NumberField
-          label="y"
-          help="Top edge as a percentage of canvas height (0–100)."
-          value={node.y}
-          onChange={(event) => updateGeometry("y", event)}
-        />
-        <NumberField
+          <NumberField
+            compact
+            label="y"
+            help="Top edge as a percentage of canvas height (0–100)."
+            value={rect.top}
+            onValueChange={(next) => updateGeometry("y", next)}
+          />
+        </div>
+        <SliderNumberField
           label="width"
           help="Box width as a percentage of canvas width (0–100)."
-          value={node.width}
-          onChange={(event) => updateGeometry("width", event)}
+          value={rect.width}
+          min={MIN_BOX_SIZE}
+          max={100}
+          step={1}
+          onValueChange={(next) => updateGeometry("width", next)}
         />
-        <NumberField
+        <SliderNumberField
           label="height"
           help="Box height as a percentage of canvas height (0–100)."
-          value={node.height}
-          onChange={(event) => updateGeometry("height", event)}
+          value={rect.height}
+          min={MIN_BOX_SIZE}
+          max={100}
+          step={1}
+          onValueChange={(next) => updateGeometry("height", next)}
         />
-      </div>
+      </ConfigSection>
 
-      <TimeFields element={node} />
+      <ConfigSection title="Timing">
+        <TimeFields element={node} />
+      </ConfigSection>
     </div>
   );
 }
 
 function NumberConfigForm({ node }: { node: NumberNode }) {
   const updateElement = useCanvasStore((state) => state.updateElement);
+  const rect = matrixToPercents(node.matrix);
 
-  function updateGeometry(
-    field: "x" | "y" | "size",
-    event: ChangeEvent<HTMLInputElement>,
-  ) {
-    const next = parseNumber(event.target.value);
-    if (next === null) {
-      return;
-    }
-
+  function updateGeometry(field: "x" | "y" | "size", next: number) {
     const clamped = clampNumberBounds({
-      x: node.x,
-      y: node.y,
-      size: node.size,
+      x: rect.left,
+      y: rect.top,
+      size: rect.width,
       [field]: next,
     });
 
-    updateElement(node.id, clamped);
+    updateElement(node.id, {
+      matrix: percentsToMatrix({
+        left: clamped.x,
+        top: clamped.y,
+        width: clamped.size,
+        height: clamped.size,
+      }),
+    });
   }
 
   return (
-    <div className="space-y-3 px-5 py-3">
-      <div className="grid grid-cols-2 gap-3">
-        <ReadOnlyField label="id" value={node.id} help="Stable element identifier." />
-        <ReadOnlyField label="type" value={node.type} help="Element kind." />
-      </div>
-
-      <div className="grid grid-cols-2 gap-3">
-        <label className="block space-y-1.5">
-          <FieldLabel label="value" help="Digit(s) shown inside the badge." />
+    <div className="px-4 py-3">
+      <ConfigSection title="Content">
+        <ConfigField label="value" help="Digit(s) shown inside the badge.">
           <input
             type="number"
             step={1}
-            className={inputClassName}
+            className={configNumberClass}
             value={node.value}
             onChange={(event) => {
               const next = parseNumber(event.target.value);
@@ -317,15 +344,13 @@ function NumberConfigForm({ node }: { node: NumberNode }) {
               updateElement(node.id, { value: next });
             }}
           />
-        </label>
-
-        <label className="block space-y-1.5">
-          <FieldLabel
-            label="colorTheme"
-            help="Fill color for the circular badge."
-          />
+        </ConfigField>
+        <ConfigField
+          label="colorTheme"
+          help="Fill color for the circular badge."
+        >
           <select
-            className={inputClassName}
+            className={configControlClass}
             value={node.colorTheme}
             onChange={(event) =>
               updateElement(node.id, {
@@ -339,31 +364,37 @@ function NumberConfigForm({ node }: { node: NumberNode }) {
               </option>
             ))}
           </select>
-        </label>
-      </div>
+        </ConfigField>
+      </ConfigSection>
 
-      <div className="grid grid-cols-3 gap-3">
-        <NumberField
-          label="x"
-          help="Left edge as a percentage of canvas width (0–100)."
-          value={node.x}
-          onChange={(event) => updateGeometry("x", event)}
-        />
-        <NumberField
-          label="y"
-          help="Top edge as a percentage of canvas height (0–100)."
-          value={node.y}
-          onChange={(event) => updateGeometry("y", event)}
-        />
+      <ConfigSection title="Layout">
+        <div className="grid grid-cols-2 gap-6">
+          <NumberField
+            compact
+            label="x"
+            help="Left edge as a percentage of canvas width (0–100)."
+            value={rect.left}
+            onValueChange={(next) => updateGeometry("x", next)}
+          />
+          <NumberField
+            compact
+            label="y"
+            help="Top edge as a percentage of canvas height (0–100)."
+            value={rect.top}
+            onValueChange={(next) => updateGeometry("y", next)}
+          />
+        </div>
         <NumberField
           label="size"
           help="Badge diameter as a percentage of canvas width (4–40)."
-          value={node.size}
-          onChange={(event) => updateGeometry("size", event)}
+          value={rect.width}
+          onValueChange={(next) => updateGeometry("size", next)}
         />
-      </div>
+      </ConfigSection>
 
-      <TimeFields element={node} />
+      <ConfigSection title="Timing">
+        <TimeFields element={node} />
+      </ConfigSection>
     </div>
   );
 }
@@ -378,17 +409,11 @@ function ArrowConfigForm({
   const updateElement = useCanvasStore((state) => state.updateElement);
 
   return (
-    <div className="space-y-3 px-5 py-3">
-      <div className="grid grid-cols-2 gap-3">
-        <ReadOnlyField label="id" value={node.id} help="Stable element identifier." />
-        <ReadOnlyField label="type" value={node.type} help="Element kind." />
-      </div>
-
-      <div className="grid grid-cols-3 gap-3">
-        <label className="block space-y-1.5">
-          <FieldLabel label="sourceId" help="Box this arrow starts from." />
+    <div className="px-4 py-3">
+      <ConfigSection title="Connection">
+        <ConfigField label="sourceId" help="Box this arrow starts from.">
           <select
-            className={inputClassName}
+            className={configControlClass}
             value={node.sourceId}
             onChange={(event) =>
               updateElement(node.id, { sourceId: event.target.value })
@@ -400,12 +425,10 @@ function ArrowConfigForm({
               </option>
             ))}
           </select>
-        </label>
-
-        <label className="block space-y-1.5">
-          <FieldLabel label="targetId" help="Box this arrow points to." />
+        </ConfigField>
+        <ConfigField label="targetId" help="Box this arrow points to.">
           <select
-            className={inputClassName}
+            className={configControlClass}
             value={node.targetId}
             onChange={(event) =>
               updateElement(node.id, { targetId: event.target.value })
@@ -417,15 +440,13 @@ function ArrowConfigForm({
               </option>
             ))}
           </select>
-        </label>
-
-        <label className="block space-y-1.5">
-          <FieldLabel
-            label="variant"
-            help="Use a continuous or dotted-style dashed connection."
-          />
+        </ConfigField>
+        <ConfigField
+          label="variant"
+          help="Use a continuous or dotted-style dashed connection."
+        >
           <select
-            className={inputClassName}
+            className={configControlClass}
             value={node.variant ?? "solid"}
             onChange={(event) =>
               updateElement(node.id, {
@@ -436,29 +457,12 @@ function ArrowConfigForm({
             <option value="solid">solid</option>
             <option value="dashed">dashed</option>
           </select>
-        </label>
-      </div>
+        </ConfigField>
+      </ConfigSection>
 
-      <TimeFields element={node} />
-    </div>
-  );
-}
-
-function ReadOnlyField({
-  label,
-  value,
-  help,
-}: {
-  label: string;
-  value: string;
-  help: string;
-}) {
-  return (
-    <div className="space-y-1.5">
-      <FieldLabel label={label} help={help} />
-      <div className="rounded-md border border-border/70 bg-muted/40 px-2 py-1.5 font-mono text-[11px] text-muted-foreground">
-        {value}
-      </div>
+      <ConfigSection title="Timing">
+        <TimeFields element={node} />
+      </ConfigSection>
     </div>
   );
 }
@@ -467,36 +471,98 @@ function NumberField({
   label,
   help,
   value,
-  onChange,
+  onValueChange,
   min = 0,
   max = 100,
   step = 1,
+  compact = false,
 }: {
   label: string;
   help: string;
   value: number;
-  onChange: (event: ChangeEvent<HTMLInputElement>) => void;
+  onValueChange: (value: number) => void;
   min?: number;
   max?: number;
   step?: number;
+  compact?: boolean;
 }) {
   return (
-    <label className="block space-y-1.5">
-      <FieldLabel label={label} help={help} />
+    <ConfigField label={label} help={help} compact={compact}>
       <input
         type="number"
         min={min}
         max={max}
         step={step}
-        className={inputClassName}
+        className={configNumberClass}
         value={value}
-        onChange={onChange}
+        onChange={(event) => {
+          const next = parseNumber(event.target.value);
+          if (next === null) {
+            return;
+          }
+          onValueChange(next);
+        }}
       />
-    </label>
+    </ConfigField>
   );
 }
 
-export function SchemaInspector({ width }: { width: number }) {
+function SliderNumberField({
+  label,
+  help,
+  value,
+  min,
+  max,
+  step,
+  onValueChange,
+}: {
+  label: string;
+  help: string;
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  onValueChange: (value: number) => void;
+}) {
+  return (
+    <ConfigField label={label} help={help}>
+      <div className="flex items-center gap-2">
+        <input
+          type="number"
+          min={min}
+          max={max}
+          step={step}
+          className={cn(configNumberClass, "w-16 shrink-0")}
+          value={value}
+          onChange={(event) => {
+            const next = parseNumber(event.target.value);
+            if (next === null) {
+              return;
+            }
+            onValueChange(next);
+          }}
+        />
+        <input
+          type="range"
+          min={min}
+          max={max}
+          step={step}
+          className="h-8 w-full min-w-0 flex-1 cursor-pointer accent-primary"
+          value={value}
+          onChange={(event) => onValueChange(Number(event.target.value))}
+        />
+      </div>
+    </ConfigField>
+  );
+}
+
+export function SchemaInspector({
+  projectName = "krayon-reel",
+  onProjectNameChange,
+}: {
+  projectName?: string;
+  onProjectNameChange?: (name: string) => void;
+}) {
   const elements = useCanvasStore((state) => state.elements);
   const selectedId = useCanvasStore((state) => state.selectedId);
   const selectElement = useCanvasStore((state) => state.selectElement);
@@ -513,10 +579,7 @@ export function SchemaInspector({ width }: { width: number }) {
   }, [selectedId]);
 
   return (
-    <aside
-      className="flex h-full min-h-0 shrink-0 flex-col border-l border-border bg-card"
-      style={{ width }}
-    >
+    <aside className="flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden rounded-xl border border-border bg-muted/30">
       <nav
         aria-label="Inspector"
         className="flex shrink-0 items-center gap-1 border-b border-border px-2"
@@ -533,6 +596,21 @@ export function SchemaInspector({ width }: { width: number }) {
           onClick={() => setTab("json")}
           icon={Braces}
         />
+        <div className="ml-auto flex min-w-0 max-w-[18rem] items-center gap-2">
+          <label
+            htmlFor="project-name"
+            className="shrink-0 text-[16px] font-medium text-muted-foreground"
+          >
+            Project name
+          </label>
+          <Input
+            id="project-name"
+            placeholder="krayon-reel"
+            value={projectName}
+            onValueChange={(value) => onProjectNameChange?.(value)}
+            className="h-8 min-w-0 border-transparent bg-transparent px-2 text-sm font-semibold tracking-tight shadow-none hover:border-border focus-visible:border-ring"
+          />
+        </div>
       </nav>
 
       {tab === "config" && selected ? (
@@ -575,30 +653,100 @@ export function SchemaInspector({ width }: { width: number }) {
         </div>
       ) : null}
 
-      <ScrollArea className="min-h-0 flex-1">
-        {tab === "json" ? (
-          <pre className="select-text p-5 font-mono text-[11px] leading-5 text-muted-foreground">
-            {JSON.stringify(elements, null, 2)}
-          </pre>
-        ) : selected && isBoxNode(selected) ? (
-          <BoxConfigForm node={selected} />
-        ) : selected && isNumberNode(selected) ? (
-          <NumberConfigForm node={selected} />
-        ) : selected && isArrowNode(selected) ? (
-          <ArrowConfigForm
-            node={selected}
-            boxIds={boxes.map((box) => box.id)}
-          />
-        ) : (
-          <ElementList
-            elements={elements}
-            query={query}
-            currentTime={currentTime}
-            onSelect={selectElement}
-          />
-        )}
-      </ScrollArea>
+      {tab === "json" ? (
+        <div className="min-h-0 flex-1">
+          <JsonEditor elements={elements} />
+        </div>
+      ) : (
+        <ScrollArea className="min-h-0 flex-1">
+          {selected && isBoxNode(selected) ? (
+            <BoxConfigForm node={selected} />
+          ) : selected && isNumberNode(selected) ? (
+            <NumberConfigForm node={selected} />
+          ) : selected && isArrowNode(selected) ? (
+            <ArrowConfigForm
+              node={selected}
+              boxIds={boxes.map((box) => box.id)}
+            />
+          ) : (
+            <ElementList
+              elements={elements}
+              query={query}
+              currentTime={currentTime}
+              onSelect={selectElement}
+            />
+          )}
+        </ScrollArea>
+      )}
     </aside>
+  );
+}
+
+function JsonEditor({ elements }: { elements: CanvasElement[] }) {
+  const setElements = useCanvasStore((state) => state.setElements);
+  const canonical = JSON.stringify(elements, null, 2);
+  const [draft, setDraft] = useState(canonical);
+  const [dirty, setDirty] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!dirty) {
+      setDraft(canonical);
+    }
+  }, [canonical, dirty]);
+
+  function applyDraft() {
+    const parsed = parseCanvasElementsJson(draft);
+    if (!parsed.ok) {
+      setError(parsed.error);
+      return;
+    }
+    setError(null);
+    setDirty(false);
+    setElements(parsed.elements);
+  }
+
+  return (
+    <div className="flex h-full min-h-[240px] flex-col">
+      <div className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-2">
+        <button
+          type="button"
+          className="inline-flex h-7 items-center gap-1.5 rounded-md border border-border px-2 text-xs font-medium text-foreground hover:bg-muted"
+          onClick={() => {
+            void navigator.clipboard.writeText(draft).then(() => {
+              toast("Copied JSON");
+            });
+          }}
+        >
+          <Copy className="size-3.5" />
+          Copy
+        </button>
+        {error ? (
+          <p className="min-w-0 truncate text-[11px] text-destructive">{error}</p>
+        ) : (
+          <p className="text-[11px] text-muted-foreground">
+            Blur or Cmd/Ctrl+Enter to apply
+          </p>
+        )}
+      </div>
+      <textarea
+        aria-label="Scene JSON"
+        spellCheck={false}
+        className="min-h-0 flex-1 resize-none bg-background p-4 font-mono text-[11px] leading-5 text-foreground outline-none"
+        value={draft}
+        onChange={(event) => {
+          setDirty(true);
+          setDraft(event.target.value);
+        }}
+        onBlur={applyDraft}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+            event.preventDefault();
+            applyDraft();
+          }
+        }}
+      />
+    </div>
   );
 }
 
@@ -677,7 +825,7 @@ function ElementList({
   }
 
   return (
-    <ul className="space-y-1 p-2">
+    <ul className="grid grid-cols-1 gap-1 p-2 sm:grid-cols-2">
       {visible.map((element) => {
         const active = isElementActiveAt(element.time, currentTime);
         return (

@@ -2,7 +2,6 @@ import {
   isBoxNode,
   type BoxNode,
   type CanvasElement,
-  type NumberNode,
 } from "@/types/canvas";
 
 export interface ArrowGeometry {
@@ -12,8 +11,26 @@ export interface ArrowGeometry {
   y2: number;
 }
 
+export interface PercentRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface PercentCircle {
+  x: number;
+  y: number;
+  size: number;
+}
+
+export const MATRIX_COLS = 18;
+export const MATRIX_ROWS = 32;
+export const CELL_WIDTH = 100 / MATRIX_COLS;
+export const CELL_HEIGHT = 100 / MATRIX_ROWS;
+
 const ENDPOINT_GAP = 0.75;
-const MIN_BOX_SIZE = 4;
+export const MIN_BOX_SIZE = 4;
 const MIN_NUMBER_SIZE = 4;
 const MAX_NUMBER_SIZE = 40;
 const REEL_ASPECT = 9 / 16;
@@ -26,10 +43,60 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
 
+export function normalizeMatrix(
+  matrix: readonly number[],
+): [number, number, number, number] {
+  if (matrix.length === 2) {
+    const x = matrix[0] ?? 0;
+    const y = matrix[1] ?? 0;
+    return [x, y, x, y];
+  }
+  return [
+    matrix[0] ?? 0,
+    matrix[1] ?? 0,
+    matrix[2] ?? matrix[0] ?? 0,
+    matrix[3] ?? matrix[1] ?? 0,
+  ];
+}
+
+export function matrixToPercents(matrix: readonly number[]): {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+} {
+  const [x1, y1, x2, y2] = normalizeMatrix(matrix);
+  return {
+    left: x1 * CELL_WIDTH,
+    top: y1 * CELL_HEIGHT,
+    width: (x2 - x1 + 1) * CELL_WIDTH,
+    height: (y2 - y1 + 1) * CELL_HEIGHT,
+  };
+}
+
+export function percentsToMatrix(rect: {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}): [number, number, number, number] {
+  const x1 = clamp(Math.round(rect.left / CELL_WIDTH), 0, MATRIX_COLS - 1);
+  const y1 = clamp(Math.round(rect.top / CELL_HEIGHT), 0, MATRIX_ROWS - 1);
+  const cols = clamp(
+    Math.round(rect.width / CELL_WIDTH),
+    1,
+    MATRIX_COLS - x1,
+  );
+  const rows = clamp(
+    Math.round(rect.height / CELL_HEIGHT),
+    1,
+    MATRIX_ROWS - y1,
+  );
+  return [x1, y1, x1 + cols - 1, y1 + rows - 1];
+}
+
 /** Keep a box fully inside the 0–100% canvas frame. */
-export function clampBoxBounds(
-  box: Pick<BoxNode, "x" | "y" | "width" | "height">,
-): Pick<BoxNode, "x" | "y" | "width" | "height"> {
+export function clampBoxBounds(box: PercentRect): PercentRect {
   const width = roundPercent(clamp(box.width, MIN_BOX_SIZE, 100));
   const height = roundPercent(clamp(box.height, MIN_BOX_SIZE, 100));
   const x = roundPercent(clamp(box.x, 0, 100 - width));
@@ -39,9 +106,7 @@ export function clampBoxBounds(
 }
 
 /** Keep a circular number badge fully inside the 9:16 canvas frame. */
-export function clampNumberBounds(
-  node: Pick<NumberNode, "x" | "y" | "size">,
-): Pick<NumberNode, "x" | "y" | "size"> {
+export function clampNumberBounds(node: PercentCircle): PercentCircle {
   const size = roundPercent(clamp(node.size, MIN_NUMBER_SIZE, MAX_NUMBER_SIZE));
   const heightPercent = size * REEL_ASPECT;
   const x = roundPercent(clamp(node.x, 0, 100 - size));
@@ -61,10 +126,7 @@ export function clampBoxFontSize(value: number): number {
 export const ZOOM_FACTOR = 1.08;
 
 /** Scale a box around its center, then clamp inside the canvas. */
-export function scaleBox(
-  box: Pick<BoxNode, "x" | "y" | "width" | "height">,
-  factor: number,
-): Pick<BoxNode, "x" | "y" | "width" | "height"> {
+export function scaleBox(box: PercentRect, factor: number): PercentRect {
   const centerX = box.x + box.width / 2;
   const centerY = box.y + box.height / 2;
   const width = box.width * factor;
@@ -79,10 +141,7 @@ export function scaleBox(
 }
 
 /** Scale a number badge around its center, then clamp inside the canvas. */
-export function scaleNumber(
-  node: Pick<NumberNode, "x" | "y" | "size">,
-  factor: number,
-): Pick<NumberNode, "x" | "y" | "size"> {
+export function scaleNumber(node: PercentCircle, factor: number): PercentCircle {
   const centerX = node.x + node.size / 2;
   const centerY = node.y + (node.size * REEL_ASPECT) / 2;
   const size = node.size * factor;
@@ -94,11 +153,15 @@ export function scaleNumber(
   });
 }
 
-function getRectIntersectionScale(box: BoxNode, dx: number, dy: number) {
+function getRectIntersectionScale(
+  rect: { width: number; height: number },
+  dx: number,
+  dy: number,
+) {
   const horizontalScale =
-    dx === 0 ? Number.POSITIVE_INFINITY : box.width / 2 / Math.abs(dx);
+    dx === 0 ? Number.POSITIVE_INFINITY : rect.width / 2 / Math.abs(dx);
   const verticalScale =
-    dy === 0 ? Number.POSITIVE_INFINITY : box.height / 2 / Math.abs(dy);
+    dy === 0 ? Number.POSITIVE_INFINITY : rect.height / 2 / Math.abs(dy);
 
   return Math.min(horizontalScale, verticalScale);
 }
@@ -116,13 +179,15 @@ export function getArrowGeometry(
   source: BoxNode,
   target: BoxNode,
 ): ArrowGeometry | null {
+  const sourceRect = matrixToPercents(source.matrix);
+  const targetRect = matrixToPercents(target.matrix);
   const sourceCenter = {
-    x: source.x + source.width / 2,
-    y: source.y + source.height / 2,
+    x: sourceRect.left + sourceRect.width / 2,
+    y: sourceRect.top + sourceRect.height / 2,
   };
   const targetCenter = {
-    x: target.x + target.width / 2,
-    y: target.y + target.height / 2,
+    x: targetRect.left + targetRect.width / 2,
+    y: targetRect.top + targetRect.height / 2,
   };
 
   const dx = targetCenter.x - sourceCenter.x;
@@ -133,8 +198,8 @@ export function getArrowGeometry(
     return null;
   }
 
-  const sourceScale = getRectIntersectionScale(source, dx, dy);
-  const targetScale = getRectIntersectionScale(target, dx, dy);
+  const sourceScale = getRectIntersectionScale(sourceRect, dx, dy);
+  const targetScale = getRectIntersectionScale(targetRect, dx, dy);
   const unitX = dx / distance;
   const unitY = dy / distance;
 

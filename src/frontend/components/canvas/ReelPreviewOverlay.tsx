@@ -1,15 +1,10 @@
 import {
   Camera,
-  Clapperboard,
   Ellipsis,
   Heart,
-  Home,
   MessageCircle,
   Plus,
-  Search,
   Send,
-  ShoppingBag,
-  User,
 } from "lucide-react";
 
 const drop = "text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.65)]";
@@ -72,7 +67,7 @@ export function ReelPreviewOverlay() {
         <div className="mt-[0.4cqh] size-[8cqw] overflow-hidden rounded-[1.6cqw] border border-white/70 bg-white/25 shadow-[0_1px_4px_rgba(0,0,0,0.4)]" />
       </div>
 
-      <div className="absolute right-[18%] bottom-[11%] left-[4%]">
+      <div className="absolute right-[18%] bottom-[4%] left-[4%]">
         <div className="flex items-center gap-[2cqw]">
           <div className="size-[8.5cqw] shrink-0 rounded-full border-[0.5cqw] border-white/90 bg-white/30" />
           <span className={`truncate text-[3.4cqw] font-semibold ${drop}`}>
@@ -92,16 +87,7 @@ export function ReelPreviewOverlay() {
         </p>
       </div>
 
-      <div className="absolute inset-x-[4%] bottom-[8.4%] h-[0.28%] rounded-full bg-white/55" />
-
-      <div className="absolute inset-x-0 bottom-0 flex h-[7.6%] items-center justify-around bg-black/55 px-[2%]">
-        <Home className={`${icon} ${drop}`} />
-        <Search className={`${icon} ${drop}`} />
-        <Clapperboard className={`${icon} ${drop}`} />
-        <ShoppingBag className={`${icon} ${drop}`} />
-        <User className={`${icon} ${drop}`} />
-      </div>
-      <div className="absolute bottom-[1.1%] left-1/2 h-[0.55%] w-[28%] -translate-x-1/2 rounded-full bg-white/80" />
+      <div className="absolute inset-x-[4%] bottom-[2%] h-[0.28%] rounded-full bg-white/55" />
     </div>
   );
 }

@@ -5,11 +5,11 @@ import {
   type RefObject,
 } from "react";
 
-import { clampNumberBounds, scaleNumber, ZOOM_FACTOR } from "@/lib/canvas-geometry";
+import { clampNumberBounds, matrixToPercents, percentsToMatrix, scaleNumber, ZOOM_FACTOR } from "@/lib/canvas-geometry";
 import { isZoomInKey, isZoomOutKey } from "@/lib/canvas-keyboard";
 import {
-  isScalidrawTheme,
-  scalidrawStroke,
+  isCalidrawTheme,
+  calidrawStroke,
 } from "@/lib/render-theme";
 import { cn } from "@/lib/utils";
 import { useCanvasStore } from "@/stores/canvas-store";
@@ -53,10 +53,11 @@ export function NumberComponent({
   const selectElement = useCanvasStore((state) => state.selectElement);
   const updateElement = useCanvasStore((state) => state.updateElement);
   const renderTheme = useCanvasStore((state) => state.renderTheme);
-  const scalidraw = isScalidrawTheme(renderTheme);
-  const stroke = scalidrawStroke(node.colorTheme, renderTheme);
-  const ink = renderTheme === "scalidraw-dark" ? "#f0f0f0" : "#1a1a1a";
-  const fill = renderTheme === "scalidraw-dark" ? "#1a1a1a" : "#ffffff";
+  const calidraw = isCalidrawTheme(renderTheme);
+  const stroke = calidrawStroke(node.colorTheme, renderTheme);
+  const ink = renderTheme === "calidraw-dark" ? "#f0f0f0" : "#1a1a1a";
+  const fill = renderTheme === "calidraw-dark" ? "#1a1a1a" : "#ffffff";
+  const rect = matrixToPercents(node.matrix);
   const dragOffset = useRef<{
     pointerId: number;
     dx: number;
@@ -79,14 +80,26 @@ export function NumberComponent({
     const next = clampNumberBounds({
       x,
       y,
-      size: node.size,
+      size: rect.width,
+    });
+    const matrix = percentsToMatrix({
+      left: next.x,
+      top: next.y,
+      width: next.size,
+      height: next.size,
+    });
+    const current = percentsToMatrix({
+      left: rect.left,
+      top: rect.top,
+      width: rect.width,
+      height: rect.width,
     });
 
-    if (next.x === node.x && next.y === node.y) {
+    if (matrix.every((value, index) => value === current[index])) {
       return;
     }
 
-    updateElement(node.id, { x: next.x, y: next.y });
+    updateElement(node.id, { matrix });
   }
 
   function handlePointerDown(event: PointerEvent<HTMLDivElement>) {
@@ -105,8 +118,8 @@ export function NumberComponent({
 
     dragOffset.current = {
       pointerId: event.pointerId,
-      dx: pointer.x - node.x,
-      dy: pointer.y - node.y,
+      dx: pointer.x - rect.left,
+      dy: pointer.y - rect.top,
     };
     event.currentTarget.setPointerCapture(event.pointerId);
     beginTimelineHistoryTransaction();
@@ -150,17 +163,24 @@ export function NumberComponent({
     if (isZoomInKey(event) || isZoomOutKey(event)) {
       event.preventDefault();
       event.stopPropagation();
-      const next = scaleNumber(
-        node,
+      const scaled = scaleNumber(
+        { x: rect.left, y: rect.top, size: rect.width },
         isZoomInKey(event) ? ZOOM_FACTOR : 1 / ZOOM_FACTOR,
       );
-      updateElement(node.id, next);
+      updateElement(node.id, {
+        matrix: percentsToMatrix({
+          left: scaled.x,
+          top: scaled.y,
+          width: scaled.size,
+          height: scaled.size,
+        }),
+      });
       return;
     }
 
     const step = event.shiftKey ? NUDGE_STEP_SHIFT : NUDGE_STEP;
-    let nextX = node.x;
-    let nextY = node.y;
+    let nextX = rect.left;
+    let nextY = rect.top;
 
     switch (event.key) {
       case "ArrowLeft":
@@ -193,9 +213,9 @@ export function NumberComponent({
       aria-pressed={selected}
       aria-label={`Select and drag number ${node.value}`}
       style={{
-        left: `${node.x}%`,
-        top: `${node.y}%`,
-        width: `${node.size}%`,
+        left: `${rect.left}%`,
+        top: `${rect.top}%`,
+        width: `${rect.width}%`,
         aspectRatio: "1",
         zIndex: 100 - node.time.track,
       }}
@@ -209,8 +229,8 @@ export function NumberComponent({
       <div
         className={cn(
           "flex size-full items-center justify-center text-sm font-bold",
-          scalidraw
-            ? "relative rounded-none border-0 bg-transparent font-scalidraw"
+          calidraw
+            ? "relative rounded-none border-0 bg-transparent font-calidraw"
             : cn(
                 "rounded-full border-2 border-canvas-ink font-canvas",
                 themeStyles[node.colorTheme],
@@ -218,9 +238,9 @@ export function NumberComponent({
           selected &&
             "ring-2 ring-primary ring-offset-2 ring-offset-canvas-surface",
         )}
-        style={scalidraw ? { color: ink } : undefined}
+        style={calidraw ? { color: ink } : undefined}
       >
-        {scalidraw ? (
+        {calidraw ? (
           <SketchFrame id={node.id} kind="circle" stroke={stroke} fill={fill} />
         ) : null}
         <span className="relative z-[1]">{node.value}</span>

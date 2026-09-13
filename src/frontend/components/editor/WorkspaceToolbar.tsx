@@ -1,4 +1,5 @@
 import {
+  ArrowLeft,
   Download,
   Layers,
   SlidersHorizontal,
@@ -6,14 +7,16 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import type { ReactNode } from "react";
+import { Link } from "react-router-dom";
 
 import { RENDER_THEMES, type RenderTheme } from "@/lib/render-theme";
 import { cn } from "@/lib/utils";
 
 const THEME_SWATCH: Record<RenderTheme, string> = {
   bright: "bg-canvas-violet",
-  "scalidraw-light": "bg-canvas-surface",
-  "scalidraw-dark": "bg-canvas-ink",
+  dark: "bg-[#4b3a6d]",
+  "calidraw-light": "bg-white",
+  "calidraw-dark": "bg-canvas-ink",
 };
 
 export interface WorkspaceToolbarProps {
@@ -26,7 +29,6 @@ export interface WorkspaceToolbarProps {
   renderTheme: RenderTheme;
   onRenderThemeChange: (theme: RenderTheme) => void;
   exporting: boolean;
-  exportProgress: number | null;
   onExport: () => void;
 }
 
@@ -40,11 +42,20 @@ export function WorkspaceToolbar({
   renderTheme,
   onRenderThemeChange,
   exporting,
-  exportProgress,
   onExport,
 }: WorkspaceToolbarProps) {
   return (
     <div className="flex h-11 shrink-0 items-center gap-2 overflow-x-auto border-b border-border bg-card px-2">
+      <Link
+        to="/"
+        className="flex shrink-0 items-center gap-1.5 px-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
+      >
+        <ArrowLeft className="size-3.5" />
+        Back to home
+      </Link>
+
+      <span aria-hidden className="h-5 w-px shrink-0 bg-border" />
+
       <SegmentGroup label="Panels">
         <Segment
           label="Timeline"
@@ -84,20 +95,11 @@ export function WorkspaceToolbar({
         type="button"
         disabled={exporting}
         onClick={onExport}
-        className="relative ml-auto flex h-8 shrink-0 items-center overflow-hidden rounded-lg bg-foreground px-3 text-xs font-medium text-background transition-colors hover:bg-foreground/85 focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none disabled:cursor-default disabled:hover:bg-foreground"
+        className="ml-auto flex h-8 shrink-0 items-center rounded-lg bg-foreground px-3 text-xs font-medium text-background transition-colors hover:bg-foreground/85 focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none disabled:cursor-default disabled:hover:bg-foreground"
       >
-        {exportProgress === null ? null : (
-          <span
-            aria-hidden
-            className="absolute inset-y-0 left-0 bg-background/25 transition-[width]"
-            style={{ width: `${Math.round(exportProgress * 100)}%` }}
-          />
-        )}
-        <span className="relative flex items-center gap-1.5">
+        <span className="flex items-center gap-1.5">
           <Download className="size-3.5" />
-          {exportProgress === null
-            ? "Export MP4"
-            : `Exporting ${Math.round(exportProgress * 100)}%`}
+          Export MP4
         </span>
       </button>
     </div>

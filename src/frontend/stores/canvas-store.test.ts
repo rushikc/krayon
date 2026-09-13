@@ -1,14 +1,22 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
 import {
+  CELL_HEIGHT,
+  CELL_WIDTH,
   clampBoxBounds,
   clampBoxFontSize,
   clampNumberBounds,
   getArrowGeometry,
+  matrixToPercents,
+  percentsToMatrix,
   scaleBox,
 } from "@/lib/canvas-geometry";
 import { isZoomInKey, isZoomKey, isZoomOutKey } from "@/lib/canvas-keyboard";
-import { useCanvasStore } from "@/stores/canvas-store";
+import {
+  durationFromElements,
+  lastVisibleTime,
+  useCanvasStore,
+} from "@/stores/canvas-store";
 import {
   getElementLabel,
   isArrowNode,
@@ -63,8 +71,38 @@ describe("canvas seed scene", () => {
   });
 
   it("rejects duration below 1s", () => {
-    useCanvasStore.getState().setDuration(0);
-    expect(useCanvasStore.getState().duration).toBe(1);
+    expect(durationFromElements([])).toBe(1);
+    expect(
+      durationFromElements([
+        {
+          id: "n",
+          type: "number",
+          matrix: [0, 0],
+          value: 1,
+          colorTheme: "ink",
+          time: { start: 0, end: 0, track: 0 },
+        },
+      ]),
+    ).toBe(1);
+  });
+
+  it("grows duration to the latest element end", () => {
+    const store = useCanvasStore.getState();
+    store.setElements([
+      {
+        id: "headline",
+        type: "box",
+        matrix: [1, 3, 16, 5],
+        label: "Headline",
+        colorTheme: "ink",
+        time: { start: 0, end: 80, track: 2 },
+      },
+    ]);
+    expect(useCanvasStore.getState().duration).toBe(80);
+    expect(useCanvasStore.getState().currentTime).toBeLessThan(80);
+    expect(useCanvasStore.getState().currentTime).toBeLessThanOrEqual(
+      lastVisibleTime(80),
+    );
   });
 
   it("plays from the marker and restarts at the end", () => {
@@ -137,13 +175,35 @@ describe("canvas seed scene", () => {
   it("changes render theme without recording history or mutating JSON", () => {
     const store = useCanvasStore.getState();
     const json = JSON.stringify(store.elements);
-    store.setRenderTheme("scalidraw-dark");
-    expect(useCanvasStore.getState().renderTheme).toBe("scalidraw-dark");
+    store.setRenderTheme("calidraw-dark");
+    expect(useCanvasStore.getState().renderTheme).toBe("calidraw-dark");
     expect(JSON.stringify(useCanvasStore.getState().elements)).toBe(json);
     store.undo();
-    expect(useCanvasStore.getState().renderTheme).toBe("scalidraw-dark");
+    expect(useCanvasStore.getState().renderTheme).toBe("calidraw-dark");
     store.reset();
     expect(useCanvasStore.getState().renderTheme).toBe("bright");
+  });
+
+  it("deletes the selected element without removing connected arrows", () => {
+    const store = useCanvasStore.getState();
+    store.selectElement("lambda");
+    store.deleteSelectedElement();
+    const next = useCanvasStore.getState();
+    expect(next.elements.find((el) => el.id === "lambda")).toBeUndefined();
+    expect(next.elements.find((el) => el.id === "gw-to-lambda")).toBeDefined();
+    expect(next.elements.find((el) => el.id === "lambda-to-dynamo")).toBeDefined();
+    expect(next.selectedId).toBeNull();
+
+    store.undo();
+    expect(useCanvasStore.getState().elements.find((el) => el.id === "lambda")).toBeDefined();
+    expect(useCanvasStore.getState().selectedId).toBe("lambda");
+  });
+
+  it("does nothing when deleting with no selection", () => {
+    const store = useCanvasStore.getState();
+    const before = store.elements;
+    store.deleteSelectedElement();
+    expect(useCanvasStore.getState().elements).toBe(before);
   });
 });
 
@@ -172,14 +232,35 @@ describe("canvas geometry", () => {
     expect(scaled.y).toBe(30);
   });
 
+  it("maps inclusive grid cells to percent of the reel", () => {
+    expect(matrixToPercents([0, 0, 0, 0])).toEqual({
+      left: 0,
+      top: 0,
+      width: CELL_WIDTH,
+      height: CELL_HEIGHT,
+    });
+    expect(matrixToPercents([0, 1])).toEqual(matrixToPercents([0, 1, 0, 1]));
+    expect(matrixToPercents([2, 1, 15, 3])).toEqual({
+      left: 2 * CELL_WIDTH,
+      top: 1 * CELL_HEIGHT,
+      width: 14 * CELL_WIDTH,
+      height: 3 * CELL_HEIGHT,
+    });
+    expect(
+      percentsToMatrix({
+        left: 2 * CELL_WIDTH,
+        top: 1 * CELL_HEIGHT,
+        width: 14 * CELL_WIDTH,
+        height: 3 * CELL_HEIGHT,
+      }),
+    ).toEqual([2, 1, 15, 3]);
+  });
+
   it("builds arrow endpoints that do not sit on box centers", () => {
     const source = {
       id: "a",
       type: "box" as const,
-      x: 10,
-      y: 10,
-      width: 20,
-      height: 10,
+      matrix: [2, 3, 5, 5] as const,
       label: "A",
       colorTheme: "ink" as const,
       time: { start: 0, end: 10, track: 0 },
@@ -187,13 +268,15 @@ describe("canvas geometry", () => {
     const target = {
       ...source,
       id: "b",
-      y: 50,
+      matrix: [2, 16, 5, 18] as const,
       label: "B",
     };
     const geom = getArrowGeometry(source, target);
+    const sourceRect = matrixToPercents(source.matrix);
+    const targetRect = matrixToPercents(target.matrix);
     expect(geom).not.toBeNull();
-    expect(geom!.y1).toBeGreaterThan(source.y);
-    expect(geom!.y2).toBeLessThan(target.y + target.height);
+    expect(geom!.y1).toBeGreaterThan(sourceRect.top);
+    expect(geom!.y2).toBeLessThan(targetRect.top + targetRect.height);
   });
 
   it("clamps box font size", () => {
@@ -208,10 +291,7 @@ describe("element labels and zoom keys", () => {
       getElementLabel({
         id: "b",
         type: "box",
-        x: 0,
-        y: 0,
-        width: 10,
-        height: 10,
+        matrix: [0, 0, 1, 3],
         label: "API Gateway",
         colorTheme: "violet",
         time: { start: 0, end: 10, track: 0 },
@@ -221,9 +301,7 @@ describe("element labels and zoom keys", () => {
       getElementLabel({
         id: "n",
         type: "number",
-        x: 0,
-        y: 0,
-        size: 10,
+        matrix: [0, 0],
         value: 2,
         colorTheme: "ink",
         time: { start: 0, end: 10, track: 0 },

@@ -3,7 +3,13 @@ import { create } from "zustand";
 import { clamp } from "@/components/editor/timeline/lib/clamp";
 import { cutElementsAtTime } from "@/components/editor/timeline/lib/cutAtTime";
 import type { RenderTheme } from "@/lib/render-theme";
+import {
+  durationFromElements,
+  lastVisibleTime,
+} from "@/lib/reel-duration";
 import type { CanvasElement } from "@/types/canvas";
+
+export { durationFromElements, lastVisibleTime } from "@/lib/reel-duration";
 
 import {
   popTimelineHistoryRedo,
@@ -25,7 +31,6 @@ interface CanvasState {
   setElements: (elements: CanvasElement[]) => void;
   selectElement: (id: string | null) => void;
   updateElement: (id: string, patch: Partial<CanvasElement>) => void;
-  setDuration: (duration: number) => void;
   setCurrentTime: (time: number) => void;
   setRenderTheme: (theme: RenderTheme) => void;
   play: () => void;
@@ -33,23 +38,20 @@ interface CanvasState {
   togglePlayback: () => void;
   addTrack: () => void;
   deleteTrack: (index: number) => void;
+  deleteSelectedElement: () => void;
   cutAtPlayhead: () => void;
   undo: () => void;
   redo: () => void;
   reset: () => void;
 }
 
-const DEFAULT_DURATION = 30;
 export const DEFAULT_TRACK_COUNT = 10;
 
 const initialElements: CanvasElement[] = [
   {
     id: "client",
     type: "box",
-    x: 12,
-    y: 3,
-    width: 76,
-    height: 10,
+    matrix: [2, 1, 15, 3],
     label: "Client",
     colorTheme: "sky",
     time: { start: 0.4, end: 30, track: 2 },
@@ -57,9 +59,7 @@ const initialElements: CanvasElement[] = [
   {
     id: "step-1",
     type: "number",
-    x: 2,
-    y: 3,
-    size: 9,
+    matrix: [0, 1, 1, 2],
     value: 1,
     colorTheme: "ink",
     time: { start: 0, end: 3, track: 1 },
@@ -67,10 +67,7 @@ const initialElements: CanvasElement[] = [
   {
     id: "api-gateway",
     type: "box",
-    x: 12,
-    y: 16,
-    width: 76,
-    height: 11,
+    matrix: [2, 5, 15, 7],
     label: "API Gateway",
     colorTheme: "violet",
     time: { start: 1, end: 30, track: 3 },
@@ -86,9 +83,7 @@ const initialElements: CanvasElement[] = [
   {
     id: "step-2",
     type: "number",
-    x: 2,
-    y: 16,
-    size: 9,
+    matrix: [0, 5, 1, 6],
     value: 2,
     colorTheme: "ink",
     time: { start: 3.5, end: 6.5, track: 1 },
@@ -96,10 +91,7 @@ const initialElements: CanvasElement[] = [
   {
     id: "lambda",
     type: "box",
-    x: 12,
-    y: 32,
-    width: 76,
-    height: 11,
+    matrix: [2, 10, 15, 12],
     label: "Lambda Function",
     colorTheme: "green",
     time: { start: 5, end: 30, track: 4 },
@@ -115,10 +107,7 @@ const initialElements: CanvasElement[] = [
   {
     id: "callout-rest",
     type: "box",
-    x: 58,
-    y: 28,
-    width: 36,
-    height: 8,
+    matrix: [10, 9, 16, 11],
     label: "REST + WS",
     colorTheme: "lavender",
     fontSize: 12,
@@ -127,9 +116,7 @@ const initialElements: CanvasElement[] = [
   {
     id: "step-3",
     type: "number",
-    x: 2,
-    y: 32,
-    size: 9,
+    matrix: [0, 10, 1, 11],
     value: 3,
     colorTheme: "ink",
     time: { start: 8.5, end: 11.5, track: 1 },
@@ -137,10 +124,7 @@ const initialElements: CanvasElement[] = [
   {
     id: "dynamo",
     type: "box",
-    x: 12,
-    y: 48,
-    width: 76,
-    height: 11,
+    matrix: [2, 15, 15, 17],
     label: "DynamoDB",
     colorTheme: "blue",
     time: { start: 10, end: 30, track: 5 },
@@ -156,10 +140,7 @@ const initialElements: CanvasElement[] = [
   {
     id: "callout-query",
     type: "box",
-    x: 58,
-    y: 44,
-    width: 36,
-    height: 8,
+    matrix: [10, 14, 16, 16],
     label: "Query in ms",
     colorTheme: "tan",
     fontSize: 12,
@@ -168,9 +149,7 @@ const initialElements: CanvasElement[] = [
   {
     id: "step-4",
     type: "number",
-    x: 2,
-    y: 48,
-    size: 9,
+    matrix: [0, 15, 1, 16],
     value: 4,
     colorTheme: "ink",
     time: { start: 16, end: 19, track: 1 },
@@ -178,10 +157,7 @@ const initialElements: CanvasElement[] = [
   {
     id: "ok",
     type: "box",
-    x: 12,
-    y: 64,
-    width: 76,
-    height: 11,
+    matrix: [2, 20, 15, 22],
     label: "200 OK",
     colorTheme: "mint",
     time: { start: 18, end: 30, track: 6 },
@@ -189,9 +165,7 @@ const initialElements: CanvasElement[] = [
   {
     id: "step-5",
     type: "number",
-    x: 2,
-    y: 64,
-    size: 9,
+    matrix: [0, 20, 1, 21],
     value: 5,
     colorTheme: "ink",
     time: { start: 21, end: 24.5, track: 1 },
@@ -199,10 +173,7 @@ const initialElements: CanvasElement[] = [
   {
     id: "callout-fast",
     type: "box",
-    x: 58,
-    y: 76,
-    width: 36,
-    height: 8,
+    matrix: [10, 23, 16, 25],
     label: "Warm path",
     colorTheme: "orange",
     fontSize: 12,
@@ -222,10 +193,24 @@ function snapshotOf(state: {
   };
 }
 
+function commitElements(
+  get: () => CanvasState,
+  elements: CanvasElement[],
+  extra: Partial<CanvasState> = {},
+): Partial<CanvasState> {
+  const duration = durationFromElements(elements);
+  return {
+    elements,
+    duration,
+    currentTime: clamp(get().currentTime, 0, lastVisibleTime(duration)),
+    ...extra,
+  };
+}
+
 export const useCanvasStore = create<CanvasState>((set, get) => ({
   elements: initialElements,
   selectedId: null,
-  duration: DEFAULT_DURATION,
+  duration: durationFromElements(initialElements),
   currentTime: 0,
   isPlaying: false,
   trackCount: DEFAULT_TRACK_COUNT,
@@ -233,40 +218,31 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
 
   setElements: (elements) => {
     recordTimelineHistory(snapshotOf(get()));
-    set({ elements });
+    set(commitElements(get, elements));
   },
 
   selectElement: (id) => set({ selectedId: id }),
 
   updateElement: (id, patch) => {
     recordTimelineHistory(snapshotOf(get()));
-    set((state) => ({
-      elements: state.elements.map((element) => {
-        if (element.id !== id) {
-          return element;
-        }
+    const elements = get().elements.map((element) => {
+      if (element.id !== id) {
+        return element;
+      }
 
-        return {
-          ...element,
-          ...patch,
-          id: element.id,
-          type: element.type,
-        } as CanvasElement;
-      }),
-    }));
-  },
-
-  setDuration: (duration) => {
-    const next = Math.max(1, duration);
-    set({
-      duration: next,
-      currentTime: clamp(get().currentTime, 0, next),
+      return {
+        ...element,
+        ...patch,
+        id: element.id,
+        type: element.type,
+      } as CanvasElement;
     });
+    set(commitElements(get, elements));
   },
 
   setCurrentTime: (time) => {
     const { duration } = get();
-    set({ currentTime: clamp(time, 0, duration) });
+    set({ currentTime: clamp(time, 0, lastVisibleTime(duration)) });
   },
 
   setRenderTheme: (theme) => set({ renderTheme: theme }),
@@ -274,7 +250,8 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   play: () => {
     const { currentTime, duration } = get();
     set({
-      currentTime: currentTime >= duration ? 0 : currentTime,
+      currentTime:
+        currentTime >= lastVisibleTime(duration) ? 0 : currentTime,
       isPlaying: true,
     });
   },
@@ -313,12 +290,26 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
           : el,
       );
 
-    set({
-      elements: nextElements,
-      trackCount: trackCount - 1,
-      selectedId:
-        selectedId && removedIds.has(selectedId) ? null : selectedId,
-    });
+    set(
+      commitElements(get, nextElements, {
+        trackCount: trackCount - 1,
+        selectedId:
+          selectedId && removedIds.has(selectedId) ? null : selectedId,
+      }),
+    );
+  },
+
+  deleteSelectedElement: () => {
+    const { selectedId, elements } = get();
+    if (!selectedId) {
+      return;
+    }
+    recordTimelineHistory(snapshotOf(get()));
+    set(
+      commitElements(get, elements.filter((element) => element.id !== selectedId), {
+        selectedId: null,
+      }),
+    );
   },
 
   cutAtPlayhead: () => {
@@ -328,10 +319,11 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       return;
     }
     recordTimelineHistory(snapshotOf(get()));
-    set({
-      elements: result.elements,
-      selectedId: result.splitIds[0] ?? null,
-    });
+    set(
+      commitElements(get, result.elements, {
+        selectedId: result.splitIds[0] ?? null,
+      }),
+    );
   },
 
   undo: () => {
@@ -340,11 +332,12 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       return;
     }
     runWithTimelineHistoryRestore(() => {
-      set({
-        elements: previous.elements,
-        selectedId: previous.selectedId,
-        trackCount: previous.trackCount,
-      });
+      set(
+        commitElements(get, previous.elements, {
+          selectedId: previous.selectedId,
+          trackCount: previous.trackCount,
+        }),
+      );
     });
   },
 
@@ -354,24 +347,25 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       return;
     }
     runWithTimelineHistoryRestore(() => {
-      set({
-        elements: next.elements,
-        selectedId: next.selectedId,
-        trackCount: next.trackCount,
-      });
+      set(
+        commitElements(get, next.elements, {
+          selectedId: next.selectedId,
+          trackCount: next.trackCount,
+        }),
+      );
     });
   },
 
   reset: () => {
     resetTimelineHistory();
     set({
-      elements: initialElements,
-      selectedId: null,
-      duration: DEFAULT_DURATION,
+      ...commitElements(get, initialElements, {
+        selectedId: null,
+        isPlaying: false,
+        trackCount: DEFAULT_TRACK_COUNT,
+        renderTheme: "bright",
+      }),
       currentTime: 0,
-      isPlaying: false,
-      trackCount: DEFAULT_TRACK_COUNT,
-      renderTheme: "bright",
     });
   },
 }));

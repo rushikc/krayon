@@ -5,12 +5,15 @@ import { BoxComponent } from "@/components/canvas/BoxComponent";
 import { NumberComponent } from "@/components/canvas/NumberComponent";
 import { ReelPreviewOverlay } from "@/components/canvas/ReelPreviewOverlay";
 import {
+  matrixToPercents,
+  percentsToMatrix,
   scaleBox,
   scaleNumber,
   ZOOM_FACTOR,
 } from "@/lib/canvas-geometry";
 import { isZoomInKey, isZoomKey, isEditableTarget } from "@/lib/canvas-keyboard";
 import { isElementActiveAt } from "@/lib/element-visibility";
+import { isFilledTheme } from "@/lib/render-theme";
 import { cn } from "@/lib/utils";
 import { useCanvasStore } from "@/stores/canvas-store";
 import {
@@ -69,12 +72,41 @@ export function Canvas({
       }
 
       if (isBoxNode(selected)) {
-        update(selected.id, scaleBox(selected, factor));
+        const rect = matrixToPercents(selected.matrix);
+        const next = scaleBox(
+          {
+            x: rect.left,
+            y: rect.top,
+            width: rect.width,
+            height: rect.height,
+          },
+          factor,
+        );
+        update(selected.id, {
+          matrix: percentsToMatrix({
+            left: next.x,
+            top: next.y,
+            width: next.width,
+            height: next.height,
+          }),
+        });
         return true;
       }
 
       if (isNumberNode(selected)) {
-        update(selected.id, scaleNumber(selected, factor));
+        const rect = matrixToPercents(selected.matrix);
+        const next = scaleNumber(
+          { x: rect.left, y: rect.top, size: rect.width },
+          factor,
+        );
+        update(selected.id, {
+          matrix: percentsToMatrix({
+            left: next.x,
+            top: next.y,
+            width: next.size,
+            height: next.size,
+          }),
+        });
         return true;
       }
 
@@ -125,19 +157,24 @@ export function Canvas({
       data-exporting={exporting ? "true" : undefined}
       className={cn(
         "relative aspect-[9/16] h-full w-auto max-h-full overflow-hidden rounded-xl shadow-sm",
-        renderTheme === "bright" &&
+        isFilledTheme(renderTheme) &&
           "border-2 border-canvas-ink bg-canvas-surface text-canvas-ink",
-        renderTheme === "scalidraw-light" &&
+        renderTheme === "calidraw-light" &&
           "border border-neutral-300 bg-white text-neutral-900",
-        renderTheme === "scalidraw-dark" &&
+        renderTheme === "calidraw-dark" &&
           "border border-neutral-700 bg-[#1a1a1a] text-neutral-100",
       )}
       style={
-        renderTheme === "bright"
+        isFilledTheme(renderTheme)
           ? {
-              backgroundImage: exporting
-                ? "radial-gradient(circle, rgba(0, 0, 0, 0.1) 1px, transparent 1px)"
-                : "radial-gradient(circle, color-mix(in srgb, currentColor 10%, transparent) 1px, transparent 1px)",
+              backgroundImage:
+                renderTheme === "dark"
+                  ? exporting
+                    ? "radial-gradient(circle, rgba(255, 255, 255, 0.12) 1px, transparent 1px)"
+                    : "radial-gradient(circle, color-mix(in srgb, currentColor 12%, transparent) 1px, transparent 1px)"
+                  : exporting
+                    ? "radial-gradient(circle, rgba(0, 0, 0, 0.1) 1px, transparent 1px)"
+                    : "radial-gradient(circle, color-mix(in srgb, currentColor 10%, transparent) 1px, transparent 1px)",
               backgroundSize: "24px 24px",
             }
           : undefined
@@ -164,7 +201,7 @@ export function Canvas({
             <path d="M 0 0 L 10 5 L 0 10 Z" className="fill-canvas-ink" />
           </marker>
           <marker
-            id={`${markerPrefix}-arrowhead-scalidraw`}
+            id={`${markerPrefix}-arrowhead-calidraw`}
             viewBox="0 0 10 10"
             refX="9"
             refY="5"
@@ -177,7 +214,7 @@ export function Canvas({
               d="M 1 1 L 9 5 L 1 9"
               fill="none"
               className={
-                renderTheme === "scalidraw-dark"
+                renderTheme === "calidraw-dark"
                   ? "stroke-neutral-100"
                   : "stroke-canvas-ink"
               }
