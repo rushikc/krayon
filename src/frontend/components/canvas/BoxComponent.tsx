@@ -7,6 +7,10 @@ import {
 
 import { clampBoxBounds, DEFAULT_BOX_FONT_SIZE, scaleBox, ZOOM_FACTOR } from "@/lib/canvas-geometry";
 import { isZoomInKey, isZoomOutKey } from "@/lib/canvas-keyboard";
+import {
+  isScalidrawTheme,
+  scalidrawStroke,
+} from "@/lib/render-theme";
 import { cn } from "@/lib/utils";
 import { useCanvasStore } from "@/stores/canvas-store";
 import {
@@ -14,6 +18,8 @@ import {
   endTimelineHistoryTransaction,
 } from "@/stores/timeline-history";
 import type { BoxNode, ColorTheme } from "@/types/canvas";
+
+import { SketchFrame } from "./SketchFrame";
 
 interface BoxComponentProps {
   node: BoxNode;
@@ -46,6 +52,12 @@ export function BoxComponent({
 }: BoxComponentProps) {
   const selectElement = useCanvasStore((state) => state.selectElement);
   const updateElement = useCanvasStore((state) => state.updateElement);
+  const renderTheme = useCanvasStore((state) => state.renderTheme);
+  const scalidraw = isScalidrawTheme(renderTheme);
+  const stroke = scalidrawStroke(node.colorTheme, renderTheme);
+  const ink = renderTheme === "scalidraw-dark" ? "#f0f0f0" : "#1a1a1a";
+  const fill = renderTheme === "scalidraw-dark" ? "#1a1a1a" : "#ffffff";
+  const aspect = node.height > 0 ? node.width / node.height : 1;
   const dragOffset = useRef<{
     pointerId: number;
     dx: number;
@@ -200,16 +212,36 @@ export function BoxComponent({
     >
       <div
         className={cn(
-          "flex size-full flex-col justify-center gap-0.5 rounded-lg border-2 border-canvas-ink px-3 font-canvas shadow-[3px_3px_0_0_var(--canvas-ink)] transition-shadow",
-          node.sublabel ? "items-start text-left" : "items-center text-center",
-          themeStyles[node.colorTheme],
-          node.colorTheme === "ink" ? "text-canvas-surface" : "text-canvas-ink",
+          "flex size-full flex-col justify-center gap-0.5",
+          scalidraw
+            ? "relative items-start rounded-none border-0 bg-transparent px-4 py-2 text-left font-scalidraw shadow-none"
+            : cn(
+                "rounded-lg border-2 border-canvas-ink px-3 font-canvas shadow-[3px_3px_0_0_var(--canvas-ink)] transition-shadow",
+                node.sublabel ? "items-start text-left" : "items-center text-center",
+                themeStyles[node.colorTheme],
+                node.colorTheme === "ink"
+                  ? "text-canvas-surface"
+                  : "text-canvas-ink",
+              ),
           selected &&
             "ring-2 ring-primary ring-offset-2 ring-offset-canvas-surface",
         )}
+        style={scalidraw ? { color: ink } : undefined}
       >
+        {scalidraw ? (
+          <SketchFrame
+            id={node.id}
+            kind="rect"
+            stroke={stroke}
+            fill={fill}
+            aspect={aspect}
+          />
+        ) : null}
         <span
-          className="w-full truncate font-bold"
+          className={cn(
+            "relative z-[1] w-full font-bold",
+            scalidraw ? "whitespace-normal break-words" : "truncate",
+          )}
           style={{ fontSize: `${labelSize}px` }}
         >
           {node.label}
@@ -217,12 +249,20 @@ export function BoxComponent({
         {node.sublabel && (
           <span
             className={cn(
-              "w-full truncate font-medium",
-              node.colorTheme === "ink"
-                ? "text-canvas-surface/75"
-                : "text-canvas-ink/75",
+              "relative z-[1] w-full font-medium",
+              scalidraw
+                ? "whitespace-normal break-words"
+                : cn(
+                    "truncate",
+                    node.colorTheme === "ink"
+                      ? "text-canvas-surface/75"
+                      : "text-canvas-ink/75",
+                  ),
             )}
-            style={{ fontSize: `${sublabelSize}px` }}
+            style={{
+              fontSize: `${sublabelSize}px`,
+              opacity: scalidraw ? 0.72 : undefined,
+            }}
           >
             {node.sublabel}
           </span>

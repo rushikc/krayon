@@ -112,6 +112,7 @@
   --color-canvas-pink: var(--canvas-pink);
   --color-canvas-salmon: var(--canvas-salmon);
   --font-canvas: "Geist Variable", sans-serif;
+  --font-scalidraw: "Architects Daughter", cursive;
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: var(--radius);
   --radius-lg: calc(var(--radius) + 2px);
@@ -135,5 +136,11 @@
   #root {
     height: 100vh;
     width: 100vw;
+  }
+
+  [data-exporting] .animate-in {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
   }
 }

@@ -11,6 +11,7 @@ import {
 } from "@/lib/canvas-geometry";
 import { isZoomInKey, isZoomKey, isEditableTarget } from "@/lib/canvas-keyboard";
 import { isElementActiveAt } from "@/lib/element-visibility";
+import { cn } from "@/lib/utils";
 import { useCanvasStore } from "@/stores/canvas-store";
 import {
   isArrowNode,
@@ -24,12 +25,19 @@ function byTrackDescending(a: CanvasElement, b: CanvasElement) {
   return b.time.track - a.time.track;
 }
 
-export function Canvas({ showReelPreview = false }: { showReelPreview?: boolean }) {
+export function Canvas({
+  showReelPreview = false,
+  exporting = false,
+}: {
+  showReelPreview?: boolean;
+  exporting?: boolean;
+}) {
   const canvasRef = useRef<HTMLDivElement>(null);
   const elements = useCanvasStore((state) => state.elements);
   const selectedId = useCanvasStore((state) => state.selectedId);
   const selectElement = useCanvasStore((state) => state.selectElement);
   const currentTime = useCanvasStore((state) => state.currentTime);
+  const renderTheme = useCanvasStore((state) => state.renderTheme);
 
   const visible = useMemo(
     () =>
@@ -44,6 +52,7 @@ export function Canvas({ showReelPreview = false }: { showReelPreview?: boolean 
       isBoxNode(el) || isNumberNode(el),
   );
   const arrows = visible.filter(isArrowNode);
+  const markerPrefix = exporting ? "export" : "preview";
 
   useEffect(() => {
     function resizeSelected(factor: number) {
@@ -112,23 +121,38 @@ export function Canvas({ showReelPreview = false }: { showReelPreview?: boolean 
   return (
     <div
       ref={canvasRef}
-      className="relative aspect-[9/16] w-[min(100cqw,calc(100cqh*9/16))] overflow-hidden rounded-xl border-2 border-canvas-ink bg-canvas-surface text-canvas-ink shadow-sm"
-      style={{
-        backgroundImage:
-          "radial-gradient(circle, color-mix(in srgb, currentColor 10%, transparent) 1px, transparent 1px)",
-        backgroundSize: "24px 24px",
-      }}
+      data-render-theme={renderTheme}
+      data-exporting={exporting ? "true" : undefined}
+      className={cn(
+        "relative aspect-[9/16] h-full w-auto max-h-full overflow-hidden rounded-xl shadow-sm",
+        renderTheme === "bright" &&
+          "border-2 border-canvas-ink bg-canvas-surface text-canvas-ink",
+        renderTheme === "scalidraw-light" &&
+          "border border-neutral-300 bg-white text-neutral-900",
+        renderTheme === "scalidraw-dark" &&
+          "border border-neutral-700 bg-[#1a1a1a] text-neutral-100",
+      )}
+      style={
+        renderTheme === "bright"
+          ? {
+              backgroundImage: exporting
+                ? "radial-gradient(circle, rgba(0, 0, 0, 0.1) 1px, transparent 1px)"
+                : "radial-gradient(circle, color-mix(in srgb, currentColor 10%, transparent) 1px, transparent 1px)",
+              backgroundSize: "24px 24px",
+            }
+          : undefined
+      }
       onClick={() => selectElement(null)}
     >
       <svg
         aria-hidden="true"
         className="pointer-events-none absolute inset-0 size-full"
-        width="100%"
-        height="100%"
+        viewBox="0 0 100 100"
+        preserveAspectRatio="none"
       >
         <defs>
           <marker
-            id="canvas-arrowhead"
+            id={`${markerPrefix}-arrowhead`}
             viewBox="0 0 10 10"
             refX="9"
             refY="5"
@@ -137,9 +161,29 @@ export function Canvas({ showReelPreview = false }: { showReelPreview?: boolean 
             orient="auto-start-reverse"
             markerUnits="strokeWidth"
           >
+            <path d="M 0 0 L 10 5 L 0 10 Z" className="fill-canvas-ink" />
+          </marker>
+          <marker
+            id={`${markerPrefix}-arrowhead-scalidraw`}
+            viewBox="0 0 10 10"
+            refX="9"
+            refY="5"
+            markerWidth="6"
+            markerHeight="6"
+            orient="auto-start-reverse"
+            markerUnits="strokeWidth"
+          >
             <path
-              d="M 0 0 L 10 5 L 0 10 Z"
-              className="fill-canvas-ink"
+              d="M 1 1 L 9 5 L 1 9"
+              fill="none"
+              className={
+                renderTheme === "scalidraw-dark"
+                  ? "stroke-neutral-100"
+                  : "stroke-canvas-ink"
+              }
+              strokeWidth="1.4"
+              strokeLinecap="round"
+              strokeLinejoin="round"
             />
           </marker>
         </defs>
@@ -149,7 +193,8 @@ export function Canvas({ showReelPreview = false }: { showReelPreview?: boolean 
             key={arrow.id}
             arrow={arrow}
             boxes={boxes}
-            selected={arrow.id === selectedId}
+            selected={!exporting && arrow.id === selectedId}
+            markerPrefix={markerPrefix}
           />
         ))}
       </svg>
@@ -160,14 +205,14 @@ export function Canvas({ showReelPreview = false }: { showReelPreview?: boolean 
             <BoxComponent
               key={node.id}
               node={node}
-              selected={node.id === selectedId}
+              selected={!exporting && node.id === selectedId}
               canvasRef={canvasRef}
             />
           ) : (
             <NumberComponent
               key={node.id}
               node={node}
-              selected={node.id === selectedId}
+              selected={!exporting && node.id === selectedId}
               canvasRef={canvasRef}
             />
           ),

@@ -11,7 +11,7 @@ export function PlaybackBar() {
   const togglePlayback = useCanvasStore((state) => state.togglePlayback);
 
   return (
-    <div className="flex items-center justify-center gap-3 pt-3">
+    <div className="flex items-center justify-start gap-3 px-3 py-2">
       <Button
         type="button"
         size="icon"

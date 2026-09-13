@@ -28,6 +28,34 @@ describe("SchemaInspector rail", () => {
     expect(screen.getByText(/gw-to-lambda/)).toBeInTheDocument();
   });
 
+  it("shows a time range on each element row", () => {
+    render(<SchemaInspector width={640} />);
+    const row = screen.getByRole("button", { name: /^Client/ });
+    const { start, end } = useCanvasStore
+      .getState()
+      .elements.find((element) => element.id === "client")!.time;
+    expect(row).toHaveTextContent(`${start}–${end}s`);
+  });
+
+  it("filters the element list by label, type, and id", async () => {
+    const user = userEvent.setup();
+    render(<SchemaInspector width={640} />);
+
+    const search = screen.getByRole("textbox", { name: "Search elements" });
+    await user.type(search, "lambda");
+    expect(screen.getByText("Lambda Function")).toBeInTheDocument();
+    expect(screen.queryByText("API Gateway")).not.toBeInTheDocument();
+
+    await user.clear(search);
+    await user.type(search, "arrow");
+    expect(screen.getByText(/gw-to-lambda/)).toBeInTheDocument();
+    expect(screen.queryByText("Lambda Function")).not.toBeInTheDocument();
+
+    await user.clear(search);
+    await user.type(search, "nothing-here");
+    expect(screen.getByText(/no elements match/i)).toBeInTheDocument();
+  });
+
   it("opens a form from the list and returns with Back", async () => {
     const user = userEvent.setup();
     render(<SchemaInspector width={640} />);

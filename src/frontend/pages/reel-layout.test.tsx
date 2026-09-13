@@ -59,12 +59,39 @@ describe("reel animations layout", () => {
     expect(screen.getByRole("button", { name: "Config" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "JSON" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Play" })).toBeInTheDocument();
-    expect(screen.getByText("00:00 / 01:00")).toBeInTheDocument();
+    expect(screen.getByText("00:00 / 00:30")).toBeInTheDocument();
     expect(screen.getAllByText("API Gateway").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByRole("button", { name: "Add track" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Delete track 1" })).toBeInTheDocument();
     expect(screen.queryByText("Track 7")).not.toBeInTheDocument();
     expect(screen.queryByText("Track 1")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Bright" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getByRole("button", { name: "Scalidraw light" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+    expect(screen.getByRole("button", { name: "Scalidraw dark" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+    expect(document.querySelector("[data-render-theme]")).toHaveAttribute(
+      "data-render-theme",
+      "bright",
+    );
+    const canvas = document.querySelector("[data-render-theme]");
+    expect(canvas).toHaveClass("h-full", "aspect-[9/16]");
+    const exportButton = screen.getByRole("button", { name: "Export MP4" });
+    expect(exportButton).toBeInTheDocument();
+    expect(exportButton).not.toHaveAttribute("aria-pressed");
+    expect(
+      screen.getByRole("group", { name: "Panels" }),
+    ).toContainElement(screen.getByRole("button", { name: "Reel preview" }));
+    expect(screen.getByRole("group", { name: "Canvas skin" })).toContainElement(
+      screen.getByRole("button", { name: "Bright" }),
+    );
   });
 
   it("hides timeline and editor when toggled off", async () => {
@@ -78,6 +105,7 @@ describe("reel animations layout", () => {
     await user.click(screen.getByRole("button", { name: /timeline/i }));
     expect(screen.queryByRole("button", { name: "Add track" })).not.toBeInTheDocument();
     expect(screen.queryByRole("separator", { name: /resize timeline/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Play" })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /^editor$/i }));
     expect(screen.queryByRole("button", { name: "Config" })).not.toBeInTheDocument();
@@ -123,5 +151,37 @@ describe("reel animations layout", () => {
     (timeline as HTMLElement).focus();
     await user.keyboard("s");
     expect(useCanvasStore.getState().elements.length).toBeGreaterThan(before);
+  });
+
+  it("switches canvas skins without changing element JSON", async () => {
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter>
+        <ReelAnimationsPage />
+      </MemoryRouter>,
+    );
+
+    const json = JSON.stringify(useCanvasStore.getState().elements);
+    await user.click(screen.getByRole("button", { name: "Scalidraw light" }));
+    expect(screen.getByRole("button", { name: "Scalidraw light" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getByRole("button", { name: "Bright" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+    expect(document.querySelector("[data-render-theme]")).toHaveAttribute(
+      "data-render-theme",
+      "scalidraw-light",
+    );
+    expect(JSON.stringify(useCanvasStore.getState().elements)).toBe(json);
+
+    await user.click(screen.getByRole("button", { name: "Scalidraw dark" }));
+    expect(document.querySelector("[data-render-theme]")).toHaveAttribute(
+      "data-render-theme",
+      "scalidraw-dark",
+    );
+    expect(JSON.stringify(useCanvasStore.getState().elements)).toBe(json);
   });
 });

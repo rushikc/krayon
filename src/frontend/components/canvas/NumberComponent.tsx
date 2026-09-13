@@ -7,6 +7,10 @@ import {
 
 import { clampNumberBounds, scaleNumber, ZOOM_FACTOR } from "@/lib/canvas-geometry";
 import { isZoomInKey, isZoomOutKey } from "@/lib/canvas-keyboard";
+import {
+  isScalidrawTheme,
+  scalidrawStroke,
+} from "@/lib/render-theme";
 import { cn } from "@/lib/utils";
 import { useCanvasStore } from "@/stores/canvas-store";
 import {
@@ -14,6 +18,8 @@ import {
   endTimelineHistoryTransaction,
 } from "@/stores/timeline-history";
 import type { ColorTheme, NumberNode } from "@/types/canvas";
+
+import { SketchFrame } from "./SketchFrame";
 
 interface NumberComponentProps {
   node: NumberNode;
@@ -46,6 +52,11 @@ export function NumberComponent({
 }: NumberComponentProps) {
   const selectElement = useCanvasStore((state) => state.selectElement);
   const updateElement = useCanvasStore((state) => state.updateElement);
+  const renderTheme = useCanvasStore((state) => state.renderTheme);
+  const scalidraw = isScalidrawTheme(renderTheme);
+  const stroke = scalidrawStroke(node.colorTheme, renderTheme);
+  const ink = renderTheme === "scalidraw-dark" ? "#f0f0f0" : "#1a1a1a";
+  const fill = renderTheme === "scalidraw-dark" ? "#1a1a1a" : "#ffffff";
   const dragOffset = useRef<{
     pointerId: number;
     dx: number;
@@ -197,13 +208,22 @@ export function NumberComponent({
     >
       <div
         className={cn(
-          "flex size-full items-center justify-center rounded-full border-2 border-canvas-ink font-canvas text-sm font-bold",
-          themeStyles[node.colorTheme],
+          "flex size-full items-center justify-center text-sm font-bold",
+          scalidraw
+            ? "relative rounded-none border-0 bg-transparent font-scalidraw"
+            : cn(
+                "rounded-full border-2 border-canvas-ink font-canvas",
+                themeStyles[node.colorTheme],
+              ),
           selected &&
             "ring-2 ring-primary ring-offset-2 ring-offset-canvas-surface",
         )}
+        style={scalidraw ? { color: ink } : undefined}
       >
-        {node.value}
+        {scalidraw ? (
+          <SketchFrame id={node.id} kind="circle" stroke={stroke} fill={fill} />
+        ) : null}
+        <span className="relative z-[1]">{node.value}</span>
       </div>
     </div>
   );

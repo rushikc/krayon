@@ -21,20 +21,35 @@ describe("canvas seed scene", () => {
     useCanvasStore.getState().reset();
   });
 
-  it("seeds overlapping explainer clips on a 60s reel", () => {
+  it("seeds overlapping explainer clips on a 30s reel", () => {
     const { elements, duration } = useCanvasStore.getState();
-    expect(duration).toBe(60);
+    expect(duration).toBe(30);
     expect(elements.map((el) => [el.id, el.time])).toEqual([
-      ["step-1", { start: 0, end: 6, track: 2 }],
-      ["api-gateway", { start: 1, end: 50, track: 0 }],
-      ["step-2", { start: 8, end: 14, track: 2 }],
-      ["lambda", { start: 10, end: 50, track: 1 }],
-      ["gw-to-lambda", { start: 12, end: 50, track: 3 }],
+      ["client", { start: 0.4, end: 30, track: 2 }],
+      ["step-1", { start: 0, end: 3, track: 1 }],
+      ["api-gateway", { start: 1, end: 30, track: 3 }],
+      ["client-to-gw", { start: 2.2, end: 30, track: 7 }],
+      ["step-2", { start: 3.5, end: 6.5, track: 1 }],
+      ["lambda", { start: 5, end: 30, track: 4 }],
+      ["gw-to-lambda", { start: 6.5, end: 30, track: 8 }],
+      ["callout-rest", { start: 7, end: 12, track: 0 }],
+      ["step-3", { start: 8.5, end: 11.5, track: 1 }],
+      ["dynamo", { start: 10, end: 30, track: 5 }],
+      ["lambda-to-dynamo", { start: 11.5, end: 30, track: 9 }],
+      ["callout-query", { start: 14, end: 19, track: 0 }],
+      ["step-4", { start: 16, end: 19, track: 1 }],
+      ["ok", { start: 18, end: 30, track: 6 }],
+      ["step-5", { start: 21, end: 24.5, track: 1 }],
+      ["callout-fast", { start: 23, end: 30, track: 0 }],
     ]);
     expect(elements.some(isBoxNode)).toBe(true);
     expect(elements.some(isNumberNode)).toBe(true);
     expect(elements.some(isArrowNode)).toBe(true);
-    expect(useCanvasStore.getState().trackCount).toBe(5);
+    expect(elements.filter(isBoxNode).every((box) => box.sublabel === undefined)).toBe(
+      true,
+    );
+    expect(useCanvasStore.getState().trackCount).toBe(10);
+    expect(useCanvasStore.getState().renderTheme).toBe("bright");
   });
 
   it("updates time through onChange-style setElements and preserves type", () => {
@@ -90,16 +105,19 @@ describe("canvas seed scene", () => {
 
   it("adds tracks and deletes a track while reindexing clips", () => {
     const store = useCanvasStore.getState();
-    expect(store.trackCount).toBe(5);
+    expect(store.trackCount).toBe(10);
     store.addTrack();
-    expect(useCanvasStore.getState().trackCount).toBe(6);
+    expect(useCanvasStore.getState().trackCount).toBe(11);
 
     store.deleteTrack(0);
     const next = useCanvasStore.getState();
-    expect(next.trackCount).toBe(5);
-    expect(next.elements.find((el) => el.id === "api-gateway")).toBeUndefined();
-    expect(next.elements.find((el) => el.id === "lambda")?.time.track).toBe(0);
-    expect(next.elements.find((el) => el.id === "step-1")?.time.track).toBe(1);
+    expect(next.trackCount).toBe(10);
+    expect(next.elements.find((el) => el.id === "callout-rest")).toBeUndefined();
+    expect(next.elements.find((el) => el.id === "callout-query")).toBeUndefined();
+    expect(next.elements.find((el) => el.id === "callout-fast")).toBeUndefined();
+    expect(next.elements.find((el) => el.id === "api-gateway")?.time.track).toBe(2);
+    expect(next.elements.find((el) => el.id === "lambda")?.time.track).toBe(3);
+    expect(next.elements.find((el) => el.id === "step-1")?.time.track).toBe(0);
   });
 
   it("cuts clips at the playhead", () => {
@@ -109,11 +127,23 @@ describe("canvas seed scene", () => {
     expect(
       useCanvasStore.getState().elements.find((el) => el.id === "api-gateway")
         ?.time,
-    ).toEqual({ start: 1, end: 20, track: 0 });
+    ).toEqual({ start: 1, end: 20, track: 3 });
     expect(
       useCanvasStore.getState().elements.some((el) => el.time.start === 20),
     ).toBe(true);
-    expect(useCanvasStore.getState().selectedId).toBe("api-gateway");
+    expect(useCanvasStore.getState().selectedId).toBe("client");
+  });
+
+  it("changes render theme without recording history or mutating JSON", () => {
+    const store = useCanvasStore.getState();
+    const json = JSON.stringify(store.elements);
+    store.setRenderTheme("scalidraw-dark");
+    expect(useCanvasStore.getState().renderTheme).toBe("scalidraw-dark");
+    expect(JSON.stringify(useCanvasStore.getState().elements)).toBe(json);
+    store.undo();
+    expect(useCanvasStore.getState().renderTheme).toBe("scalidraw-dark");
+    store.reset();
+    expect(useCanvasStore.getState().renderTheme).toBe("bright");
   });
 });
 
