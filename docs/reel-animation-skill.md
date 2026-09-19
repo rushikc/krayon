@@ -27,7 +27,7 @@ Read the subtitle cues. Work out what is being *explained* (services, components
 - All keys are **camelCase** exactly as spelled in this doc.
 - All `matrix` values are **integers**.
 - Put the array in one fenced ```json block so it can be copied in one action.
-- Do not include `duration`, `trackCount`, `theme`, `x`, `y`, `width`, `height`, or `size`. Those are not part of the element schema and will make the element invalid or be silently dropped.
+- Do not include `duration`, `trackCount`, `theme`, `x`, `y`, `width`, or `height`. Those are not part of the element schema. Optional `size` is allowed **only** on `number` (badge diameter as % of canvas width).
 
 Before answering, run the validation checklist in §12.
 
@@ -179,14 +179,15 @@ A circle with a number inside. Use it to enumerate narration steps ("first", "se
 | --- | --- | --- | --- |
 | `id` | yes | string | identity |
 | `type` | yes | `"number"` | — |
-| `matrix` | yes | `[X, Y]` or `[X1, Y1, X2, Y2]` | position/size. **Use a square span** so the circle looks right; `[0, 6, 1, 7]` is the standard 2x2 badge |
+| `matrix` | yes | `[X, Y]` or `[X1, Y1, X2, Y2]` | position. Prefer a 2x2 cell for the origin, e.g. `[0, 6, 1, 7]` |
+| `size` | no | number | diameter as **% of canvas width** (4–40). When present, overrides matrix-derived width. Prefer **6**. |
 | `value` | yes | number | the digit(s) drawn in the center |
 | `colorTheme` | yes | enum | fill color, see §6. `ink` (dark fill, light text) is the conventional badge look |
 | `time` | yes | object | visibility window + z-order |
 
-The badge forces `aspect-ratio: 1` from its mapped **width**, so a non-square matrix still renders as a circle sized by width — which will not line up with the rows you asked for. Always give it a square cell span.
+The badge forces `aspect-ratio: 1` from its **width**. Prefer `size` for diameter so matrix can stay a compact 2x2 origin cell.
 
-**There is no `fontSize` for badges.** The digit is fixed at 14px regardless of circle size, so a large badge just means more empty space around a small number. Stick to a **2x2 cell** badge (`[C, R, C+1, R+1]`) and single or double digits.
+**There is no `fontSize` for badges.** The digit is fixed at 14px regardless of circle size.
 
 **A `number` cannot be an arrow endpoint.** `sourceId`/`targetId` accept box ids only.
 
@@ -194,6 +195,7 @@ The badge forces `aspect-ratio: 1` from its mapped **width**, so a non-square ma
 {
   "id": "step-1",
   "type": "number",
+  "size": 6,
   "matrix": [0, 6, 1, 7],
   "value": 1,
   "colorTheme": "ink",
@@ -530,6 +532,7 @@ Resulting JSON:
   {
     "id": "step-1",
     "type": "number",
+    "size": 6,
     "matrix": [0, 19, 1, 20],
     "value": 1,
     "colorTheme": "ink",
@@ -577,7 +580,7 @@ Check every item before you answer.
 - [ ] No `arrow` has a `matrix`.
 - [ ] All columns in `0..17`, all rows in `0..31`.
 - [ ] `X1 <= X2` and `Y1 <= Y2` for every matrix.
-- [ ] No `x`, `y`, `width`, `height`, or `size` keys anywhere.
+- [ ] No `x`, `y`, `width`, or `height` keys. `size` only on `number` (diameter % of canvas width, prefer 6).
 - [ ] Badges use square cell spans.
 - [ ] Content sits in rows 3-26; nothing important under the right rail (cols 16-17, rows 14-25).
 - [ ] Stacked boxes that an arrow connects have a 1-2 row gap between them.

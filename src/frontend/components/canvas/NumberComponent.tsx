@@ -5,7 +5,7 @@ import {
   type RefObject,
 } from "react";
 
-import { clampNumberBounds, matrixToPercents, percentsToMatrix, scaleNumber, ZOOM_FACTOR } from "@/lib/canvas-geometry";
+import { clampNumberBounds, matrixToPercents, numberBadgeSize, percentsToNumberMatrix, scaleNumber, ZOOM_FACTOR } from "@/lib/canvas-geometry";
 import { isZoomInKey, isZoomOutKey } from "@/lib/canvas-keyboard";
 import {
   isCalidrawTheme,
@@ -58,6 +58,7 @@ export function NumberComponent({
   const ink = renderTheme === "calidraw-dark" ? "#f0f0f0" : "#1a1a1a";
   const fill = renderTheme === "calidraw-dark" ? "#1a1a1a" : "#ffffff";
   const rect = matrixToPercents(node.matrix);
+  const badgeSize = numberBadgeSize(node);
   const dragOffset = useRef<{
     pointerId: number;
     dx: number;
@@ -80,19 +81,19 @@ export function NumberComponent({
     const next = clampNumberBounds({
       x,
       y,
-      size: rect.width,
+      size: badgeSize,
     });
-    const matrix = percentsToMatrix({
+    const matrix = percentsToNumberMatrix({
       left: next.x,
       top: next.y,
-      width: next.size,
-      height: next.size,
+      width: rect.width,
+      height: rect.height,
     });
-    const current = percentsToMatrix({
+    const current = percentsToNumberMatrix({
       left: rect.left,
       top: rect.top,
       width: rect.width,
-      height: rect.width,
+      height: rect.height,
     });
 
     if (matrix.every((value, index) => value === current[index])) {
@@ -164,15 +165,16 @@ export function NumberComponent({
       event.preventDefault();
       event.stopPropagation();
       const scaled = scaleNumber(
-        { x: rect.left, y: rect.top, size: rect.width },
+        { x: rect.left, y: rect.top, size: badgeSize },
         isZoomInKey(event) ? ZOOM_FACTOR : 1 / ZOOM_FACTOR,
       );
       updateElement(node.id, {
-        matrix: percentsToMatrix({
+        size: scaled.size,
+        matrix: percentsToNumberMatrix({
           left: scaled.x,
           top: scaled.y,
-          width: scaled.size,
-          height: scaled.size,
+          width: rect.width,
+          height: rect.height,
         }),
       });
       return;
@@ -215,7 +217,7 @@ export function NumberComponent({
       style={{
         left: `${rect.left}%`,
         top: `${rect.top}%`,
-        width: `${rect.width}%`,
+        width: `${badgeSize}%`,
         aspectRatio: "1",
         zIndex: 100 - node.time.track,
       }}

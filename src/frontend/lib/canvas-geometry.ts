@@ -2,6 +2,7 @@ import {
   isBoxNode,
   type BoxNode,
   type CanvasElement,
+  type NumberNode,
 } from "@/types/canvas";
 
 export interface ArrowGeometry {
@@ -31,8 +32,8 @@ export const CELL_HEIGHT = 100 / MATRIX_ROWS;
 
 const ENDPOINT_GAP = 0.75;
 export const MIN_BOX_SIZE = 4;
-const MIN_NUMBER_SIZE = 4;
-const MAX_NUMBER_SIZE = 40;
+export const MIN_NUMBER_SIZE = 4;
+export const MAX_NUMBER_SIZE = 40;
 const REEL_ASPECT = 9 / 16;
 
 function roundPercent(value: number) {
@@ -95,6 +96,31 @@ export function percentsToMatrix(rect: {
   return [x1, y1, x1 + cols - 1, y1 + rows - 1];
 }
 
+function roundCell(value: number) {
+  return Math.round(value * 1000) / 1000;
+}
+
+/** Number badges keep fractional cells so size can step by 1% of canvas width. */
+export function percentsToNumberMatrix(rect: {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}): [number, number, number, number] {
+  const minSpanX = MIN_NUMBER_SIZE / CELL_WIDTH;
+  const minSpanY = MIN_NUMBER_SIZE / CELL_HEIGHT;
+  const x1 = clamp(rect.left / CELL_WIDTH, 0, MATRIX_COLS - minSpanX);
+  const y1 = clamp(rect.top / CELL_HEIGHT, 0, MATRIX_ROWS - minSpanY);
+  const spanX = clamp(rect.width / CELL_WIDTH, minSpanX, MATRIX_COLS - x1);
+  const spanY = clamp(rect.height / CELL_HEIGHT, minSpanY, MATRIX_ROWS - y1);
+  return [
+    roundCell(x1),
+    roundCell(y1),
+    roundCell(x1 + spanX - 1),
+    roundCell(y1 + spanY - 1),
+  ];
+}
+
 /** Keep a box fully inside the 0–100% canvas frame. */
 export function clampBoxBounds(box: PercentRect): PercentRect {
   const width = roundPercent(clamp(box.width, MIN_BOX_SIZE, 100));
@@ -105,9 +131,21 @@ export function clampBoxBounds(box: PercentRect): PercentRect {
   return { x, y, width, height };
 }
 
+export function clampNumberSize(value: number): number {
+  return roundPercent(clamp(value, MIN_NUMBER_SIZE, MAX_NUMBER_SIZE));
+}
+
+/** Visible badge diameter in % of canvas width. */
+export function numberBadgeSize(node: NumberNode): number {
+  if (node.size != null) {
+    return clampNumberSize(node.size);
+  }
+  return matrixToPercents(node.matrix).width;
+}
+
 /** Keep a circular number badge fully inside the 9:16 canvas frame. */
 export function clampNumberBounds(node: PercentCircle): PercentCircle {
-  const size = roundPercent(clamp(node.size, MIN_NUMBER_SIZE, MAX_NUMBER_SIZE));
+  const size = clampNumberSize(node.size);
   const heightPercent = size * REEL_ASPECT;
   const x = roundPercent(clamp(node.x, 0, 100 - size));
   const y = roundPercent(clamp(node.y, 0, 100 - heightPercent));

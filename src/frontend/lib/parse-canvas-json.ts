@@ -1,4 +1,4 @@
-import { MATRIX_COLS, MATRIX_ROWS } from "@/lib/canvas-geometry";
+import { MATRIX_COLS, MATRIX_ROWS, clampNumberSize } from "@/lib/canvas-geometry";
 import type {
   ArrowNode,
   BoxNode,
@@ -58,6 +58,10 @@ function isMatrixArray(value: unknown): value is number[] {
   return Array.isArray(value) && value.every(isInteger);
 }
 
+function isNumberMatrixArray(value: unknown): value is number[] {
+  return Array.isArray(value) && value.every(isFiniteNumber);
+}
+
 function isInCol(value: number): boolean {
   return value >= 0 && value < MATRIX_COLS;
 }
@@ -87,7 +91,7 @@ function parseBoxMatrix(
 }
 
 function parseNumberMatrix(value: unknown): NumberNode["matrix"] | null {
-  if (!isMatrixArray(value)) {
+  if (!isNumberMatrixArray(value)) {
     return null;
   }
   if (value.length === 2) {
@@ -97,7 +101,21 @@ function parseNumberMatrix(value: unknown): NumberNode["matrix"] | null {
     }
     return [x, y];
   }
-  return parseBoxMatrix(value);
+  if (value.length !== 4) {
+    return null;
+  }
+  const [x1, y1, x2, y2] = value;
+  if (
+    !isInCol(x1) ||
+    !isInCol(x2) ||
+    !isInRow(y1) ||
+    !isInRow(y2) ||
+    x2 < x1 ||
+    y2 < y1
+  ) {
+    return null;
+  }
+  return [x1, y1, x2, y2];
 }
 
 function parseBox(value: Record<string, unknown>): BoxNode | null {
@@ -143,7 +161,7 @@ function parseNumberNode(value: Record<string, unknown>): NumberNode | null {
     return null;
   }
 
-  return {
+  const node: NumberNode = {
     id: value.id,
     type: "number",
     matrix,
@@ -151,6 +169,10 @@ function parseNumberNode(value: Record<string, unknown>): NumberNode | null {
     colorTheme: value.colorTheme,
     time: value.time,
   };
+  if (isFiniteNumber(value.size)) {
+    node.size = clampNumberSize(value.size);
+  }
+  return node;
 }
 
 function parseArrow(value: Record<string, unknown>): ArrowNode | null {

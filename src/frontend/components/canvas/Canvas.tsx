@@ -6,7 +6,9 @@ import { NumberComponent } from "@/components/canvas/NumberComponent";
 import { ReelPreviewOverlay } from "@/components/canvas/ReelPreviewOverlay";
 import {
   matrixToPercents,
+  numberBadgeSize,
   percentsToMatrix,
+  percentsToNumberMatrix,
   scaleBox,
   scaleNumber,
   ZOOM_FACTOR,
@@ -96,15 +98,16 @@ export function Canvas({
       if (isNumberNode(selected)) {
         const rect = matrixToPercents(selected.matrix);
         const next = scaleNumber(
-          { x: rect.left, y: rect.top, size: rect.width },
+          { x: rect.left, y: rect.top, size: numberBadgeSize(selected) },
           factor,
         );
         update(selected.id, {
-          matrix: percentsToMatrix({
+          size: next.size,
+          matrix: percentsToNumberMatrix({
             left: next.x,
             top: next.y,
-            width: next.size,
-            height: next.size,
+            width: rect.width,
+            height: rect.height,
           }),
         });
         return true;

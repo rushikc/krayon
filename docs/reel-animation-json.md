@@ -103,7 +103,7 @@ Boxes and numbers use those percents as CSS `left` / `top` / `width` / `height`.
 - `0 ≤ X1 ≤ X2 ≤ 17` and `0 ≤ Y1 ≤ Y2 ≤ 31`. Do **not** swap inverted ranges; `X2 < X1` is invalid.
 - Box `matrix` length must be **4**. Number length must be **2 or 4**.
 
-The Config form still shows derived percent X / Y / Width / Height (and Size for badges). Those fields snap back onto the grid via `percentsToMatrix`. **Always write `matrix` in JSON**, never `x` / `y` / `width` / `height` / `size`.
+The Config form still shows derived percent X / Y / Width / Height (and Size for badges). Box width/height snap back onto the grid via `percentsToMatrix`. **Always write `matrix` in JSON** for position. For number badges, optional `size` (diameter as % of canvas width) overrides matrix-derived width — do not emit `x` / `y` / `width` / `height`.
 
 **Authoring rule:** overlapping boxes is allowed. Two boxes with the same `id` is allowed by the parser but is a bad idea (`id` is the lookup key for arrows and selection).
 
@@ -190,7 +190,7 @@ Callout-style box with smaller type:
 
 ### 5.2 `number` — circular step badge
 
-Rendered by `NumberComponent`. CSS: `left` / `top` / `width` from `matrixToPercents`; `aspect-ratio: 1` so the badge is a circle. The **visible glyph is `value`** (a number), not a text `label`.
+Rendered by `NumberComponent`. CSS: `left` / `top` from `matrixToPercents`; `width` from optional `size` (diameter as % of canvas width) or else matrix width; `aspect-ratio: 1` so the badge is a circle. The **visible glyph is `value`** (a number), not a text `label`.
 
 **JSON keys (config):**
 
@@ -198,7 +198,8 @@ Rendered by `NumberComponent`. CSS: `left` / `top` / `width` from `matrixToPerce
 | --- | --- | --- | --- |
 | `id` | — | yes | Stable string. |
 | `type` | — | yes | Must be `"number"`. |
-| `matrix` | (JSON only; Config shows derived X/Y/Size) | yes | `[X, Y]` one cell, or `[X1, Y1, X2, Y2]` span. Seed badges use 2×2: `[0, r, 1, r+1]`. |
+| `matrix` | (JSON only; Config shows derived X/Y) | yes | `[X, Y]` one cell, or `[X1, Y1, X2, Y2]` span. Position only when `size` is set. |
+| `size` | Size | no | Diameter as **% of canvas width** (clamped 4–40). When present, overrides matrix width. |
 | `value` | Value | yes | Digit(s) drawn in the center. |
 | `colorTheme` | Color Theme | yes | Fill token for the circle. |
 | `time` | Start / End | yes | `{ start, end, track }`. |
@@ -211,6 +212,7 @@ A `number` is **not** a valid arrow endpoint. `sourceId` / `targetId` may only n
 {
   "id": "step-1",
   "type": "number",
+  "size": 6,
   "matrix": [0, 1, 1, 2],
   "value": 1,
   "colorTheme": "ink",
@@ -308,9 +310,9 @@ When proposing or rewriting scene JSON:
 1. Emit a **JSON array**, not an object wrapper.
 2. Every item needs unique `id` and a valid `type`.
 3. Boxes need `matrix` `[X1, Y1, X2, Y2]`, `label`, `colorTheme`, `time`. Integers only; stay inside 18×32; `X1 ≤ X2`, `Y1 ≤ Y2`.
-4. Numbers need `matrix` (`[X, Y]` or four numbers), `value`, `colorTheme`, `time`. Do not point arrows at them.
+4. Numbers need `matrix` (`[X, Y]` or four numbers), `value`, `colorTheme`, `time`. Optional `size` (4–40) is badge diameter as % of canvas width. Do not point arrows at them.
 5. Arrows need `sourceId` and `targetId` that match **existing box `id`s**. Optional `variant`: `"solid"` or `"dashed"`.
-6. Do not emit `x`, `y`, `width`, `height`, or `size`. `label` / `sublabel` are the only user-facing strings on a box; `value` is the only user-facing number on a badge.
+6. Do not emit `x`, `y`, `width`, or `height`. Optional `size` is **only** valid on `number`. `label` / `sublabel` are the only user-facing strings on a box; `value` is the badge glyph.
 7. Prefer the seed packing: badges in cols 0–1, main boxes in cols 2–15, callouts in cols 10–16.
 8. Use inspector **labels** only when talking to a human about the Config form. In JSON, use the **camelCase keys** in the tables above.
 

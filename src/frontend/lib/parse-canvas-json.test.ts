@@ -49,6 +49,63 @@ describe("parseCanvasElementsJson", () => {
       ]),
     );
     expect(four.ok).toBe(true);
+    if (two.ok && two.elements[0].type === "number") {
+      expect(two.elements[0].size).toBeUndefined();
+    }
+  });
+
+  it("keeps optional number size and clamps it", () => {
+    const kept = parseCanvasElementsJson(
+      JSON.stringify([
+        {
+          id: "n",
+          type: "number",
+          matrix: [0, 1],
+          size: 12,
+          value: 1,
+          colorTheme: "ink",
+          time: { start: 0, end: 3, track: 1 },
+        },
+      ]),
+    );
+    expect(kept.ok).toBe(true);
+    if (kept.ok && kept.elements[0].type === "number") {
+      expect(kept.elements[0].size).toBe(12);
+    }
+
+    const clamped = parseCanvasElementsJson(
+      JSON.stringify([
+        {
+          id: "n",
+          type: "number",
+          matrix: [0, 1],
+          size: 99,
+          value: 1,
+          colorTheme: "ink",
+          time: { start: 0, end: 3, track: 1 },
+        },
+      ]),
+    );
+    expect(clamped.ok).toBe(true);
+    if (clamped.ok && clamped.elements[0].type === "number") {
+      expect(clamped.elements[0].size).toBe(40);
+    }
+  });
+
+  it("parses a number with fractional matrix cells", () => {
+    const result = parseCanvasElementsJson(
+      JSON.stringify([
+        {
+          id: "n",
+          type: "number",
+          matrix: [0, 1, 1.16, 2],
+          value: 1,
+          colorTheme: "ink",
+          time: { start: 0, end: 3, track: 1 },
+        },
+      ]),
+    );
+    expect(result.ok).toBe(true);
   });
 
   it("rejects a non-integer or out-of-bounds matrix", () => {

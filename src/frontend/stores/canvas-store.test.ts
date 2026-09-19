@@ -8,7 +8,9 @@ import {
   clampNumberBounds,
   getArrowGeometry,
   matrixToPercents,
+  numberBadgeSize,
   percentsToMatrix,
+  percentsToNumberMatrix,
   scaleBox,
 } from "@/lib/canvas-geometry";
 import { isZoomInKey, isZoomKey, isZoomOutKey } from "@/lib/canvas-keyboard";
@@ -254,6 +256,45 @@ describe("canvas geometry", () => {
         height: 3 * CELL_HEIGHT,
       }),
     ).toEqual([2, 1, 15, 3]);
+  });
+
+  it("uses number size when present instead of matrix width", () => {
+    expect(
+      numberBadgeSize({
+        id: "n",
+        type: "number",
+        matrix: [0, 0, 1, 1],
+        size: 6,
+        value: 1,
+        colorTheme: "ink",
+        time: { start: 0, end: 1, track: 0 },
+      }),
+    ).toBe(6);
+    expect(
+      numberBadgeSize({
+        id: "n",
+        type: "number",
+        matrix: [0, 0],
+        value: 1,
+        colorTheme: "ink",
+        time: { start: 0, end: 1, track: 0 },
+      }),
+    ).toBeCloseTo(CELL_WIDTH, 5);
+  });
+
+  it("keeps number size steps of 1 percent without snapping to a full column", () => {
+    const matrix = percentsToNumberMatrix({
+      left: 0,
+      top: 0,
+      width: 12,
+      height: 12,
+    });
+    expect(matrixToPercents(matrix).width).toBeCloseTo(12, 2);
+    expect(
+      matrixToPercents(
+        percentsToMatrix({ left: 0, top: 0, width: 12, height: 12 }),
+      ).width,
+    ).toBeCloseTo(CELL_WIDTH * 2, 5);
   });
 
   it("builds arrow endpoints that do not sit on box centers", () => {

@@ -2,6 +2,8 @@ import { create } from "zustand";
 
 import { clamp } from "@/components/editor/timeline/lib/clamp";
 import { cutElementsAtTime } from "@/components/editor/timeline/lib/cutAtTime";
+import editorTimelineJson from "@/data/editor-timeline.json";
+import { parseCanvasElementsJson } from "@/lib/parse-canvas-json";
 import type { RenderTheme } from "@/lib/render-theme";
 import {
   durationFromElements,
@@ -47,139 +49,11 @@ interface CanvasState {
 
 export const DEFAULT_TRACK_COUNT = 10;
 
-const initialElements: CanvasElement[] = [
-  {
-    id: "client",
-    type: "box",
-    matrix: [2, 1, 15, 3],
-    label: "Client",
-    colorTheme: "sky",
-    time: { start: 0.4, end: 30, track: 2 },
-  },
-  {
-    id: "step-1",
-    type: "number",
-    matrix: [0, 1, 1, 2],
-    value: 1,
-    colorTheme: "ink",
-    time: { start: 0, end: 3, track: 1 },
-  },
-  {
-    id: "api-gateway",
-    type: "box",
-    matrix: [2, 5, 15, 7],
-    label: "API Gateway",
-    colorTheme: "violet",
-    time: { start: 1, end: 30, track: 3 },
-  },
-  {
-    id: "client-to-gw",
-    type: "arrow",
-    sourceId: "client",
-    targetId: "api-gateway",
-    variant: "solid",
-    time: { start: 2.2, end: 30, track: 7 },
-  },
-  {
-    id: "step-2",
-    type: "number",
-    matrix: [0, 5, 1, 6],
-    value: 2,
-    colorTheme: "ink",
-    time: { start: 3.5, end: 6.5, track: 1 },
-  },
-  {
-    id: "lambda",
-    type: "box",
-    matrix: [2, 10, 15, 12],
-    label: "Lambda Function",
-    colorTheme: "green",
-    time: { start: 5, end: 30, track: 4 },
-  },
-  {
-    id: "gw-to-lambda",
-    type: "arrow",
-    sourceId: "api-gateway",
-    targetId: "lambda",
-    variant: "dashed",
-    time: { start: 6.5, end: 30, track: 8 },
-  },
-  {
-    id: "callout-rest",
-    type: "box",
-    matrix: [10, 9, 16, 11],
-    label: "REST + WS",
-    colorTheme: "lavender",
-    fontSize: 12,
-    time: { start: 7, end: 12, track: 0 },
-  },
-  {
-    id: "step-3",
-    type: "number",
-    matrix: [0, 10, 1, 11],
-    value: 3,
-    colorTheme: "ink",
-    time: { start: 8.5, end: 11.5, track: 1 },
-  },
-  {
-    id: "dynamo",
-    type: "box",
-    matrix: [2, 15, 15, 17],
-    label: "DynamoDB",
-    colorTheme: "blue",
-    time: { start: 10, end: 30, track: 5 },
-  },
-  {
-    id: "lambda-to-dynamo",
-    type: "arrow",
-    sourceId: "lambda",
-    targetId: "dynamo",
-    variant: "solid",
-    time: { start: 11.5, end: 30, track: 9 },
-  },
-  {
-    id: "callout-query",
-    type: "box",
-    matrix: [10, 14, 16, 16],
-    label: "Query in ms",
-    colorTheme: "tan",
-    fontSize: 12,
-    time: { start: 14, end: 19, track: 0 },
-  },
-  {
-    id: "step-4",
-    type: "number",
-    matrix: [0, 15, 1, 16],
-    value: 4,
-    colorTheme: "ink",
-    time: { start: 16, end: 19, track: 1 },
-  },
-  {
-    id: "ok",
-    type: "box",
-    matrix: [2, 20, 15, 22],
-    label: "200 OK",
-    colorTheme: "mint",
-    time: { start: 18, end: 30, track: 6 },
-  },
-  {
-    id: "step-5",
-    type: "number",
-    matrix: [0, 20, 1, 21],
-    value: 5,
-    colorTheme: "ink",
-    time: { start: 21, end: 24.5, track: 1 },
-  },
-  {
-    id: "callout-fast",
-    type: "box",
-    matrix: [10, 23, 16, 25],
-    label: "Warm path",
-    colorTheme: "orange",
-    fontSize: 12,
-    time: { start: 23, end: 30, track: 0 },
-  },
-];
+const parsedSeed = parseCanvasElementsJson(JSON.stringify(editorTimelineJson));
+if (!parsedSeed.ok) {
+  throw new Error(`Invalid editor-timeline.json: ${parsedSeed.error}`);
+}
+const seedElements = parsedSeed.elements;
 
 function snapshotOf(state: {
   elements: CanvasElement[];
@@ -208,9 +82,9 @@ function commitElements(
 }
 
 export const useCanvasStore = create<CanvasState>((set, get) => ({
-  elements: initialElements,
+  elements: structuredClone(seedElements),
   selectedId: null,
-  duration: durationFromElements(initialElements),
+  duration: durationFromElements(seedElements),
   currentTime: 0,
   isPlaying: false,
   trackCount: DEFAULT_TRACK_COUNT,
@@ -359,7 +233,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   reset: () => {
     resetTimelineHistory();
     set({
-      ...commitElements(get, initialElements, {
+      ...commitElements(get, structuredClone(seedElements), {
         selectedId: null,
         isPlaying: false,
         trackCount: DEFAULT_TRACK_COUNT,

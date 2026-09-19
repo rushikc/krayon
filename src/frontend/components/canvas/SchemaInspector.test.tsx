@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { act } from "react";
@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { SchemaInspector } from "@/components/canvas/SchemaInspector";
 import { useCanvasStore } from "@/stores/canvas-store";
+import { isNumberNode } from "@/types/canvas";
 
 vi.mock("@/components/ui/scroll-area", () => ({
   ScrollArea: ({ children }: { children: ReactNode }) => <div>{children}</div>,
@@ -78,6 +79,29 @@ describe("SchemaInspector rail", () => {
     });
     expect(screen.getByDisplayValue("Lambda Function")).toBeInTheDocument();
     expect(screen.getByText("Color Theme")).toBeInTheDocument();
+  });
+
+  it("shows a size slider for number elements", () => {
+    render(<SchemaInspector />);
+    act(() => {
+      useCanvasStore.getState().selectElement("step-2");
+    });
+    expect(screen.getByRole("slider", { name: /size/i })).toBeInTheDocument();
+    expect(screen.getByRole("spinbutton", { name: /size/i })).toBeInTheDocument();
+    const before = useCanvasStore
+      .getState()
+      .elements.find((el) => el.id === "step-2");
+    const matrixBefore =
+      before && isNumberNode(before) ? JSON.stringify(before.matrix) : null;
+    fireEvent.change(screen.getByRole("slider", { name: /size/i }), {
+      target: { value: "12" },
+    });
+    const step = useCanvasStore.getState().elements.find((el) => el.id === "step-2");
+    expect(step && isNumberNode(step)).toBe(true);
+    if (step && isNumberNode(step)) {
+      expect(step.size).toBe(12);
+      expect(JSON.stringify(step.matrix)).toBe(matrixBefore);
+    }
   });
 
   it("shows raw scene JSON on the JSON tab", async () => {

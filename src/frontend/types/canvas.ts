@@ -52,11 +52,14 @@ export interface ArrowNode {
 
 /**
  * Circular numbered badge. `matrix` is `[X, Y]` (one cell) or `[X1, Y1, X2, Y2]`.
+ * Optional `size` is diameter as % of canvas width and overrides matrix width.
  */
 export interface NumberNode {
   id: string;
   type: "number";
   matrix: GridMatrix;
+  /** Diameter as % of canvas width (4–40). Omit to size from `matrix`. */
+  size?: number;
   value: number;
   colorTheme: ColorTheme;
   time: ElementTime;

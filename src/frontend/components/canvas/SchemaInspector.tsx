@@ -13,8 +13,9 @@ import { clampElementTime } from "@/components/editor/timeline/lib/timeMath";
 import { FieldLabel } from "@/components/ui/field-label";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { clampBoxBounds, clampNumberBounds, clampBoxFontSize, DEFAULT_BOX_FONT_SIZE, matrixToPercents, MAX_BOX_FONT_SIZE, MIN_BOX_FONT_SIZE, MIN_BOX_SIZE, percentsToMatrix } from "@/lib/canvas-geometry";
+import { clampBoxBounds, clampNumberBounds, clampBoxFontSize, clampNumberSize, DEFAULT_BOX_FONT_SIZE, matrixToPercents, MAX_BOX_FONT_SIZE, MAX_NUMBER_SIZE, MIN_BOX_FONT_SIZE, MIN_BOX_SIZE, MIN_NUMBER_SIZE, numberBadgeSize, percentsToMatrix, percentsToNumberMatrix } from "@/lib/canvas-geometry";
 import { isElementActiveAt } from "@/lib/element-visibility";
+import { humanizeCamelCase } from "@/lib/humanize-camel-case";
 import { parseCanvasElementsJson } from "@/lib/parse-canvas-json";
 import { cn } from "@/lib/utils";
 import { useCanvasStore } from "@/stores/canvas-store";
@@ -308,21 +309,22 @@ function BoxConfigForm({ node }: { node: BoxNode }) {
 function NumberConfigForm({ node }: { node: NumberNode }) {
   const updateElement = useCanvasStore((state) => state.updateElement);
   const rect = matrixToPercents(node.matrix);
+  const badgeSize = numberBadgeSize(node);
 
-  function updateGeometry(field: "x" | "y" | "size", next: number) {
+  function updatePosition(field: "x" | "y", next: number) {
     const clamped = clampNumberBounds({
       x: rect.left,
       y: rect.top,
-      size: rect.width,
+      size: badgeSize,
       [field]: next,
     });
 
     updateElement(node.id, {
-      matrix: percentsToMatrix({
+      matrix: percentsToNumberMatrix({
         left: clamped.x,
         top: clamped.y,
-        width: clamped.size,
-        height: clamped.size,
+        width: rect.width,
+        height: rect.height,
       }),
     });
   }
@@ -374,21 +376,26 @@ function NumberConfigForm({ node }: { node: NumberNode }) {
             label="x"
             help="Left edge as a percentage of canvas width (0–100)."
             value={rect.left}
-            onValueChange={(next) => updateGeometry("x", next)}
+            onValueChange={(next) => updatePosition("x", next)}
           />
           <NumberField
             compact
             label="y"
             help="Top edge as a percentage of canvas height (0–100)."
             value={rect.top}
-            onValueChange={(next) => updateGeometry("y", next)}
+            onValueChange={(next) => updatePosition("y", next)}
           />
         </div>
-        <NumberField
+        <SliderNumberField
           label="size"
-          help="Badge diameter as a percentage of canvas width (4–40)."
-          value={rect.width}
-          onValueChange={(next) => updateGeometry("size", next)}
+          help="Badge diameter as a percentage of canvas width (4–40). Overrides matrix width when set."
+          value={badgeSize}
+          min={MIN_NUMBER_SIZE}
+          max={MAX_NUMBER_SIZE}
+          step={1}
+          onValueChange={(next) =>
+            updateElement(node.id, { size: clampNumberSize(next) })
+          }
         />
       </ConfigSection>
 
@@ -547,6 +554,7 @@ function SliderNumberField({
           min={min}
           max={max}
           step={step}
+          aria-label={humanizeCamelCase(label)}
           className="h-8 w-full min-w-0 flex-1 cursor-pointer accent-primary"
           value={value}
           onChange={(event) => onValueChange(Number(event.target.value))}

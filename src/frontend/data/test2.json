@@ -1,0 +1,138 @@
+[
+  {
+    "id": "client",
+    "type": "box",
+    "matrix": [5, 2, 12, 3],
+    "label": "Client",
+    "colorTheme": "sky",
+    "time": { "start": 0.4, "end": 30, "track": 2 }
+  },
+  {
+    "id": "step-1",
+    "type": "number",
+    "size": 6,
+    "matrix": [3, 2, 4, 3],
+    "value": 1,
+    "colorTheme": "ink",
+    "time": { "start": 0, "end": 3, "track": 1 }
+  },
+  {
+    "id": "api-gateway",
+    "type": "box",
+    "matrix": [5, 6, 12, 7],
+    "label": "API Gateway",
+    "colorTheme": "violet",
+    "time": { "start": 1, "end": 30, "track": 3 }
+  },
+  {
+    "id": "client-to-gw",
+    "type": "arrow",
+    "sourceId": "client",
+    "targetId": "api-gateway",
+    "variant": "solid",
+    "time": { "start": 2.2, "end": 30, "track": 7 }
+  },
+  {
+    "id": "step-2",
+    "type": "number",
+    "size": 6,
+    "matrix": [3, 6, 4, 7],
+    "value": 2,
+    "colorTheme": "ink",
+    "time": { "start": 3.5, "end": 6.5, "track": 1 }
+  },
+  {
+    "id": "lambda",
+    "type": "box",
+    "matrix": [5, 11, 12, 12],
+    "label": "Lambda Function",
+    "colorTheme": "green",
+    "time": { "start": 5, "end": 30, "track": 4 }
+  },
+  {
+    "id": "gw-to-lambda",
+    "type": "arrow",
+    "sourceId": "api-gateway",
+    "targetId": "lambda",
+    "variant": "dashed",
+    "time": { "start": 6.5, "end": 30, "track": 8 }
+  },
+  {
+    "id": "callout-rest",
+    "type": "box",
+    "matrix": [11, 10, 14, 11],
+    "label": "REST + WS",
+    "fontSize": 10,
+    "colorTheme": "lavender",
+    "time": { "start": 7, "end": 12, "track": 0 }
+  },
+  {
+    "id": "step-3",
+    "type": "number",
+    "size": 6,
+    "matrix": [3, 11, 4, 12],
+    "value": 3,
+    "colorTheme": "ink",
+    "time": { "start": 8.5, "end": 11.5, "track": 1 }
+  },
+  {
+    "id": "dynamo",
+    "type": "box",
+    "matrix": [5, 16, 12, 17],
+    "label": "DynamoDB",
+    "colorTheme": "blue",
+    "time": { "start": 10, "end": 30, "track": 5 }
+  },
+  {
+    "id": "lambda-to-dynamo",
+    "type": "arrow",
+    "sourceId": "lambda",
+    "targetId": "dynamo",
+    "variant": "solid",
+    "time": { "start": 11.5, "end": 30, "track": 9 }
+  },
+  {
+    "id": "callout-query",
+    "type": "box",
+    "matrix": [11, 15, 14, 16],
+    "label": "Query in ms",
+    "fontSize": 10,
+    "colorTheme": "tan",
+    "time": { "start": 14, "end": 19, "track": 0 }
+  },
+  {
+    "id": "step-4",
+    "type": "number",
+    "size": 6,
+    "matrix": [3, 16, 4, 17],
+    "value": 4,
+    "colorTheme": "ink",
+    "time": { "start": 16, "end": 19, "track": 1 }
+  },
+  {
+    "id": "ok",
+    "type": "box",
+    "matrix": [5, 21, 12, 22],
+    "label": "200 OK",
+    "colorTheme": "mint",
+    "time": { "start": 18, "end": 30, "track": 6 }
+  },
+  {
+    "id": "step-5",
+    "type": "number",
+    "size": 6,
+    "matrix": [3, 21, 4, 22],
+    "value": 5,
+    "colorTheme": "ink",
+    "time": { "start": 21, "end": 24.5, "track": 1 }
+  },
+  {
+    "id": "callout-fast",
+    "type": "box",
+    "matrix": [11, 24, 14, 25],
+    "label": "Warm path",
+    "fontSize": 10,
+    "colorTheme": "orange",
+    "time": { "start": 23, "end": 30, "track": 0 }
+  }
+]
