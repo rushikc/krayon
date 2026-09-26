@@ -23,21 +23,24 @@ const PIPELINE_STEP_DEFS = [
   { id: "extracting_audio", label: "Extracting clip audio" },
 ] as const;
 
-const PHASE_ORDER = PIPELINE_STEP_DEFS.map((s) => s.id);
+export const REBUILD_PIPELINE_STEP_IDS = [
+  "starting",
+  "segmenting",
+  "grouping",
+  "extracting_audio",
+] as const;
 
-function initialPipelineSteps(): PipelineStep[] {
-  return PIPELINE_STEP_DEFS.map((def) => ({
+function initialPipelineSteps(stepIds?: readonly string[]): PipelineStep[] {
+  const defs = stepIds
+    ? PIPELINE_STEP_DEFS.filter((def) => stepIds.includes(def.id))
+    : PIPELINE_STEP_DEFS;
+  return defs.map((def) => ({
     id: def.id,
     label: def.label,
     status: "pending",
     stepProgress: 0,
     message: null,
   }));
-}
-
-function phaseIndex(phase: string): number {
-  const idx = PHASE_ORDER.indexOf(phase as (typeof PHASE_ORDER)[number]);
-  return idx >= 0 ? idx : -1;
 }
 
 interface SilenceStoreState {
@@ -81,7 +84,7 @@ interface SilenceStoreState {
   setVersionState: (activeVersionId: string | null, versions: EditorVersionSummary[]) => void;
   hydrateFromManifest: (manifest: EditorStateManifest, versions: EditorVersionSummary[]) => void;
   resetAnalysisState: () => void;
-  startPipeline: () => void;
+  startPipeline: (stepIds?: readonly string[]) => void;
   resetJob: () => void;
 }
 
@@ -128,7 +131,7 @@ export const useSilenceStore = create<SilenceStoreState>((set) => ({
 
   setPipelineFromEvent: (phase, progress, stepProgress, message) =>
     set((state) => {
-      const idx = phaseIndex(phase);
+      const idx = state.pipelineSteps.findIndex((step) => step.id === phase);
       const steps = state.pipelineSteps.map((step, i) => {
         if (idx < 0) return step;
         if (i < idx) {
@@ -198,14 +201,14 @@ export const useSilenceStore = create<SilenceStoreState>((set) => ({
       options: { ...DEFAULT_SILENCE_OPTIONS },
     }),
 
-  startPipeline: () =>
+  startPipeline: (stepIds) =>
     set(() => ({
       phase: "running",
       progress: 0,
       stepProgress: 0,
       message: "Starting pipeline…",
       error: null,
-      pipelineSteps: initialPipelineSteps().map((step, i) =>
+      pipelineSteps: initialPipelineSteps(stepIds).map((step, i) =>
         i === 0
           ? { ...step, status: "active" as StepStatus, message: "Starting pipeline…" }
           : step,

@@ -1,4 +1,4 @@
-import { Copy, Loader2, VolumeX, Wand2 } from "lucide-react";
+import { Copy, Loader2, RefreshCw, VolumeX, Wand2 } from "lucide-react";
 import { useEffect, useRef } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -17,11 +17,12 @@ import {
   getToolsStatus,
   listenJobProgress,
   startClipsJob,
+  startRebuildJob,
 } from "@/lib/api/client";
 import { formatElapsedHuman } from "@/lib/format";
 import type { ClipsGenerateResponse } from "@/types/api";
 import { useMediaStore } from "@/stores/media-store";
-import { useSilenceStore } from "@/stores/silence-store";
+import { REBUILD_PIPELINE_STEP_IDS, useSilenceStore } from "@/stores/silence-store";
 import { toast } from "@/stores/toast-store";
 
 export function ControlsPanel() {
@@ -92,6 +93,71 @@ export function ControlsPanel() {
     }
   };
 
+  const attachJobListener = (mediaId: string, jobId: string, sourceDuration: number | null) => {
+    unsubscribeRef.current = listenJobProgress(
+      "/api/clips/progress",
+      jobId,
+      (event) => {
+        if (useMediaStore.getState().selectedId !== mediaId) return;
+        if (event.phase === "complete" || event.phase === "error") return;
+        setPipelineFromEvent(
+          event.phase,
+          event.progress,
+          event.stepProgress ?? event.progress,
+          event.message,
+        );
+        setJobState({
+          phase: "running",
+          progress: event.progress,
+          stepProgress: event.stepProgress ?? event.progress,
+          message: event.message,
+        });
+      },
+      (payload) => {
+        unsubscribeRef.current = null;
+        if (useMediaStore.getState().selectedId !== mediaId) return;
+        if (!payload) {
+          setJobState({
+            phase: "error",
+            error: "Pipeline finished but no result was received",
+          });
+          return;
+        }
+        try {
+          const result = JSON.parse(payload) as ClipsGenerateResponse;
+          setClips(result.clips, result.groups);
+
+          const kept = result.clips.reduce((sum, c) => sum + c.duration, 0);
+          const duration = sourceDuration ?? kept;
+          const removed = Math.max(0, duration - kept);
+
+          const startedAt = useSilenceStore.getState().jobStartedAt;
+          const durationSec = startedAt ? (Date.now() - startedAt) / 1000 : null;
+
+          setJobSummary(result.clips.length, removed, durationSec);
+          setPipelineFromEvent("extracting_audio", 1, 1, `Generated ${result.clips.length} clips`);
+          setJobState({
+            phase: "done",
+            progress: 1,
+            stepProgress: 1,
+            message: `Generated ${result.clips.length} clips in ${result.groups.length} groups`,
+          });
+          void loadEditorState(mediaId);
+        } catch (err) {
+          setJobState({
+            phase: "error",
+            error: err instanceof Error ? err.message : "Failed to parse pipeline result",
+          });
+        }
+      },
+      (errMsg) => {
+        unsubscribeRef.current = null;
+        if (useMediaStore.getState().selectedId !== mediaId) return;
+        setJobState({ phase: "error", progress: 1, error: errMsg });
+      },
+    );
+  };
+
   const runAnalysisPipeline = async () => {
     if (!selectedFile) return;
 
@@ -105,75 +171,34 @@ export function ControlsPanel() {
         options,
         similarityThreshold,
       );
-
-      unsubscribeRef.current = listenJobProgress(
-        "/api/clips/progress",
-        jobId,
-        (event) => {
-          if (useMediaStore.getState().selectedId !== mediaId) return;
-          if (event.phase === "complete" || event.phase === "error") return;
-          setPipelineFromEvent(
-            event.phase,
-            event.progress,
-            event.stepProgress ?? event.progress,
-            event.message,
-          );
-          setJobState({
-            phase: "running",
-            progress: event.progress,
-            stepProgress: event.stepProgress ?? event.progress,
-            message: event.message,
-          });
-        },
-        (payload) => {
-          unsubscribeRef.current = null;
-          if (useMediaStore.getState().selectedId !== mediaId) return;
-          if (!payload) {
-            setJobState({
-              phase: "error",
-              error: "Pipeline finished but no result was received",
-            });
-            return;
-          }
-          try {
-            const result = JSON.parse(payload) as ClipsGenerateResponse;
-            setClips(result.clips, result.groups);
-
-            const kept = result.clips.reduce((sum, c) => sum + c.duration, 0);
-            const sourceDuration = selectedFile.duration ?? kept;
-            const removed = Math.max(0, sourceDuration - kept);
-
-            const startedAt = useSilenceStore.getState().jobStartedAt;
-            const durationSec = startedAt
-              ? (Date.now() - startedAt) / 1000
-              : null;
-
-            setJobSummary(result.clips.length, removed, durationSec);
-            setPipelineFromEvent("extracting_audio", 1, 1, `Generated ${result.clips.length} clips`);
-            setJobState({
-              phase: "done",
-              progress: 1,
-              stepProgress: 1,
-              message: `Generated ${result.clips.length} clips in ${result.groups.length} groups`,
-            });
-            void loadEditorState(mediaId);
-          } catch (err) {
-            setJobState({
-              phase: "error",
-              error: err instanceof Error ? err.message : "Failed to parse pipeline result",
-            });
-          }
-        },
-        (errMsg) => {
-          unsubscribeRef.current = null;
-          if (useMediaStore.getState().selectedId !== mediaId) return;
-          setJobState({ phase: "error", progress: 1, error: errMsg });
-        },
-      );
+      attachJobListener(mediaId, jobId, selectedFile.duration ?? null);
     } catch (err) {
       setJobState({
         phase: "error",
         error: err instanceof Error ? err.message : "Failed to start pipeline",
+      });
+    }
+  };
+
+  const runRebuildPipeline = async () => {
+    if (!selectedFile || !activeVersionId) return;
+
+    const mediaId = selectedFile.id;
+    unsubscribeRef.current?.();
+    startPipeline(REBUILD_PIPELINE_STEP_IDS);
+
+    try {
+      const { jobId } = await startRebuildJob(
+        selectedFile.path,
+        activeVersionId,
+        options,
+        similarityThreshold,
+      );
+      attachJobListener(mediaId, jobId, selectedFile.duration ?? null);
+    } catch (err) {
+      setJobState({
+        phase: "error",
+        error: err instanceof Error ? err.message : "Failed to start rebuild",
       });
     }
   };
@@ -290,6 +315,22 @@ export function ControlsPanel() {
                     ))}
                   </select>
                 </label>
+              )}
+
+              {versions.length > 0 && (
+                <Button
+                  variant="outline"
+                  className="w-full"
+                  disabled={busy || !activeVersionId}
+                  onClick={() => void runRebuildPipeline()}
+                >
+                  {phase === "running" ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <RefreshCw className="size-4" />
+                  )}
+                  Rebuild audio
+                </Button>
               )}
 
               {hasClips && (

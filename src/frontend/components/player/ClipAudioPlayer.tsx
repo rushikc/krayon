@@ -1,13 +1,15 @@
-import { Loader2, Pause, Play, Volume2 } from "lucide-react";
+import { Copy, Loader2, Pause, Play, Volume2 } from "lucide-react";
 import { useCallback, useEffect, useRef } from "react";
 
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { clipAudioUrl } from "@/lib/api/client";
 import { formatDuration } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { useMediaStore } from "@/stores/media-store";
 import { usePlayerStore } from "@/stores/player-store";
 import { useSilenceStore } from "@/stores/silence-store";
+import { toast } from "@/stores/toast-store";
 
 function formatTime(seconds: number): string {
   if (!Number.isFinite(seconds)) return "0:00";
@@ -99,6 +101,17 @@ export function ClipAudioPlayer() {
     setCurrentTime(value);
   };
 
+  const copySentence = async () => {
+    const text = selectedClip?.text?.trim();
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      toast("Sentence copied to clipboard");
+    } catch {
+      toast("Could not copy sentence");
+    }
+  };
+
   if (!hasClips && phase === "idle") {
     return (
       <main className="flex min-w-0 flex-1 flex-col items-center justify-center bg-background p-8">
@@ -146,13 +159,46 @@ export function ClipAudioPlayer() {
     <main className="flex min-w-0 flex-1 flex-col bg-background">
       <div className="flex min-h-0 flex-1 items-center justify-center p-6">
         <div className="flex w-full max-w-3xl flex-col gap-4">
-          <div className="rounded-xl border border-border bg-card/50 p-8">
+          <div
+            className={cn(
+              "rounded-xl border p-8",
+              selectedClip?.falseStart
+                ? "border-yellow-500/50 bg-yellow-500/10"
+                : "border-border bg-card/50",
+            )}
+          >
             <div className="mb-4 flex items-center gap-3">
-              <Volume2 className="size-8 text-primary" />
-              <div className="min-w-0">
-                <p className="text-sm font-medium">Take {(selectedClip?.index ?? 0) + 1}</p>
+              <Volume2 className="size-8 shrink-0 text-primary" />
+              <div className="min-w-0 flex-1">
+                <p className="flex items-baseline gap-2 text-sm font-medium">
+                  Take {(selectedClip?.index ?? 0) + 1}
+                  {selectedClip?.falseStart && (
+                    <span className="text-[11px] font-medium uppercase tracking-wide text-yellow-400">
+                      False start
+                    </span>
+                  )}
+                </p>
                 <p className="truncate text-xs text-muted-foreground">{selectedClip?.text}</p>
               </div>
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label="Copy sentence"
+                        disabled={!selectedClip?.text?.trim()}
+                        onClick={() => void copySentence()}
+                      />
+                    }
+                  >
+                    <Copy className="size-4" />
+                  </TooltipTrigger>
+                  <TooltipContent>Copy sentence</TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
             </div>
             {src ? (
               <audio

@@ -1,6 +1,12 @@
 # Krayon
 
-Local video editor for reels — React + Vite frontend with a Python FastAPI backend. Everything runs on your machine.
+Krayon is a local video editor that turns long talking-head recordings into short, teachable reels. It transcribes speech, removes silence, groups similar retakes, and flags false starts so you pick the best delivery. A portrait 9:16 canvas then turns spoken concepts into boxes, numbers, and arrows timed to the narration—animated moving explainers built for visual learning, running entirely on your machine with no uploads to any remote cloud service.
+
+**Canvas / visual learning.** On the reel canvas, the same explanation becomes a 9:16 scene: boxes for ideas, number badges for steps, arrows for flow. Elements are timed to the narration so they appear when you say them and stay while they still matter. You paste JSON (or edit the inspector), play it back as moving diagrams, and export a visual explainer that sits next to the audio—not a multi-track NLE, a teaching overlay.
+Local stack: React + Vite frontend with a Python FastAPI backend. Everything runs on your machine.
+
+**Audio.** Krayon takes a long talking-head video, transcribes it locally with Whisper, then cuts on silence so you get speech clips instead of a raw timeline. Similar takes of the same line are grouped so you can compare deliveries; mid-sentence restarts are split and marked as false starts. You preview clip audio, keep transcript and runs on disk, and rebuild grouping without re-transcribing.
+
 
 ## Quick start
 

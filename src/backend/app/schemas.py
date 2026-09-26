@@ -84,6 +84,7 @@ class ClipItem(BaseModel):
     text: str
     group_id: str = Field(alias="groupId")
     words: list[WordTiming] = Field(default_factory=list)
+    false_start: bool = Field(default=False, alias="falseStart")
 
     model_config = {"populate_by_name": True}
 
@@ -98,6 +99,15 @@ class ClipGroup(BaseModel):
 
 class ClipsGenerateRequest(BaseModel):
     path: str
+    options: SilenceOptions = Field(default_factory=SilenceOptions)
+    similarity_threshold: float = Field(default=0.5, alias="similarityThreshold")
+
+    model_config = {"populate_by_name": True}
+
+
+class ClipsRebuildRequest(BaseModel):
+    path: str
+    version_id: str = Field(alias="versionId")
     options: SilenceOptions = Field(default_factory=SilenceOptions)
     similarity_threshold: float = Field(default=0.5, alias="similarityThreshold")
 

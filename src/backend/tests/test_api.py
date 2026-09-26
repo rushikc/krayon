@@ -63,6 +63,59 @@ def test_scan_folder_registers_videos_and_streams_by_id(
     assert stream.status_code in {200, 206}
 
 
+def test_rebuild_missing_run_returns_404(client: TestClient, tmp_path: Path) -> None:
+    video = tmp_path / "scene.mp4"
+    video.write_bytes(b"fake-video")
+    response = client.post(
+        "/api/clips/rebuild",
+        json={
+            "path": str(video),
+            "versionId": "missing-run",
+            "options": {"silenceThreshold": 0.4, "pad": 0.05},
+            "similarityThreshold": 0.5,
+        },
+    )
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Analysis run not found"
+
+
+def test_rebuild_empty_transcript_returns_400(client: TestClient, tmp_path: Path) -> None:
+    from app.schemas import ClipGroup, SilenceAnalysis, SilenceOptions
+    from app.services.editor_state import prepare_version, save_version
+
+    video = tmp_path / "scene.mp4"
+    video.write_bytes(b"fake-video")
+    analysis = SilenceAnalysis(
+        source_duration=10.0,
+        fps=30.0,
+        segments=[],
+        removed_seconds=10.0,
+        words=[],
+    )
+    version_id = prepare_version(video)
+    save_version(
+        video,
+        version_id=version_id,
+        options=SilenceOptions(),
+        similarity_threshold=0.5,
+        analysis=analysis,
+        clips=[],
+        groups=[ClipGroup(id="g1", label="empty", clip_ids=[])],
+    )
+
+    response = client.post(
+        "/api/clips/rebuild",
+        json={
+            "path": str(video),
+            "versionId": version_id,
+            "options": {"silenceThreshold": 0.4, "pad": 0.05},
+            "similarityThreshold": 0.5,
+        },
+    )
+    assert response.status_code == 400
+    assert response.json()["detail"] == "No transcript on this run"
+
+
 def test_http_errors_return_json_detail(client: TestClient) -> None:
     response = client.get("/api/media/stream/missing")
     assert response.status_code == 404

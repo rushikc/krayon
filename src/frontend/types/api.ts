@@ -62,6 +62,7 @@ export interface ClipItem {
   text: string;
   groupId: string;
   words?: WordTiming[];
+  falseStart?: boolean;
 }
 
 export interface ClipGroup {

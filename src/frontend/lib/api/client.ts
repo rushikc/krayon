@@ -93,6 +93,18 @@ export async function startClipsJob(
   });
 }
 
+export async function startRebuildJob(
+  path: string,
+  versionId: string,
+  options: SilenceOptions,
+  similarityThreshold = 0.5,
+): Promise<{ jobId: string }> {
+  return request<{ jobId: string }>("/api/clips/rebuild/async", {
+    method: "POST",
+    body: JSON.stringify({ path, versionId, options, similarityThreshold }),
+  });
+}
+
 export async function generateClips(
   path: string,
   options: SilenceOptions,

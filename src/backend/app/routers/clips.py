@@ -9,15 +9,21 @@ from typing import Callable
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 
-from app.schemas import ClipsGenerateRequest, ClipsGenerateResponse, SilenceAnalysis
+from app.schemas import (
+    ClipsGenerateRequest,
+    ClipsGenerateResponse,
+    ClipsRebuildRequest,
+    SilenceAnalysis,
+)
 from app.services.analysis import analyze_silence
 from app.services.clip_audio import clip_audio_dir, extract_clip_audio
 from app.services.clips import build_segment_clips
-from app.services.editor_state import prepare_version, save_version
+from app.services.editor_state import load_manifest, prepare_version, save_version
 from app.services.ffmpeg import media_id_for_path, probe_media
 from app.services.jobs import SSE_HEADERS, job_hub
 from app.services.pipeline_log import PipelineContext
 from app.services.pipeline_progress import overall_progress
+from app.services.rebuild_audio import rebuild_audio
 from app.services.segments import Segment, Word
 
 router = APIRouter(prefix="/api/clips", tags=["clips"])
@@ -196,6 +202,94 @@ def generate_clips_async(body: ClipsGenerateRequest) -> dict:
     import threading
 
     threading.Thread(target=run, daemon=True, name=f"clips-{job_id[:8]}").start()
+    return {"jobId": job_id}
+
+
+def _resolve_rebuild_source(body: ClipsRebuildRequest) -> Path:
+    source = Path(body.path).expanduser().resolve()
+    if not source.exists():
+        raise HTTPException(status_code=404, detail="Source file not found")
+    existing = load_manifest(source, body.version_id)
+    if existing is None:
+        raise HTTPException(status_code=404, detail="Analysis run not found")
+    if not existing.analysis.words:
+        raise HTTPException(status_code=400, detail="No transcript on this run")
+    return source
+
+
+@router.post("/rebuild", response_model=ClipsGenerateResponse, response_model_by_alias=True)
+def rebuild_clips(body: ClipsRebuildRequest) -> ClipsGenerateResponse:
+    source = _resolve_rebuild_source(body)
+    result = rebuild_audio(
+        source,
+        version_id=body.version_id,
+        options=body.options,
+        similarity_threshold=body.similarity_threshold,
+    )
+    return ClipsGenerateResponse(
+        source_path=result.source_path,
+        groups=result.groups,
+        clips=result.clips,
+    )
+
+
+@router.post("/rebuild/async")
+def rebuild_clips_async(body: ClipsRebuildRequest) -> dict:
+    source = _resolve_rebuild_source(body)
+
+    job_id = str(uuid.uuid4())
+    job_hub.create_job(job_id)
+    pipeline = PipelineContext(job_id=job_id, source=source, version_id=body.version_id)
+    pipeline.job_start(path=str(source), rebuild=True)
+
+    def run():
+        def on_progress(phase: str, step_progress: float, message: str) -> None:
+            job_hub.publish(
+                job_id,
+                phase,
+                overall_progress(phase, step_progress, rebuild=True),
+                message,
+                step_progress=step_progress,
+            )
+
+        try:
+            on_progress("starting", 0.0, "Starting pipeline…")
+            result = rebuild_audio(
+                source,
+                version_id=body.version_id,
+                options=body.options,
+                similarity_threshold=body.similarity_threshold,
+                on_progress=on_progress,
+                pipeline=pipeline,
+            )
+            payload = ClipsGenerateResponse(
+                source_path=result.source_path,
+                groups=result.groups,
+                clips=result.clips,
+            ).model_dump(by_alias=True)
+            payload["versionId"] = result.version_id
+            import json
+
+            pipeline.job_finish(
+                version_id=result.version_id,
+                clip_count=len(result.clips),
+            )
+            job_hub.publish(
+                job_id,
+                "complete",
+                1.0,
+                json.dumps(payload),
+                step_progress=1.0,
+            )
+        except Exception as exc:
+            pipeline.error("error", exc)
+            job_hub.publish(job_id, "error", 1.0, str(exc), step_progress=1.0)
+        finally:
+            job_hub.finish(job_id)
+
+    import threading
+
+    threading.Thread(target=run, daemon=True, name=f"rebuild-{job_id[:8]}").start()
     return {"jobId": job_id}
 
 

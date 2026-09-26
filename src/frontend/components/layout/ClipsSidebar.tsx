@@ -44,12 +44,23 @@ function SpeechClipRow({
   return (
     <div
       className={cn(
-        "flex items-start gap-1 rounded-md px-2 py-1.5 text-left text-xs",
-        selected ? "bg-primary/15 text-primary" : "hover:bg-muted/60",
+        "flex items-start gap-1 rounded-md border px-2 py-1.5 text-left text-xs",
+        clip.falseStart
+          ? "border-yellow-500/50 bg-yellow-500/15 text-yellow-100"
+          : selected
+            ? "border-transparent bg-primary/15 text-primary"
+            : "border-transparent hover:bg-muted/60",
       )}
     >
       <button type="button" className="min-w-0 flex-1 text-left" onClick={onPreview}>
-        <span className="font-medium">Take {clip.index + 1}</span>
+        <span className="flex items-baseline gap-1.5">
+          <span className="font-medium">Take {clip.index + 1}</span>
+          {clip.falseStart && (
+            <span className="text-[10px] font-medium uppercase tracking-wide text-yellow-400">
+              False start
+            </span>
+          )}
+        </span>
         <TruncatedText text={clip.text} className="text-muted-foreground" />
         <span className="text-muted-foreground">{formatDuration(clip.duration)}</span>
       </button>
@@ -139,6 +150,8 @@ function TimelineList({
         const selected = isTimelineEntrySelected(entry, selectedEntry);
         const isSilence = entry.kind === "silence";
 
+        const falseStart = entry.kind === "speech" && entry.clip.falseStart;
+
         return (
           <div
             key={`${entry.kind}-${entry.start}-${i}`}
@@ -148,9 +161,11 @@ function TimelineList({
                 ? selected
                   ? "border-red-500/30 bg-red-500/15 text-red-100"
                   : "border-red-500/15 bg-red-500/10 text-red-200/80 hover:bg-red-500/15"
-                : selected
-                  ? "border-primary/20 bg-primary/15 text-primary"
-                  : "border-transparent hover:bg-muted/60",
+                : falseStart
+                  ? "border-yellow-500/50 bg-yellow-500/15 text-yellow-100"
+                  : selected
+                    ? "border-primary/20 bg-primary/15 text-primary"
+                    : "border-transparent hover:bg-muted/60",
             )}
           >
             <button
@@ -166,7 +181,14 @@ function TimelineList({
             >
               {entry.kind === "speech" ? (
                 <>
-                  <span className="font-medium">Take {entry.clip.index + 1}</span>
+                  <span className="flex items-baseline gap-1.5">
+                    <span className="font-medium">Take {entry.clip.index + 1}</span>
+                    {entry.clip.falseStart && (
+                      <span className="text-[10px] font-medium uppercase tracking-wide text-yellow-400">
+                        False start
+                      </span>
+                    )}
+                  </span>
                   <TruncatedText text={entry.clip.text} className="text-muted-foreground" />
                   <span className="text-muted-foreground">
                     {formatDuration(entry.start)} · {formatDuration(entry.end - entry.start)}
