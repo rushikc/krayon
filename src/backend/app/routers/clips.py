@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import threading
 import time
 import uuid
 from dataclasses import dataclass
@@ -16,8 +18,7 @@ from app.schemas import (
     SilenceAnalysis,
 )
 from app.services.analysis import analyze_silence
-from app.services.clip_audio import clip_audio_dir, extract_clip_audio
-from app.services.clips import build_segment_clips
+from app.services.clip_pipeline import group_and_extract
 from app.services.editor_state import load_manifest, prepare_version, save_version
 from app.services.ffmpeg import media_id_for_path, probe_media
 from app.services.jobs import SSE_HEADERS, job_hub
@@ -36,11 +37,6 @@ class GenerateResult:
     response: ClipsGenerateResponse
     version_id: str
     analysis: SilenceAnalysis
-
-
-def _publish(on_progress: ProgressFn | None, phase: str, step_progress: float, message: str) -> None:
-    if on_progress:
-        on_progress(phase, step_progress, message)
 
 
 def _generate(
@@ -75,54 +71,18 @@ def _generate(
     ]
     words = [Word(text=w.text, start=w.start, end=w.end) for w in analysis.words]
 
-    if pipeline:
-        pipeline.reset_phase_timer()
-        pipeline.phase(
-            "grouping",
-            "group start",
-            similarity_threshold=body.similarity_threshold,
-        )
-
-    def build_progress(completed: int, total: int, message: str) -> None:
-        step = completed / total if total else 1.0
-        _publish(on_progress, "grouping", step * 0.5, message)
-
-    _publish(on_progress, "grouping", 0.0, "Building segments…")
-    group_started = time.perf_counter()
-    clips, groups = build_segment_clips(
-        source.stem,
-        segments,
-        words,
-        similarity_threshold=body.similarity_threshold,
-        on_progress=build_progress,
-    )
-
-    if pipeline:
-        pipeline.phase_complete(
-            "grouping",
-            clip_count=len(clips),
-            group_count=len(groups),
-            elapsed_ms=int((time.perf_counter() - group_started) * 1000),
-        )
-
-    _publish(on_progress, "grouping", 1.0, f"Grouped into {len(groups)} takes")
-
-    def extract_progress(completed: int, total: int, message: str) -> None:
-        step = completed / total if total else 1.0
-        _publish(on_progress, "extracting_audio", step, message)
-
-    _publish(on_progress, "extracting_audio", 0.0, "Extracting clip audio…")
-    extract_clip_audio(
+    clips, groups = group_and_extract(
         source,
-        version_id,
-        clips,
-        on_progress=extract_progress,
+        version_id=version_id,
+        segments=segments,
+        words=words,
+        similarity_threshold=body.similarity_threshold,
+        pad=body.options.pad,
+        on_progress=on_progress,
         pipeline=pipeline,
     )
-    _publish(on_progress, "extracting_audio", 1.0, f"Extracted {len(clips)} clip audio files")
 
     processing_duration = time.perf_counter() - started
-    audio_dir = clip_audio_dir(source, version_id)
     manifest = save_version(
         source,
         version_id=version_id,
@@ -132,7 +92,6 @@ def _generate(
         clips=clips,
         groups=groups,
         processing_duration_seconds=processing_duration,
-        clips_dir=str(audio_dir),
         audio_ready=True,
         pipeline=pipeline,
     )
@@ -180,7 +139,6 @@ def generate_clips_async(body: ClipsGenerateRequest) -> dict:
             result = _generate(source, body, on_progress=on_progress, pipeline=pipeline)
             payload = result.response.model_dump(by_alias=True)
             payload["versionId"] = result.version_id
-            import json
 
             pipeline.job_finish(
                 version_id=result.version_id,
@@ -198,8 +156,6 @@ def generate_clips_async(body: ClipsGenerateRequest) -> dict:
             job_hub.publish(job_id, "error", 1.0, str(exc), step_progress=1.0)
         finally:
             job_hub.finish(job_id)
-
-    import threading
 
     threading.Thread(target=run, daemon=True, name=f"clips-{job_id[:8]}").start()
     return {"jobId": job_id}
@@ -268,7 +224,6 @@ def rebuild_clips_async(body: ClipsRebuildRequest) -> dict:
                 clips=result.clips,
             ).model_dump(by_alias=True)
             payload["versionId"] = result.version_id
-            import json
 
             pipeline.job_finish(
                 version_id=result.version_id,
@@ -286,8 +241,6 @@ def rebuild_clips_async(body: ClipsRebuildRequest) -> dict:
             job_hub.publish(job_id, "error", 1.0, str(exc), step_progress=1.0)
         finally:
             job_hub.finish(job_id)
-
-    import threading
 
     threading.Thread(target=run, daemon=True, name=f"rebuild-{job_id[:8]}").start()
     return {"jobId": job_id}

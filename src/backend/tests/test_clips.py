@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from app.services.clips import (
     build_segment_clips,
     find_restart_index,
@@ -17,6 +19,8 @@ SUFFIX = "15 to 90 minutes"
 
 def test_normalize_text_strips_fillers_and_punctuation() -> None:
     assert normalize_text("Um, hello, you know world!") == "hello world"
+    assert normalize_text("you can lock the driver") == "you can lock the driver"
+    assert normalize_text("Like, the timeout increased") == "the timeout increased"
 
 
 def test_retake_prefix_counts_as_full_match() -> None:
@@ -168,10 +172,15 @@ def test_continuation_fragments_merge_when_full_take_exists() -> None:
     assert clips[0].text == FULL_LINE
     assert clips[0].source_start == 0.0
     assert clips[0].source_end == 4.0
+    assert clips[0].duration == pytest.approx(3.5)
+    assert [(span.source_start, span.source_end) for span in clips[0].ranges] == [
+        (0.0, 2.0),
+        (2.5, 4.0),
+    ]
     assert clips[1].text == FULL_LINE
     assert len(groups) == 1
     assert groups[0].clip_ids == ["take_seg_000", "take_seg_001"]
-    assert groups[0].label == FULL_LINE[:48]
+    assert groups[0].label == FULL_LINE
 
 
 def test_wide_gap_continuation_stays_split_but_same_group() -> None:
@@ -201,7 +210,7 @@ def test_wide_gap_continuation_stays_split_but_same_group() -> None:
     clips, groups = build_segment_clips("take", segments, words, similarity_threshold=0.5)
     assert len(clips) == 3
     assert {clip.group_id for clip in clips} == {groups[0].id}
-    assert groups[0].label == FULL_LINE[:48]
+    assert groups[0].label == FULL_LINE
 
 
 def _word_timings(tokens: list[str], t0: float = 0.1, step: float = 0.3) -> list[Word]:
@@ -364,7 +373,7 @@ def test_run_on_stays_clean_and_group_uses_reference_label() -> None:
     assert len(groups) == 1
     assert by_text[HELLO_LINE].delivery_issue is None
     assert by_text[HELLO_RUNON].delivery_issue is None
-    assert groups[0].label == HELLO_LINE[:48]
+    assert groups[0].label == HELLO_LINE
 
 
 def test_false_start_is_not_also_flagged_incomplete() -> None:
@@ -388,4 +397,70 @@ def test_single_clip_group_stays_unmarked() -> None:
     assert len(groups) == 1
     assert clips[0].delivery_issue is None
     assert clips[0].false_start is False
+
+
+def test_two_word_fragment_does_not_bridge_groups() -> None:
+    mapping = group_clips_by_text(
+        [
+            ("a", "There was a mistake in Hello interview Uber system design"),
+            ("bridge", "There was"),
+            ("b", "There was another issue in the payment service"),
+        ],
+        threshold=0.7,
+        stem="take",
+    )
+    assert mapping["a"] != mapping["b"]
+    assert mapping["bridge"] in {mapping["a"], mapping["b"]}
+
+
+def test_lower_fuzzy_threshold_groups_more_takes() -> None:
+    left = "kubernetes rolling updates keep old pods until new ones pass"
+    right = "kubernetes rolling upgrades keep old pods until the new ones pass"
+    ratio = similarity(normalize_text(left), normalize_text(right))
+    loose = group_clips_by_text([("a", left), ("b", right)], threshold=0.5, stem="t")
+    tight = group_clips_by_text([("a", left), ("b", right)], threshold=0.95, stem="t")
+    assert ratio < 0.95
+    assert ratio >= 0.5
+    assert loose["a"] == loose["b"]
+    assert tight["a"] != tight["b"]
+
+
+def test_group_ids_are_stable_across_rebuilds() -> None:
+    segments = [
+        Segment(source_start=0.0, source_end=1.0),
+        Segment(source_start=2.0, source_end=3.0),
+    ]
+    words = [
+        Word("hello", 0.1, 0.4),
+        Word("there", 0.5, 0.8),
+        Word("goodbye", 2.1, 2.6),
+    ]
+    first, groups_a = build_segment_clips("take", segments, words, similarity_threshold=0.9)
+    second, groups_b = build_segment_clips("take", segments, words, similarity_threshold=0.9)
+    assert [g.id for g in groups_a] == [g.id for g in groups_b]
+    assert first[0].group_id == second[0].group_id
+    assert first[0].group_id.startswith("take_g")
+
+
+def test_false_start_split_applies_pad() -> None:
+    from app.schemas import ClipItem, WordTiming
+
+    tokens = OPENING + COMPLETED
+    words = [WordTiming(text=w.text, start=w.start, end=w.end) for w in _word_timings(tokens)]
+    clip = ClipItem(
+        id="take_seg_000",
+        index=0,
+        source_start=0.0,
+        source_end=words[-1].end + 0.1,
+        duration=words[-1].end + 0.1,
+        text=" ".join(t.text for t in words),
+        group_id="g1",
+        words=words,
+    )
+    split = split_restart_clips([clip], "take", pad=0.05)
+    left_last = words[len(OPENING) - 1].end
+    right_first = words[len(OPENING)].start
+    assert split[0].source_end == pytest.approx(min(left_last + 0.05, right_first))
+    assert split[1].source_start <= right_first
+    assert split[0].source_end <= split[1].source_start
 

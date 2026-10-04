@@ -174,7 +174,6 @@ export const useSilenceStore = create<SilenceStoreState>((set) => ({
   hydrateFromManifest: (manifest, versions) =>
     set({
       options: { ...manifest.options },
-      similarityThreshold: manifest.similarityThreshold,
       clipCount: manifest.clipCount,
       removedSeconds: manifest.removedSeconds,
       analysisDurationSeconds: manifest.processingDurationSeconds ?? null,

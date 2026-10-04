@@ -10,6 +10,7 @@ import type {
   SilenceOptions,
   ToolStatus,
 } from "@/types/api";
+import { DEFAULT_SIMILARITY_THRESHOLD } from "@/types/api";
 
 const API_BASE = "";
 
@@ -85,7 +86,7 @@ export async function analyzeSilence(
 export async function startClipsJob(
   path: string,
   options: SilenceOptions,
-  similarityThreshold = 0.5,
+  similarityThreshold = DEFAULT_SIMILARITY_THRESHOLD,
 ): Promise<{ jobId: string }> {
   return request<{ jobId: string }>("/api/clips/generate/async", {
     method: "POST",
@@ -97,7 +98,7 @@ export async function startRebuildJob(
   path: string,
   versionId: string,
   options: SilenceOptions,
-  similarityThreshold = 0.5,
+  similarityThreshold = DEFAULT_SIMILARITY_THRESHOLD,
 ): Promise<{ jobId: string }> {
   return request<{ jobId: string }>("/api/clips/rebuild/async", {
     method: "POST",
@@ -108,7 +109,7 @@ export async function startRebuildJob(
 export async function generateClips(
   path: string,
   options: SilenceOptions,
-  similarityThreshold = 0.5,
+  similarityThreshold = DEFAULT_SIMILARITY_THRESHOLD,
 ): Promise<ClipsGenerateResponse> {
   return request<ClipsGenerateResponse>("/api/clips/generate", {
     method: "POST",

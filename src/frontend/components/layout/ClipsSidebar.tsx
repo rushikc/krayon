@@ -34,11 +34,13 @@ function PlayButton({
 function SpeechClipRow({
   clip,
   selected,
+  isBest,
   onPreview,
   onPlay,
 }: {
   clip: ClipItem;
   selected: boolean;
+  isBest?: boolean;
   onPreview: () => void;
   onPlay: () => void;
 }) {
@@ -57,6 +59,11 @@ function SpeechClipRow({
       <button type="button" className="min-w-0 flex-1 text-left" onClick={onPreview}>
         <span className="flex items-baseline gap-1.5">
           <span className="font-medium">Take {clip.index + 1}</span>
+          {isBest && !issueLabel && (
+            <span className="text-[10px] font-medium uppercase tracking-wide text-primary">
+              Best
+            </span>
+          )}
           {issueLabel && (
             <span className="text-[10px] font-medium uppercase tracking-wide text-yellow-400">
               {issueLabel}
@@ -118,6 +125,7 @@ function ClipGroups({
                     key={clip.id}
                     clip={clip}
                     selected={selectedClipId === clip.id}
+                    isBest={group.referenceClipId === clip.id}
                     onPreview={() => onPreviewClip(clip.id)}
                     onPlay={() => onPlayClip(clip.id)}
                   />

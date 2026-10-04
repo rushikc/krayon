@@ -1,16 +1,17 @@
 from __future__ import annotations
 
 import re
-import uuid
 from collections.abc import Callable
 from difflib import SequenceMatcher
 
 from app.config import settings
-from app.schemas import ClipGroup, ClipItem, DeliveryIssue, WordTiming
+from app.schemas import ClipGroup, ClipItem, DeliveryIssue, SourceSegment, WordTiming
 from app.services.segments import Segment, Word
 
 
-FILLER_WORDS = {"um", "uh", "like", "you", "know", "so", "well", "okay", "ok", "ah"}
+FILLER_TOKENS = {"um", "uh", "ah"}
+FILLER_PHRASES = {("you", "know"), ("i", "mean")}
+LEADING_FILLERS = {"like", "so", "well", "okay", "ok"}
 FUNCTION_WORDS = {"a", "an", "the", "in", "on", "of", "to", "and", "or", "for"}
 
 # Retakes often share the opening line then diverge — 4+ matching words is a strong same-take signal.
@@ -18,16 +19,28 @@ MIN_SHARED_PREFIX_WORDS = 4
 MIN_SHARED_SUFFIX_WORDS = 4
 MIN_CONTAINMENT_WORDS = 3
 MAX_CONTINUATION_GAP_SECONDS = 5.0
-MIN_SHORT_PREFIX_WORDS = 2
+MIN_SHORT_PREFIX_WORDS = 3
 MIN_FUZZY_WORD_COUNT = 4
-MIN_FUZZY_RATIO = 0.70
 
 
 def normalize_text(text: str) -> str:
     lowered = text.lower()
     cleaned = re.sub(r"[^\w\s]", " ", lowered)
-    tokens = [t for t in cleaned.split() if t and t not in FILLER_WORDS]
-    return " ".join(tokens)
+    tokens = [t for t in cleaned.split() if t]
+    stripped: list[str] = []
+    i = 0
+    while i < len(tokens):
+        if i + 1 < len(tokens) and (tokens[i], tokens[i + 1]) in FILLER_PHRASES:
+            i += 2
+            continue
+        if tokens[i] in FILLER_TOKENS:
+            i += 1
+            continue
+        stripped.append(tokens[i])
+        i += 1
+    while stripped and stripped[0] in LEADING_FILLERS:
+        stripped.pop(0)
+    return " ".join(stripped)
 
 
 def shared_prefix_word_count(a: str, b: str) -> int:
@@ -57,14 +70,6 @@ def prefix_word_ratio(a: str, b: str) -> float:
     if not wa or not wb:
         return 0.0
     shared = shared_prefix_word_count(a, b)
-    return shared / min(len(wa), len(wb))
-
-
-def suffix_word_ratio(a: str, b: str) -> float:
-    wa, wb = a.split(), b.split()
-    if not wa or not wb:
-        return 0.0
-    shared = shared_suffix_word_count(a, b)
     return shared / min(len(wa), len(wb))
 
 
@@ -127,18 +132,34 @@ def similarity(a: str, b: str) -> float:
     wa, wb = a.split(), b.split()
     if len(wa) < MIN_FUZZY_WORD_COUNT or len(wb) < MIN_FUZZY_WORD_COUNT:
         return 0.0
-    ratio = SequenceMatcher(None, a, b).ratio()
-    return ratio if ratio >= MIN_FUZZY_RATIO else 0.0
+    return SequenceMatcher(None, a, b).ratio()
+
+
+def _short_match_score(short: str, other: str) -> float:
+    if not short or not other:
+        return 0.0
+    sw, ow = short.split(), other.split()
+    if len(sw) < 2 or len(sw) >= MIN_CONTAINMENT_WORDS:
+        return 0.0
+    if ow[: len(sw)] == sw:
+        return float(len(sw))
+    if ow[-len(sw) :] == sw:
+        return float(len(sw)) * 0.9
+    shared = shared_prefix_word_count(short, other)
+    return float(shared) if shared else 0.0
 
 
 def group_clips_by_text(
     clip_texts: list[tuple[str, str]],
     *,
     threshold: float | None = None,
+    stem: str = "take",
+    indices: dict[str, int] | None = None,
 ) -> dict[str, str]:
     limit = threshold if threshold is not None else settings.clip_similarity_threshold
     ids = [clip_id for clip_id, _ in clip_texts]
     norms = {clip_id: normalize_text(text) for clip_id, text in clip_texts}
+    index_of = indices or {clip_id: i for i, clip_id in enumerate(ids)}
 
     parent = {clip_id: clip_id for clip_id in ids}
 
@@ -153,18 +174,41 @@ def group_clips_by_text(
         if root_left != root_right:
             parent[root_right] = root_left
 
-    for i, (id_a, _) in enumerate(clip_texts):
-        for id_b, _ in clip_texts[i + 1 :]:
+    long_ids = [clip_id for clip_id in ids if len(norms[clip_id].split()) >= MIN_CONTAINMENT_WORDS]
+    short_ids = [clip_id for clip_id in ids if clip_id not in set(long_ids)]
+
+    for i, id_a in enumerate(long_ids):
+        for id_b in long_ids[i + 1 :]:
             if similarity(norms[id_a], norms[id_b]) >= limit:
                 union(id_a, id_b)
 
-    root_to_group: dict[str, str] = {}
-    mapping: dict[str, str] = {}
+    for sid in short_ids:
+        best_id: str | None = None
+        best_key: tuple[float, int] | None = None
+        for oid in ids:
+            if oid == sid:
+                continue
+            score = _short_match_score(norms[sid], norms[oid])
+            if score <= 0:
+                continue
+            key = (score, len(norms[oid].split()))
+            if best_key is None or key > best_key:
+                best_key = key
+                best_id = oid
+        if best_id is not None:
+            union(sid, best_id)
+
+    members: dict[str, list[str]] = {}
     for clip_id in ids:
-        root = find(clip_id)
-        if root not in root_to_group:
-            root_to_group[root] = str(uuid.uuid4())[:8]
-        mapping[clip_id] = root_to_group[root]
+        members.setdefault(find(clip_id), []).append(clip_id)
+
+    mapping: dict[str, str] = {}
+    for root, group_ids in members.items():
+        first_index = min(index_of.get(cid, 0) for cid in group_ids)
+        group_id = f"{stem}_g{first_index:03d}"
+        for clip_id in group_ids:
+            mapping[clip_id] = group_id
+        _ = root
     return mapping
 
 
@@ -172,24 +216,38 @@ def words_in_segment(words: list[Word], seg: Segment) -> list[Word]:
     return [w for w in words if w.end > seg.source_start and w.start < seg.source_end]
 
 
-def segment_text(words: list[Word], seg: Segment) -> str:
-    return " ".join(w.text for w in words_in_segment(words, seg)).strip()
+def play_ranges(clip: ClipItem) -> list[tuple[float, float]]:
+    if clip.ranges:
+        return [(span.source_start, span.source_end) for span in clip.ranges]
+    return [(clip.source_start, clip.source_end)]
+
+
+def _ranges_duration(ranges: list[SourceSegment]) -> float:
+    return sum(max(0.0, span.source_end - span.source_start) for span in ranges)
+
+
+def _clip_ranges(clip: ClipItem) -> list[SourceSegment]:
+    if clip.ranges:
+        return list(clip.ranges)
+    return [SourceSegment(source_start=clip.source_start, source_end=clip.source_end)]
 
 
 def _combine_clips(left: ClipItem, right: ClipItem) -> ClipItem:
     text = f"{left.text} {right.text}".strip()
     combined_words = list(left.words or []) + list(right.words or [])
+    ranges = _clip_ranges(left) + _clip_ranges(right)
     return ClipItem(
         id=left.id,
         index=left.index,
         source_start=left.source_start,
         source_end=right.source_end,
-        duration=right.source_end - left.source_start,
+        duration=_ranges_duration(ranges),
         text=text,
         group_id="pending",
         words=combined_words,
         false_start=False,
         delivery_issue=None,
+        ranges=ranges,
     )
 
 
@@ -236,14 +294,10 @@ def merge_continuation_clips(clips: list[ClipItem], stem: str) -> list[ClipItem]
     return _reindex_clips(merged, stem)
 
 
-def _normalized_token(text: str) -> str:
-    return normalize_text(text)
-
-
 def find_restart_index(words: list[WordTiming]) -> int | None:
     tokens: list[tuple[int, str]] = []
     for index, word in enumerate(words):
-        token = _normalized_token(word.text)
+        token = normalize_text(word.text)
         if token:
             tokens.append((index, token))
 
@@ -277,6 +331,7 @@ def _clip_slice(
     false_start: bool,
 ) -> ClipItem:
     text = " ".join(word.text for word in words).strip()
+    span = SourceSegment(source_start=source_start, source_end=source_end)
     return ClipItem(
         id=clip.id,
         index=clip.index,
@@ -288,10 +343,11 @@ def _clip_slice(
         words=words,
         false_start=false_start,
         delivery_issue=None,
+        ranges=[span],
     )
 
 
-def _split_clip_at_restarts(clip: ClipItem) -> list[ClipItem]:
+def _split_clip_at_restarts(clip: ClipItem, pad: float) -> list[ClipItem]:
     words = list(clip.words or [])
     restart_at = find_restart_index(words)
     if restart_at is None:
@@ -302,21 +358,26 @@ def _split_clip_at_restarts(clip: ClipItem) -> list[ClipItem]:
     if not left_words or not right_words:
         return [clip]
 
+    raw_left_end = left_words[-1].end + pad
+    raw_right_start = max(0.0, right_words[0].start - pad)
+    left_end = min(raw_left_end, right_words[0].start)
+    right_start = max(raw_right_start, left_end)
+
     left = _clip_slice(
         clip,
         left_words,
         source_start=clip.source_start,
-        source_end=left_words[-1].end,
+        source_end=left_end,
         false_start=True,
     )
     right = _clip_slice(
         clip,
         right_words,
-        source_start=right_words[0].start,
+        source_start=right_start,
         source_end=clip.source_end,
         false_start=False,
     )
-    return [left, *_split_clip_at_restarts(right)]
+    return [left, *_split_clip_at_restarts(right, pad)]
 
 
 def _reindex_clips(clips: list[ClipItem], stem: str) -> list[ClipItem]:
@@ -326,10 +387,16 @@ def _reindex_clips(clips: list[ClipItem], stem: str) -> list[ClipItem]:
     ]
 
 
-def split_restart_clips(clips: list[ClipItem], stem: str) -> list[ClipItem]:
+def split_restart_clips(
+    clips: list[ClipItem],
+    stem: str,
+    *,
+    pad: float | None = None,
+) -> list[ClipItem]:
+    edge_pad = settings.silence_pad if pad is None else pad
     split: list[ClipItem] = []
     for clip in clips:
-        split.extend(_split_clip_at_restarts(clip))
+        split.extend(_split_clip_at_restarts(clip, edge_pad))
     return _reindex_clips(split, stem)
 
 
@@ -471,8 +538,9 @@ def _groups_from_clips(
         groups.append(
             ClipGroup(
                 id=gid,
-                label=label_clip.text[:48],
+                label=label_clip.text,
                 clip_ids=[item.id for item in group_clips],
+                reference_clip_id=label_clip.id if (references or {}).get(gid) else None,
             )
         )
     return groups
@@ -484,10 +552,12 @@ def build_segment_clips(
     words: list[Word],
     *,
     similarity_threshold: float | None = None,
+    pad: float | None = None,
     on_progress: Callable[[int, int, str], None] | None = None,
 ) -> tuple[list[ClipItem], list[ClipGroup]]:
     raw_clips: list[ClipItem] = []
     total = len(segments)
+    edge_pad = settings.silence_pad if pad is None else pad
 
     for index, segment in enumerate(segments):
         clip_id = f"{stem}_seg_{index:03d}"
@@ -515,10 +585,12 @@ def build_segment_clips(
     group_map = group_clips_by_text(
         clip_text_pairs,
         threshold=similarity_threshold,
+        stem=stem,
+        indices={clip.id: clip.index for clip in raw_clips},
     )
     for clip in raw_clips:
         clip.group_id = group_map[clip.id]
 
-    raw_clips = split_restart_clips(raw_clips, stem)
+    raw_clips = split_restart_clips(raw_clips, stem, pad=edge_pad)
     references = flag_incomplete_takes(raw_clips)
     return raw_clips, _groups_from_clips(raw_clips, references)

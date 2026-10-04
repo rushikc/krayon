@@ -5,8 +5,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from app.schemas import ClipGroup, ClipItem, SilenceAnalysis, SilenceOptions, SourceSegment
-from app.services.clip_audio import clip_audio_dir, extract_clip_audio
-from app.services.clips import build_segment_clips
+from app.services.clip_pipeline import group_and_extract
 from app.services.editor_state import load_manifest, prepare_version, save_version
 from app.services.ffmpeg import krayon_cache_dir
 from app.services.pipeline_log import PipelineContext
@@ -97,53 +96,16 @@ def rebuild_audio(
 
     _publish(on_progress, "segmenting", 1.0, f"Found {len(segments)} segments")
 
-    if pipeline:
-        pipeline.reset_phase_timer()
-        pipeline.phase(
-            "grouping",
-            "group start",
-            similarity_threshold=similarity_threshold,
-        )
-
-    def build_progress(completed: int, total: int, message: str) -> None:
-        step = completed / total if total else 1.0
-        _publish(on_progress, "grouping", step * 0.5, message)
-
-    _publish(on_progress, "grouping", 0.0, "Building segments…")
-    group_started = time.perf_counter()
-    clips, groups = build_segment_clips(
-        source.stem,
-        segments,
-        words,
-        similarity_threshold=similarity_threshold,
-        on_progress=build_progress,
-    )
-
-    if pipeline:
-        pipeline.phase_complete(
-            "grouping",
-            clip_count=len(clips),
-            group_count=len(groups),
-            elapsed_ms=int((time.perf_counter() - group_started) * 1000),
-        )
-
-    _publish(on_progress, "grouping", 1.0, f"Grouped into {len(groups)} takes")
-
-    def extract_progress(completed: int, total: int, message: str) -> None:
-        step = completed / total if total else 1.0
-        _publish(on_progress, "extracting_audio", step, message)
-
-    _publish(on_progress, "extracting_audio", 0.0, "Extracting clip audio…")
-    audio_dir = clip_audio_dir(source, new_version_id)
-
-    extract_clip_audio(
+    clips, groups = group_and_extract(
         source,
-        new_version_id,
-        clips,
-        on_progress=extract_progress,
+        version_id=new_version_id,
+        segments=segments,
+        words=words,
+        similarity_threshold=similarity_threshold,
+        pad=options.pad,
+        on_progress=on_progress,
         pipeline=pipeline,
     )
-    _publish(on_progress, "extracting_audio", 1.0, f"Extracted {len(clips)} clip audio files")
 
     analysis = SilenceAnalysis(
         source_duration=source_duration,
@@ -165,7 +127,6 @@ def rebuild_audio(
         clips=clips,
         groups=groups,
         processing_duration_seconds=processing_duration,
-        clips_dir=str(audio_dir),
         audio_ready=True,
         pipeline=pipeline,
         source_version_id=version_id,

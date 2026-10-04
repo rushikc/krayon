@@ -61,8 +61,8 @@ def test_rebuild_skips_whisper_and_appends_new_run(tmp_path: Path, monkeypatch) 
     monkeypatch.setattr("app.services.transcribe.transcribe_words", boom)
     monkeypatch.setattr("app.services.analysis.transcribe_words", boom)
     monkeypatch.setattr(
-        "app.services.rebuild_audio.extract_clip_audio",
-        lambda *args, **kwargs: (1, 0),
+        "app.services.clip_pipeline.extract_clip_audio",
+        lambda *args, **kwargs: None,
     )
 
     words = [
@@ -122,8 +122,8 @@ def test_rebuild_variants_stay_on_same_run(tmp_path: Path, monkeypatch) -> None:
         lambda folder: tmp_path / ".krayon",
     )
     monkeypatch.setattr(
-        "app.services.rebuild_audio.extract_clip_audio",
-        lambda *args, **kwargs: (1, 0),
+        "app.services.clip_pipeline.extract_clip_audio",
+        lambda *args, **kwargs: None,
     )
 
     words = [

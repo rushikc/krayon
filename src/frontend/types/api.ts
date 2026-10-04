@@ -54,10 +54,14 @@ export interface SilenceAnalysis {
 
 export type DeliveryIssue = "cut_off" | "starts_late" | "missing_words" | "misstatement";
 
+export interface ClipRange {
+  sourceStart: number;
+  sourceEnd: number;
+}
+
 export interface ClipItem {
   id: string;
   index: number;
-  path?: string | null;
   sourceStart: number;
   sourceEnd: number;
   duration: number;
@@ -66,6 +70,14 @@ export interface ClipItem {
   words?: WordTiming[];
   falseStart?: boolean;
   deliveryIssue?: DeliveryIssue | null;
+  ranges?: ClipRange[];
+}
+
+export interface ClipGroup {
+  id: string;
+  label: string;
+  clipIds: string[];
+  referenceClipId?: string | null;
 }
 
 export interface ClipGroup {
@@ -112,7 +124,6 @@ export interface EditorStateManifest {
   groups: ClipGroup[];
   clipCount: number;
   removedSeconds: number;
-  clipsDir?: string | null;
   processingDurationSeconds?: number | null;
   audioReady?: boolean;
   transcript?: string;
@@ -132,7 +143,7 @@ export interface JobProgress {
   message: string;
 }
 
-export const DEFAULT_SIMILARITY_THRESHOLD = 0.5;
+export const DEFAULT_SIMILARITY_THRESHOLD = 0.7;
 
 /** Dashboard library player: cap playback/scrub at this many seconds. */
 export const LIBRARY_PREVIEW_DURATION_SECONDS = 20;
