@@ -5,6 +5,15 @@ export function formatDuration(seconds?: number | null): string {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
+/** Clock time on the source, including 0:00. */
+export function formatTimestamp(seconds?: number | null): string {
+  if (seconds == null || !Number.isFinite(seconds) || seconds < 0) return "—";
+  const total = Math.floor(seconds);
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
 /** Human-readable elapsed time, e.g. "2 min 40 sec", "45 sec", "3 min". */
 export function formatElapsedHuman(seconds?: number | null): string | null {
   if (seconds == null || !Number.isFinite(seconds) || seconds < 0) return null;

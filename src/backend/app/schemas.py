@@ -1,4 +1,8 @@
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field
+
+DeliveryIssue = Literal["cut_off", "starts_late", "missing_words", "misstatement"]
 
 
 def _to_camel(name: str) -> str:
@@ -77,7 +81,6 @@ class SilenceAnalysis(BaseModel):
 class ClipItem(BaseModel):
     id: str
     index: int
-    path: str | None = None
     source_start: float = Field(alias="sourceStart")
     source_end: float = Field(alias="sourceEnd")
     duration: float
@@ -85,6 +88,8 @@ class ClipItem(BaseModel):
     group_id: str = Field(alias="groupId")
     words: list[WordTiming] = Field(default_factory=list)
     false_start: bool = Field(default=False, alias="falseStart")
+    delivery_issue: DeliveryIssue | None = Field(default=None, alias="deliveryIssue")
+    ranges: list[SourceSegment] = Field(default_factory=list)
 
     model_config = {"populate_by_name": True}
 
@@ -93,6 +98,7 @@ class ClipGroup(BaseModel):
     id: str
     label: str
     clip_ids: list[str] = Field(alias="clipIds")
+    reference_clip_id: str | None = Field(default=None, alias="referenceClipId")
 
     model_config = {"populate_by_name": True}
 
@@ -100,7 +106,7 @@ class ClipGroup(BaseModel):
 class ClipsGenerateRequest(BaseModel):
     path: str
     options: SilenceOptions = Field(default_factory=SilenceOptions)
-    similarity_threshold: float = Field(default=0.5, alias="similarityThreshold")
+    similarity_threshold: float = Field(default=0.7, alias="similarityThreshold")
 
     model_config = {"populate_by_name": True}
 
@@ -109,7 +115,7 @@ class ClipsRebuildRequest(BaseModel):
     path: str
     version_id: str = Field(alias="versionId")
     options: SilenceOptions = Field(default_factory=SilenceOptions)
-    similarity_threshold: float = Field(default=0.5, alias="similarityThreshold")
+    similarity_threshold: float = Field(default=0.7, alias="similarityThreshold")
 
     model_config = {"populate_by_name": True}
 
@@ -141,6 +147,9 @@ class EditorVersionSummary(BaseModel):
     clip_count: int
     removed_seconds: float
     options: SilenceOptions
+    run_number: int | None = None
+    variant: int | None = None
+    source_version_id: str | None = None
 
 
 class EditorStateIndex(BaseModel):
@@ -166,7 +175,6 @@ class EditorStateManifest(BaseModel):
     groups: list[ClipGroup]
     clip_count: int
     removed_seconds: float
-    clips_dir: str | None = None
     processing_duration_seconds: float | None = None
     audio_ready: bool = False
     transcript: str = ""

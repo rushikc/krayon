@@ -1,8 +1,39 @@
 from __future__ import annotations
 
+import array
+import math
+import wave
+from pathlib import Path
+
 import pytest
 
-from app.services.segments import Word, build_segments_from_words, removed_seconds
+from app.services.segments import (
+    Segment,
+    Word,
+    build_segments_from_words,
+    extend_segment_tails,
+    removed_seconds,
+)
+
+RATE = 16000
+
+
+def _write_wav(path: Path, samples: list[int], rate: int = RATE) -> None:
+    with wave.open(str(path), "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(rate)
+        payload = array.array("h", samples)
+        wf.writeframes(payload.tobytes())
+
+
+def _tone(seconds: float, amplitude: int = 8000, rate: int = RATE) -> list[int]:
+    n = int(round(seconds * rate))
+    return [int(amplitude * math.sin(2 * math.pi * 440 * i / rate)) for i in range(n)]
+
+
+def _silence(seconds: float, rate: int = RATE) -> list[int]:
+    return [0] * int(round(seconds * rate))
 
 
 def test_empty_words_yields_no_segments() -> None:
@@ -86,3 +117,40 @@ def test_removed_seconds_is_source_minus_kept() -> None:
         min_segment_seconds=0.05,
     )
     assert removed_seconds(10, segments) == pytest.approx(9.0)
+
+
+def test_tail_extends_when_tone_continues_past_word_end(tmp_path: Path) -> None:
+    wav = tmp_path / "take.wav"
+    _write_wav(wav, _tone(1.8) + _silence(1.2))
+    segments = [Segment(source_start=0.05, source_end=1.0)]
+    extended = extend_segment_tails(wav, segments, 3.0)
+    assert extended[0].source_start == pytest.approx(0.05)
+    assert extended[0].source_end == pytest.approx(1.85, abs=0.05)
+
+
+def test_tail_stays_when_already_silent_at_word_end(tmp_path: Path) -> None:
+    wav = tmp_path / "take.wav"
+    _write_wav(wav, _tone(1.0) + _silence(1.0))
+    segments = [Segment(source_start=0.0, source_end=1.0)]
+    extended = extend_segment_tails(wav, segments, 2.0)
+    assert extended[0].source_end == pytest.approx(1.0)
+
+
+def test_tail_stops_before_next_segment(tmp_path: Path) -> None:
+    wav = tmp_path / "take.wav"
+    _write_wav(wav, _tone(3.0))
+    segments = [
+        Segment(source_start=0.0, source_end=1.0),
+        Segment(source_start=1.3, source_end=2.0),
+    ]
+    extended = extend_segment_tails(wav, segments, 3.0)
+    assert extended[0].source_end == pytest.approx(1.3)
+    assert extended[0].source_end <= segments[1].source_start
+    assert extended[1].source_start == pytest.approx(1.3)
+
+
+def test_missing_wav_leaves_segments_unchanged(tmp_path: Path) -> None:
+    segments = [Segment(source_start=0.0, source_end=1.0)]
+    extended = extend_segment_tails(tmp_path / "missing.wav", segments, 2.0)
+    assert extended is segments
+    assert extended[0].source_end == pytest.approx(1.0)

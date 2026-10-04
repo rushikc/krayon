@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { clipAudioUrl } from "@/lib/api/client";
+import { clipIssueLabel } from "@/lib/delivery-issue";
 import { formatDuration } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { useMediaStore } from "@/stores/media-store";
@@ -154,6 +155,7 @@ export function ClipAudioPlayer() {
   const scrubValue = Number.isFinite(currentTime)
     ? Math.min(currentTime, displayDuration || 0)
     : 0;
+  const issueLabel = clipIssueLabel(selectedClip);
 
   return (
     <main className="flex min-w-0 flex-1 flex-col bg-background">
@@ -162,7 +164,7 @@ export function ClipAudioPlayer() {
           <div
             className={cn(
               "rounded-xl border p-8",
-              selectedClip?.falseStart
+              issueLabel
                 ? "border-yellow-500/50 bg-yellow-500/10"
                 : "border-border bg-card/50",
             )}
@@ -172,9 +174,9 @@ export function ClipAudioPlayer() {
               <div className="min-w-0 flex-1">
                 <p className="flex items-baseline gap-2 text-sm font-medium">
                   Take {(selectedClip?.index ?? 0) + 1}
-                  {selectedClip?.falseStart && (
+                  {issueLabel && (
                     <span className="text-[11px] font-medium uppercase tracking-wide text-yellow-400">
-                      False start
+                      {issueLabel}
                     </span>
                   )}
                 </p>

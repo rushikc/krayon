@@ -290,3 +290,102 @@ def test_double_restart_yields_two_false_starts() -> None:
     assert split[1].false_start is True
     assert split[2].false_start is False
     assert split[0].group_id == split[1].group_id == split[2].group_id == "g1"
+
+
+HELLO_LINE = "There was a mistake in Hello interview Uber system design"
+HELLO_PREFIX = "There was a mistake in Hello"
+HELLO_SUFFIX = "interview Uber system design"
+HELLO_MISSING = "There was a mistake in Uber system design"
+HELLO_MISSTATE = "There was a mistake in Hello interview Lyft system design"
+HELLO_NO_ARTICLE = "There was mistake in Hello interview Uber system design"
+HELLO_RUNON = "There was a mistake in Hello interview Uber system design The next topic starts here"
+
+
+def _clips_from_lines(*lines: str, gap: float = 2.0):
+    segments: list[Segment] = []
+    words: list[Word] = []
+    t = 0.1
+    for line in lines:
+        timed = _word_timings(line.split(), t0=t)
+        words.extend(timed)
+        segments.append(Segment(source_start=t - 0.05, source_end=timed[-1].end + 0.05))
+        t = timed[-1].end + gap
+    return build_segment_clips("take", segments, words, similarity_threshold=0.5)
+
+
+def _by_text(clips):
+    return {clip.text: clip for clip in clips}
+
+
+def test_prefix_fragment_is_cut_off() -> None:
+    clips, groups = _clips_from_lines(HELLO_PREFIX, HELLO_LINE)
+    by_text = _by_text(clips)
+    assert len(groups) == 1
+    assert by_text[HELLO_PREFIX].delivery_issue == "cut_off"
+    assert by_text[HELLO_LINE].delivery_issue is None
+    assert by_text[HELLO_PREFIX].group_id == by_text[HELLO_LINE].group_id
+
+
+def test_suffix_fragment_starts_late() -> None:
+    clips, groups = _clips_from_lines(HELLO_SUFFIX, HELLO_LINE)
+    by_text = _by_text(clips)
+    assert len(groups) == 1
+    assert by_text[HELLO_SUFFIX].delivery_issue == "starts_late"
+    assert by_text[HELLO_LINE].delivery_issue is None
+
+
+def test_interior_drop_is_missing_words() -> None:
+    clips, groups = _clips_from_lines(HELLO_MISSING, HELLO_LINE)
+    by_text = _by_text(clips)
+    assert len(groups) == 1
+    assert by_text[HELLO_MISSING].delivery_issue == "missing_words"
+    assert by_text[HELLO_LINE].delivery_issue is None
+
+
+def test_swapped_content_word_is_misstatement() -> None:
+    clips, groups = _clips_from_lines(HELLO_MISSTATE, HELLO_LINE)
+    by_text = _by_text(clips)
+    assert len(groups) == 1
+    assert by_text[HELLO_MISSTATE].delivery_issue == "misstatement"
+    assert by_text[HELLO_LINE].delivery_issue is None
+
+
+def test_function_word_only_difference_stays_clean() -> None:
+    clips, groups = _clips_from_lines(HELLO_NO_ARTICLE, HELLO_LINE)
+    by_text = _by_text(clips)
+    assert len(groups) == 1
+    assert by_text[HELLO_NO_ARTICLE].delivery_issue is None
+    assert by_text[HELLO_LINE].delivery_issue is None
+
+
+def test_run_on_stays_clean_and_group_uses_reference_label() -> None:
+    clips, groups = _clips_from_lines(HELLO_LINE, HELLO_RUNON)
+    by_text = _by_text(clips)
+    assert len(groups) == 1
+    assert by_text[HELLO_LINE].delivery_issue is None
+    assert by_text[HELLO_RUNON].delivery_issue is None
+    assert groups[0].label == HELLO_LINE[:48]
+
+
+def test_false_start_is_not_also_flagged_incomplete() -> None:
+    restart_tokens = HELLO_PREFIX.split() + HELLO_LINE.split()
+    words = _word_timings(restart_tokens, t0=0.1) + _word_timings(HELLO_LINE.split(), t0=20.0)
+    last_restart = 0.1 + 0.3 * (len(restart_tokens) - 1) + 0.2
+    segments = [
+        Segment(source_start=0.0, source_end=last_restart + 0.1),
+        Segment(source_start=19.95, source_end=20.0 + 0.3 * len(HELLO_LINE.split())),
+    ]
+    clips, groups = build_segment_clips("take", segments, words, similarity_threshold=0.5)
+    false_starts = [clip for clip in clips if clip.false_start]
+    assert false_starts
+    assert all(clip.delivery_issue is None for clip in false_starts)
+    assert len(groups) == 1
+
+
+def test_single_clip_group_stays_unmarked() -> None:
+    clips, groups = _clips_from_lines("Completely unrelated unique sentence spoken once")
+    assert len(clips) == 1
+    assert len(groups) == 1
+    assert clips[0].delivery_issue is None
+    assert clips[0].false_start is False
+

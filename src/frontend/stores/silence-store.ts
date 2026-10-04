@@ -63,6 +63,7 @@ interface SilenceStoreState {
   activeVersionId: string | null;
   versions: EditorVersionSummary[];
   transcript: string;
+  transcriptOpen: boolean;
   setOptions: (patch: Partial<SilenceOptions>) => void;
   setSimilarityThreshold: (value: number) => void;
   setJobState: (patch: Partial<{
@@ -75,6 +76,7 @@ interface SilenceStoreState {
   setTools: (tools: ToolStatus | null) => void;
   setToolsLoading: (loading: boolean) => void;
   setListMode: (mode: ListMode) => void;
+  setTranscriptOpen: (open: boolean) => void;
   setPipelineFromEvent: (phase: string, progress: number, stepProgress: number, message: string) => void;
   setJobSummary: (
     clipCount: number,
@@ -108,6 +110,7 @@ export const useSilenceStore = create<SilenceStoreState>((set) => ({
   activeVersionId: null,
   versions: [],
   transcript: "",
+  transcriptOpen: false,
 
   setOptions: (patch) =>
     set((state) => ({ options: { ...state.options, ...patch } })),
@@ -128,6 +131,8 @@ export const useSilenceStore = create<SilenceStoreState>((set) => ({
   setToolsLoading: (toolsLoading) => set({ toolsLoading }),
 
   setListMode: (listMode) => set({ listMode }),
+
+  setTranscriptOpen: (transcriptOpen) => set({ transcriptOpen }),
 
   setPipelineFromEvent: (phase, progress, stepProgress, message) =>
     set((state) => {
@@ -190,6 +195,7 @@ export const useSilenceStore = create<SilenceStoreState>((set) => ({
       activeVersionId: null,
       versions: [],
       transcript: "",
+      transcriptOpen: false,
       phase: "idle",
       progress: 0,
       stepProgress: 0,

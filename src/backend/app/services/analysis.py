@@ -7,7 +7,11 @@ from typing import Callable
 from app.schemas import SilenceAnalysis, SourceSegment, WordTiming
 from app.services.ffmpeg import krayon_cache_dir, probe_media
 from app.services.pipeline_log import PipelineContext
-from app.services.segments import build_segments_from_words, removed_seconds
+from app.services.segments import (
+    build_segments_from_words,
+    extend_segment_tails,
+    removed_seconds,
+)
 from app.services.transcribe import transcribe_words
 
 
@@ -56,6 +60,7 @@ def analyze_silence(
         pad=options.pad,
         source_duration=probe.duration,
     )
+    segments = extend_segment_tails(wav_path, segments, probe.duration or 0.0)
     removed = removed_seconds(probe.duration or 0.0, segments)
 
     if pipeline:

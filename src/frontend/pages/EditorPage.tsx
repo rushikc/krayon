@@ -4,6 +4,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { AppShell } from "@/components/layout/AppShell";
 import { ClipsSidebar } from "@/components/layout/ClipsSidebar";
 import { ControlsPanel } from "@/components/layout/ControlsPanel";
+import { TranscriptPanel } from "@/components/layout/TranscriptPanel";
 import { ClipAudioPlayer } from "@/components/player/ClipAudioPlayer";
 import { PipelineStepper } from "@/components/player/PipelineStepper";
 import { useMediaStore } from "@/stores/media-store";
@@ -14,7 +15,7 @@ export function EditorPage() {
   const navigate = useNavigate();
 
   const { files, setSelected, clearSelection, loadEditorState } = useMediaStore();
-  const { phase } = useSilenceStore();
+  const { phase, transcriptOpen } = useSilenceStore();
   const selectedFile = files.find((f) => f.id === mediaId) ?? null;
   const showStepper = phase === "running";
   const hydratedIdRef = useRef<string | null>(null);
@@ -42,6 +43,7 @@ export function EditorPage() {
     >
       <ClipsSidebar />
       {showStepper ? <PipelineStepper /> : <ClipAudioPlayer />}
+      {transcriptOpen ? <TranscriptPanel /> : null}
       <ControlsPanel />
     </AppShell>
   );

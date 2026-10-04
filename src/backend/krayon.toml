@@ -12,7 +12,7 @@ pad = 0.05
 min_segment_seconds = 0.05
 
 [clips]
-similarity_threshold = 0.5
+similarity_threshold = 0.7
 
 [paths]
 ffmpeg = "ffmpeg"

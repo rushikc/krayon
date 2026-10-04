@@ -6,11 +6,12 @@ from collections.abc import Callable
 from difflib import SequenceMatcher
 
 from app.config import settings
-from app.schemas import ClipGroup, ClipItem, WordTiming
+from app.schemas import ClipGroup, ClipItem, DeliveryIssue, WordTiming
 from app.services.segments import Segment, Word
 
 
 FILLER_WORDS = {"um", "uh", "like", "you", "know", "so", "well", "okay", "ok", "ah"}
+FUNCTION_WORDS = {"a", "an", "the", "in", "on", "of", "to", "and", "or", "for"}
 
 # Retakes often share the opening line then diverge — 4+ matching words is a strong same-take signal.
 MIN_SHARED_PREFIX_WORDS = 4
@@ -188,6 +189,7 @@ def _combine_clips(left: ClipItem, right: ClipItem) -> ClipItem:
         group_id="pending",
         words=combined_words,
         false_start=False,
+        delivery_issue=None,
     )
 
 
@@ -285,6 +287,7 @@ def _clip_slice(
         group_id=clip.group_id,
         words=words,
         false_start=false_start,
+        delivery_issue=None,
     )
 
 
@@ -330,18 +333,145 @@ def split_restart_clips(clips: list[ClipItem], stem: str) -> list[ClipItem]:
     return _reindex_clips(split, stem)
 
 
-def _groups_from_clips(clips: list[ClipItem]) -> list[ClipGroup]:
+def _normalized_tokens(text: str) -> list[str]:
+    normalized = normalize_text(text)
+    return normalized.split() if normalized else []
+
+
+def _content_tokens(text: str) -> list[str]:
+    return [token for token in _normalized_tokens(text) if token not in FUNCTION_WORDS]
+
+
+def _matched_indices(candidate: list[str], other: list[str]) -> set[int]:
+    matched: set[int] = set()
+    matcher = SequenceMatcher(None, candidate, other, autojunk=False)
+    for tag, i1, i2, _j1, _j2 in matcher.get_opcodes():
+        if tag == "equal":
+            matched.update(range(i1, i2))
+    return matched
+
+
+def _trailing_unmatched_count(token_count: int, matched: set[int]) -> int:
+    trailing = 0
+    for index in range(token_count - 1, -1, -1):
+        if index in matched:
+            break
+        trailing += 1
+    return trailing
+
+
+def _run_on_extra(text: str, tokens: list[str], matched: set[int]) -> int:
+    trailing = _trailing_unmatched_count(len(tokens), matched)
+    if trailing == 0:
+        return 0
+    raw_words = [word for word in text.split() if re.sub(r"[^\w]", "", word)]
+    if trailing > len(raw_words):
+        return trailing
+    first_extra = re.sub(r"[^\w]", "", raw_words[-trailing])
+    if first_extra and first_extra[0].isupper():
+        return trailing
+    return 0
+
+
+def _reference_key(clip: ClipItem, tokens: list[str], others: list[list[str]]) -> tuple[int, int, int, float] | None:
+    matched: set[int] = set()
+    for other in others:
+        matched |= _matched_indices(tokens, other)
+    score = len(matched)
+    if score <= 0:
+        return None
+    run_on = _run_on_extra(clip.text, tokens, matched)
+    return (score, -run_on, len(tokens), clip.source_start)
+
+
+def pick_group_reference(clips: list[ClipItem]) -> ClipItem | None:
+    candidates = [clip for clip in clips if not clip.false_start]
+    if len(candidates) < 2:
+        return None
+
+    tokenized = {clip.id: _normalized_tokens(clip.text) for clip in candidates}
+    best: ClipItem | None = None
+    best_key: tuple[int, int, int, float] | None = None
+    for clip in candidates:
+        others = [tokens for clip_id, tokens in tokenized.items() if clip_id != clip.id]
+        key = _reference_key(clip, tokenized[clip.id], others)
+        if key is None:
+            continue
+        if best_key is None or key > best_key:
+            best = clip
+            best_key = key
+    return best
+
+
+def classify_delivery_issue(clip_text: str, reference_text: str) -> DeliveryIssue | None:
+    clip_tokens = _content_tokens(clip_text)
+    ref_tokens = _content_tokens(reference_text)
+    if not clip_tokens or not ref_tokens:
+        return None
+
+    matcher = SequenceMatcher(None, clip_tokens, ref_tokens, autojunk=False)
+    opcodes = matcher.get_opcodes()
+    if any(tag == "replace" for tag, *_ in opcodes):
+        return "misstatement"
+
+    ref_equal_spans: list[tuple[int, int]] = []
+    inserts: list[tuple[int, int]] = []
+    for tag, _i1, _i2, j1, j2 in opcodes:
+        if tag == "equal":
+            ref_equal_spans.append((j1, j2))
+        elif tag == "insert":
+            inserts.append((j1, j2))
+
+    ref_matched = sum(end - start for start, end in ref_equal_spans)
+    if ref_matched == len(ref_tokens):
+        return None
+
+    missing_interior = any(start > 0 and end < len(ref_tokens) for start, end in inserts)
+    missing_start = any(start == 0 for start, end in inserts)
+    missing_end = any(end == len(ref_tokens) for start, end in inserts)
+
+    if missing_interior or (missing_start and missing_end):
+        return "missing_words"
+    if missing_start and not missing_end:
+        return "starts_late"
+    if missing_end and not missing_start:
+        return "cut_off"
+    return None
+
+
+def flag_incomplete_takes(clips: list[ClipItem]) -> dict[str, ClipItem]:
+    members: dict[str, list[ClipItem]] = {}
+    for clip in clips:
+        members.setdefault(clip.group_id, []).append(clip)
+
+    references: dict[str, ClipItem] = {}
+    for group_id, group_clips in members.items():
+        reference = pick_group_reference(group_clips)
+        if reference is None:
+            continue
+        references[group_id] = reference
+        for clip in group_clips:
+            if clip.false_start or clip.id == reference.id:
+                continue
+            clip.delivery_issue = classify_delivery_issue(clip.text, reference.text)
+    return references
+
+
+def _groups_from_clips(
+    clips: list[ClipItem],
+    references: dict[str, ClipItem] | None = None,
+) -> list[ClipGroup]:
     members: dict[str, list[ClipItem]] = {}
     for clip in clips:
         members.setdefault(clip.group_id, []).append(clip)
 
     groups: list[ClipGroup] = []
     for gid, group_clips in members.items():
-        longest = max(group_clips, key=lambda item: len(item.text))
+        label_clip = (references or {}).get(gid) or max(group_clips, key=lambda item: len(item.text))
         groups.append(
             ClipGroup(
                 id=gid,
-                label=longest.text[:48],
+                label=label_clip.text[:48],
                 clip_ids=[item.id for item in group_clips],
             )
         )
@@ -390,4 +520,5 @@ def build_segment_clips(
         clip.group_id = group_map[clip.id]
 
     raw_clips = split_restart_clips(raw_clips, stem)
-    return raw_clips, _groups_from_clips(raw_clips)
+    references = flag_incomplete_takes(raw_clips)
+    return raw_clips, _groups_from_clips(raw_clips, references)

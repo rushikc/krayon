@@ -52,6 +52,8 @@ export interface SilenceAnalysis {
   words: WordTiming[];
 }
 
+export type DeliveryIssue = "cut_off" | "starts_late" | "missing_words" | "misstatement";
+
 export interface ClipItem {
   id: string;
   index: number;
@@ -63,6 +65,7 @@ export interface ClipItem {
   groupId: string;
   words?: WordTiming[];
   falseStart?: boolean;
+  deliveryIssue?: DeliveryIssue | null;
 }
 
 export interface ClipGroup {
@@ -85,6 +88,9 @@ export interface EditorVersionSummary {
   clipCount: number;
   removedSeconds: number;
   options: SilenceOptions;
+  runNumber?: number;
+  variant?: number;
+  sourceVersionId?: string | null;
 }
 
 export interface EditorStateIndex {

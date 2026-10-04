@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import shutil
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -8,9 +7,10 @@ from pathlib import Path
 from app.schemas import ClipGroup, ClipItem, SilenceAnalysis, SilenceOptions, SourceSegment
 from app.services.clip_audio import clip_audio_dir, extract_clip_audio
 from app.services.clips import build_segment_clips
-from app.services.editor_state import load_manifest, update_version
+from app.services.editor_state import load_manifest, prepare_version, save_version
+from app.services.ffmpeg import krayon_cache_dir
 from app.services.pipeline_log import PipelineContext
-from app.services.segments import Word, build_segments_from_words, removed_seconds
+from app.services.segments import Word, build_segments_from_words, extend_segment_tails, removed_seconds
 
 ProgressFn = Callable[[str, float, str], None]
 
@@ -53,8 +53,10 @@ def rebuild_audio(
     if not existing.analysis.words:
         raise ValueError("No transcript on this run")
 
+    new_version_id = prepare_version(source)
+
     if pipeline:
-        pipeline.version_id = version_id
+        pipeline.version_id = new_version_id
         pipeline.source = source
         pipeline.phase("starting", "rebuild from existing transcript")
         pipeline.phase_complete("starting")
@@ -81,6 +83,8 @@ def rebuild_audio(
         pad=options.pad,
         source_duration=source_duration,
     )
+    wav_path = krayon_cache_dir(source.parent) / f"{source.stem}.wav"
+    segments = extend_segment_tails(wav_path, segments, source_duration or 0.0)
     removed = removed_seconds(source_duration or 0.0, segments)
 
     if pipeline:
@@ -130,13 +134,11 @@ def rebuild_audio(
         _publish(on_progress, "extracting_audio", step, message)
 
     _publish(on_progress, "extracting_audio", 0.0, "Extracting clip audio…")
-    audio_dir = clip_audio_dir(source, version_id)
-    if audio_dir.exists():
-        shutil.rmtree(audio_dir)
+    audio_dir = clip_audio_dir(source, new_version_id)
 
     extract_clip_audio(
         source,
-        version_id,
+        new_version_id,
         clips,
         on_progress=extract_progress,
         pipeline=pipeline,
@@ -154,9 +156,9 @@ def rebuild_audio(
     )
 
     processing_duration = time.perf_counter() - started
-    manifest = update_version(
+    manifest = save_version(
         source,
-        version_id=version_id,
+        version_id=new_version_id,
         options=options,
         similarity_threshold=similarity_threshold,
         analysis=analysis,
@@ -166,10 +168,11 @@ def rebuild_audio(
         clips_dir=str(audio_dir),
         audio_ready=True,
         pipeline=pipeline,
+        source_version_id=version_id,
     )
 
     return RebuildResult(
-        version_id=version_id,
+        version_id=new_version_id,
         clips=manifest.clips,
         groups=manifest.groups,
         analysis=analysis,

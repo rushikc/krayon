@@ -1,18 +1,9 @@
-import { Copy, Loader2, RefreshCw, VolumeX, Wand2 } from "lucide-react";
+import { Loader2, RefreshCw, VolumeX, Wand2 } from "lucide-react";
 import { useEffect, useRef } from "react";
 
 import { Button } from "@/components/ui/button";
 import { FieldLabel } from "@/components/ui/field-label";
-import {
-  Popover,
-  PopoverContent,
-  PopoverDescription,
-  PopoverHeader,
-  PopoverTitle,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import {
   getToolsStatus,
   listenJobProgress,
@@ -23,7 +14,6 @@ import { formatElapsedHuman } from "@/lib/format";
 import type { ClipsGenerateResponse } from "@/types/api";
 import { useMediaStore } from "@/stores/media-store";
 import { REBUILD_PIPELINE_STEP_IDS, useSilenceStore } from "@/stores/silence-store";
-import { toast } from "@/stores/toast-store";
 
 export function ControlsPanel() {
   const {
@@ -49,12 +39,14 @@ export function ControlsPanel() {
     activeVersionId,
     versions,
     transcript,
+    transcriptOpen,
     setOptions,
     setSimilarityThreshold,
     setJobState,
     setTools,
     setToolsLoading,
     setListMode,
+    setTranscriptOpen,
     setPipelineFromEvent,
     setJobSummary,
     startPipeline,
@@ -65,16 +57,7 @@ export function ControlsPanel() {
   const selectedFile = files.find((f) => f.id === selectedId) ?? null;
   const busy = phase === "running";
   const hasClips = clipCount > 0;
-
-  const copyTranscript = async () => {
-    if (!transcript) return;
-    try {
-      await navigator.clipboard.writeText(transcript);
-      toast("Transcript copied to clipboard");
-    } catch {
-      toast("Could not copy transcript");
-    }
-  };
+  const canViewTranscript = hasClips || Boolean(transcript);
 
   useEffect(() => {
     unsubscribeRef.current?.();
@@ -345,61 +328,14 @@ export function ControlsPanel() {
               )}
 
               {hasClips && (
-                <Popover>
-                  <PopoverTrigger
-                    render={
-                      <Button
-                        variant="outline"
-                        className="w-full"
-                        disabled={busy || !transcript}
-                      />
-                    }
-                  >
-                    View transcript
-                  </PopoverTrigger>
-                  <PopoverContent
-                    side="left"
-                    align="start"
-                    className="w-[min(28rem,calc(100vw-2rem))] p-3"
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <PopoverHeader className="min-w-0 flex-1">
-                        <PopoverTitle>Full transcript</PopoverTitle>
-                        <PopoverDescription>
-                          From the active analysis run
-                        </PopoverDescription>
-                      </PopoverHeader>
-                      <Tooltip>
-                        <TooltipTrigger
-                          render={
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon-sm"
-                              aria-label="Copy transcript"
-                              disabled={!transcript}
-                              onClick={() => void copyTranscript()}
-                            />
-                          }
-                        >
-                          <Copy className="size-4" />
-                        </TooltipTrigger>
-                        <TooltipContent>Copy transcript</TooltipContent>
-                      </Tooltip>
-                    </div>
-                    {transcript ? (
-                      <ScrollArea className="h-72 pr-2">
-                        <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">
-                          {transcript}
-                        </p>
-                      </ScrollArea>
-                    ) : (
-                      <p className="text-sm text-muted-foreground">
-                        No transcript for this run
-                      </p>
-                    )}
-                  </PopoverContent>
-                </Popover>
+                <Button
+                  variant={transcriptOpen ? "default" : "outline"}
+                  className="w-full"
+                  disabled={busy || !canViewTranscript}
+                  onClick={() => setTranscriptOpen(!transcriptOpen)}
+                >
+                  View transcript
+                </Button>
               )}
 
               {hasClips && (

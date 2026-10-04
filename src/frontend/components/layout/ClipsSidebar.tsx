@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { TruncatedText } from "@/components/ui/truncated-text";
+import { clipIssueLabel } from "@/lib/delivery-issue";
 import { formatDuration } from "@/lib/format";
 import { buildTimeline, isTimelineEntrySelected } from "@/lib/timeline";
 import { cn } from "@/lib/utils";
@@ -41,11 +42,12 @@ function SpeechClipRow({
   onPreview: () => void;
   onPlay: () => void;
 }) {
+  const issueLabel = clipIssueLabel(clip);
   return (
     <div
       className={cn(
         "flex items-start gap-1 rounded-md border px-2 py-1.5 text-left text-xs",
-        clip.falseStart
+        issueLabel
           ? "border-yellow-500/50 bg-yellow-500/15 text-yellow-100"
           : selected
             ? "border-transparent bg-primary/15 text-primary"
@@ -55,9 +57,9 @@ function SpeechClipRow({
       <button type="button" className="min-w-0 flex-1 text-left" onClick={onPreview}>
         <span className="flex items-baseline gap-1.5">
           <span className="font-medium">Take {clip.index + 1}</span>
-          {clip.falseStart && (
+          {issueLabel && (
             <span className="text-[10px] font-medium uppercase tracking-wide text-yellow-400">
-              False start
+              {issueLabel}
             </span>
           )}
         </span>
@@ -150,7 +152,7 @@ function TimelineList({
         const selected = isTimelineEntrySelected(entry, selectedEntry);
         const isSilence = entry.kind === "silence";
 
-        const falseStart = entry.kind === "speech" && entry.clip.falseStart;
+        const speechIssue = entry.kind === "speech" ? clipIssueLabel(entry.clip) : null;
 
         return (
           <div
@@ -161,7 +163,7 @@ function TimelineList({
                 ? selected
                   ? "border-red-500/30 bg-red-500/15 text-red-100"
                   : "border-red-500/15 bg-red-500/10 text-red-200/80 hover:bg-red-500/15"
-                : falseStart
+                : speechIssue
                   ? "border-yellow-500/50 bg-yellow-500/15 text-yellow-100"
                   : selected
                     ? "border-primary/20 bg-primary/15 text-primary"
@@ -183,9 +185,9 @@ function TimelineList({
                 <>
                   <span className="flex items-baseline gap-1.5">
                     <span className="font-medium">Take {entry.clip.index + 1}</span>
-                    {entry.clip.falseStart && (
+                    {speechIssue && (
                       <span className="text-[10px] font-medium uppercase tracking-wide text-yellow-400">
-                        False start
+                        {speechIssue}
                       </span>
                     )}
                   </span>
