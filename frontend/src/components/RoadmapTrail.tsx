@@ -1,13 +1,23 @@
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
+import type { SourceFile } from '../data/topics.ts';
 import type { TrailStatus } from './roadmapTypes.ts';
 import { buttonClass } from './ui/Button.tsx';
 import { cardClass } from './ui/Card.tsx';
+import { Chip } from './ui/Chip.tsx';
 import { CrayonProgress } from './ui/CrayonProgress.tsx';
-import { IconCheck } from './ui/icons.tsx';
+import { IconBack, IconCheck, IconFile, IconImage, IconLock, IconPlay, IconPlus, IconClose } from './ui/icons.tsx';
 import { TopicArt } from './ui/TopicArt.tsx';
 import { cx } from './ui/cx.ts';
 
 export type { TrailStatus };
+
+export type TrailChapter = {
+  id: string;
+  title: string;
+  duration: string;
+  state: 'watched' | 'resume' | 'later';
+};
 
 export type TrailStep = {
   id: string;
@@ -17,12 +27,14 @@ export type TrailStep = {
   artId: string;
   duration: string;
   progress: number;
-  action: string;
+  timeLeft: string;
   hint?: string;
   href?: string;
   onOpen?: () => void;
-  disabled?: boolean;
+  chapters: TrailChapter[];
 };
+
+const ROW = 176;
 
 const statusLabel: Record<TrailStatus, string> = {
   done: 'Done',
@@ -31,134 +43,377 @@ const statusLabel: Record<TrailStatus, string> = {
   open: 'Ready',
 };
 
+const pointFor = (index: number, width: number) => ({
+  x: width * (index % 2 === 0 ? 0.2 : 0.8),
+  y: index * ROW + ROW / 2,
+});
+
+const curve = (points: { x: number; y: number }[]) => {
+  if (points.length === 0) return '';
+  let path = `M ${points[0].x} ${points[0].y}`;
+  for (let index = 1; index < points.length; index += 1) {
+    const prev = points[index - 1];
+    const curr = points[index];
+    const mid = (prev.y + curr.y) / 2;
+    path += ` C ${prev.x} ${mid}, ${curr.x} ${mid}, ${curr.x} ${curr.y}`;
+  }
+  return path;
+};
+
 function Node({ status, index }: { status: TrailStatus; index: number }) {
   if (status === 'done') {
     return (
-      <span className="relative z-10 flex h-10 w-10 items-center justify-center rounded-full border-[2.5px] border-ink bg-crayon text-white shadow-[2px_2px_0_var(--color-ink)]">
+      <span className="flex h-12 w-12 items-center justify-center rounded-full border-[2.5px] border-ink bg-crayon text-white shadow-[2px_2px_0_var(--color-ink)]">
         <IconCheck className="h-5 w-5" />
       </span>
     );
   }
   if (status === 'next') {
     return (
-      <span className="relative z-10 flex h-11 w-11 items-center justify-center rounded-full border-[2.5px] border-ink bg-yellow text-[15px] font-semibold text-ink shadow-[0_0_0_6px_rgba(242,193,78,0.45)]">
+      <span className="flex h-16 w-16 items-center justify-center rounded-full border-[2.5px] border-ink bg-yellow font-serif text-2xl text-ink shadow-[0_0_0_4px_var(--color-stone),0_0_0_7px_var(--color-focus)]">
         {index + 1}
       </span>
     );
   }
   if (status === 'locked') {
     return (
-      <span className="relative z-10 flex h-10 w-10 items-center justify-center rounded-full border-2 border-dashed border-ink/40 bg-paper text-[15px] text-muted">
-        {index + 1}
+      <span className="flex h-12 w-12 items-center justify-center rounded-full border-2 border-dashed border-ink/40 bg-paper text-muted">
+        <IconLock className="h-5 w-5" />
       </span>
     );
   }
   return (
-    <span className="relative z-10 flex h-10 w-10 items-center justify-center rounded-full border-[2.5px] border-ink bg-paper text-[15px] font-semibold">
+    <span className="flex h-12 w-12 items-center justify-center rounded-full border-[2.5px] border-ink bg-paper text-[15px] font-semibold text-ink">
       {index + 1}
     </span>
   );
 }
 
-function Action({ step }: { step: TrailStep }) {
-  if (step.status === 'locked' || step.disabled) {
-    return (
-      <button type="button" disabled className={buttonClass('secondary', 'w-full sm:w-auto')}>
-        {step.hint ?? 'Locked'}
-      </button>
-    );
-  }
-  const look = buttonClass(step.status === 'next' ? 'primary' : 'secondary', 'w-full sm:w-auto');
-  if (step.href) {
-    return (
-      <Link to={step.href} className={look}>
-        {step.action}
-      </Link>
-    );
-  }
+function metaLine(step: TrailStep) {
+  const percent = step.status === 'next' && step.progress > 0 && step.progress < 100 ? `${step.progress}%` : '';
+  return [step.duration, statusLabel[step.status], percent].filter(Boolean).join(' · ');
+}
+
+function StepCard({ step, selected }: { step: TrailStep; selected: boolean }) {
   return (
-    <button type="button" onClick={step.onOpen} className={look}>
-      {step.action}
-    </button>
+    <span
+      className={cardClass(
+        false,
+        step.status === 'locked',
+        cx('block px-3 py-2 text-left', step.status === 'locked' && 'opacity-70', selected && 'ring-2 ring-focus ring-offset-2'),
+      )}
+    >
+      <span className="block text-[15px] leading-snug font-medium text-ink">{step.title}</span>
+      <span
+        className={cx(
+          'mt-0.5 block text-[13px]',
+          step.status === 'done' && 'text-done',
+          step.status === 'next' && 'text-crayon-text',
+          step.status !== 'done' && step.status !== 'next' && 'text-muted',
+        )}
+      >
+        {metaLine(step)}
+      </span>
+    </span>
   );
 }
 
-export function RoadmapTrail({ steps }: { steps: TrailStep[] }) {
+function Legend({ lockedLabel }: { lockedLabel: string }) {
   return (
-    <ol className="grid gap-5">
-      {steps.map((step, index) => {
-        const next = steps[index + 1];
-        const filled = !!next && step.status !== 'locked' && next.status !== 'locked';
-        const featured = step.status === 'next';
-        return (
-          <li key={step.id} className="grid grid-cols-[44px_minmax(0,1fr)] gap-3 sm:grid-cols-[52px_minmax(0,1fr)] sm:gap-4">
-            <div className="relative flex justify-center">
-              {next && (
-                <svg
-                  aria-hidden="true"
-                  className="absolute top-12 bottom-[-1.25rem] left-1/2 w-8 -translate-x-1/2"
-                  viewBox="0 0 32 100"
-                  preserveAspectRatio="none"
-                >
-                  <path
-                    d="M16 0C28 22 4 38 16 58C26 74 8 88 16 100"
-                    fill="none"
-                    stroke={filled ? 'var(--color-crayon)' : 'var(--color-ink)'}
-                    strokeWidth={filled ? 7 : 4}
-                    strokeDasharray={filled ? undefined : '1.5 8'}
-                    strokeLinecap="round"
-                    opacity={filled ? 1 : 0.45}
-                  />
-                </svg>
-              )}
-              <Node status={step.status} index={index} />
-            </div>
-            <article
-              className={cardClass(
-                featured,
-                step.status === 'locked',
-                cx('p-3', step.status === 'locked' && 'opacity-70'),
-              )}
+    <ul className="flex flex-wrap justify-end gap-x-4 gap-y-1 text-[13px] text-muted">
+      <li className="inline-flex items-center gap-1.5">
+        <span className="h-2.5 w-2.5 rounded-full bg-crayon" />
+        Done
+      </li>
+      <li className="inline-flex items-center gap-1.5">
+        <span className="h-2.5 w-2.5 rounded-full border border-ink bg-yellow" />
+        Up next
+      </li>
+      <li className="inline-flex items-center gap-1.5">
+        <span className="h-2.5 w-2.5 rounded-full border border-dashed border-ink/50" />
+        {lockedLabel}
+      </li>
+    </ul>
+  );
+}
+
+export function RoadmapTrail({
+  steps,
+  selectedId,
+  legend,
+  onSelect,
+}: {
+  steps: TrailStep[];
+  selectedId?: string;
+  legend: 'locked' | 'ready';
+  onSelect: (id: string) => void;
+}) {
+  const boardRef = useRef<HTMLDivElement>(null);
+  const [width, setWidth] = useState(0);
+  const [hidden, setHidden] = useState(0);
+
+  useLayoutEffect(() => {
+    const board = boardRef.current;
+    if (!board) return;
+    const measure = () => setWidth(board.clientWidth);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(board);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    const measure = () => {
+      const board = boardRef.current;
+      if (!board) return;
+      const items = [...board.querySelectorAll<HTMLElement>('[data-step]')].filter((item) => item.offsetParent !== null);
+      const limit = window.innerHeight - 28;
+      setHidden(items.filter((item) => item.getBoundingClientRect().top > limit).length);
+    };
+    measure();
+    window.addEventListener('scroll', measure, { passive: true });
+    window.addEventListener('resize', measure);
+    return () => {
+      window.removeEventListener('scroll', measure);
+      window.removeEventListener('resize', measure);
+    };
+  }, [steps.length, width]);
+
+  const height = steps.length * ROW;
+  const points = steps.map((_, index) => pointFor(index, Math.max(width, 1)));
+  const cut = steps.findIndex((step) => step.status === 'next');
+  const solidEnd = cut === -1 ? points.length - 1 : cut;
+  const solid = curve(points.slice(0, solidEnd + 1));
+  const dotted = curve(points.slice(solidEnd));
+  const lockedLabel = legend === 'locked' ? 'Locked' : 'Ready';
+
+  const scrollMore = () => {
+    const board = boardRef.current;
+    if (!board) return;
+    const items = [...board.querySelectorAll<HTMLElement>('[data-step]')].filter((item) => item.offsetParent !== null);
+    const next = items.find((item) => item.getBoundingClientRect().top > window.innerHeight - 28);
+    next?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  };
+
+  return (
+    <div ref={boardRef} className="rounded-[28px] border-2 border-dashed border-ink/25 px-3 py-4 sm:px-5">
+      <Legend lockedLabel={lockedLabel} />
+      <ol className="mt-4 grid gap-5 lg:hidden">
+        {steps.map((step, index) => {
+          const joined = step.status === 'done' || step.status === 'next';
+          return (
+            <li
+              key={step.id}
+              data-step
+              className={cx('grid justify-items-start gap-2 border-l-[6px] pl-4', joined ? 'border-crayon' : 'border-dashed border-ink/40')}
             >
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-                <div className="relative sm:w-40 sm:shrink-0">
-                  <TopicArt topicId={step.artId} className="aspect-[16/10]" />
-                  {step.duration && (
-                    <span className="absolute right-2 bottom-2 rounded-md bg-ink px-1.5 py-0.5 text-[12px] font-medium text-paper">
-                      {step.duration}
-                    </span>
-                  )}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p
-                    className={cx(
-                      'text-[12px] font-semibold tracking-[0.14em] uppercase',
-                      step.status === 'done' && 'text-done',
-                      step.status === 'next' && 'text-crayon-text',
-                      (step.status === 'locked' || step.status === 'open') && 'text-muted',
-                    )}
-                  >
-                    {statusLabel[step.status]}
-                  </p>
-                  <h2 className="mt-1 font-serif text-[1.45rem] leading-tight text-ink">{step.title}</h2>
-                  <p className="mt-1 text-[15px] text-muted">{step.detail}</p>
-                  <div className="mt-3 max-w-xs">
-                    <CrayonProgress
-                      value={step.progress}
-                      label={`${step.title} progress`}
-                      tone={step.status === 'done' ? 'done' : 'crayon'}
-                      showValue
-                    />
-                  </div>
-                </div>
-                <div className="sm:shrink-0">
-                  <Action step={step} />
-                </div>
-              </div>
-            </article>
-          </li>
-        );
-      })}
-    </ol>
+              <Node status={step.status} index={index} />
+              {step.status === 'next' && (
+                <span className="text-[13px] font-medium text-crayon-text">↑ you are here</span>
+              )}
+              <button
+                type="button"
+                className="w-full"
+                aria-pressed={step.id === selectedId}
+                aria-label={`${step.title}. ${metaLine(step)}`}
+                onClick={() => onSelect(step.id)}
+              >
+                <StepCard step={step} selected={step.id === selectedId} />
+              </button>
+            </li>
+          );
+        })}
+      </ol>
+      <div className="relative mt-2 hidden lg:block" style={{ height }}>
+        {width > 0 && (
+          <svg
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-x-0 top-0"
+            width="100%"
+            height={height}
+            viewBox={`0 0 ${width} ${height}`}
+          >
+            {dotted && (
+              <path
+                d={dotted}
+                fill="none"
+                stroke="var(--color-ink)"
+                strokeWidth="5"
+                strokeDasharray="1.5 14"
+                strokeLinecap="round"
+                opacity="0.4"
+              />
+            )}
+            {solid && (
+              <path d={solid} fill="none" stroke="var(--color-crayon)" strokeWidth="12" strokeLinecap="round" />
+            )}
+          </svg>
+        )}
+        {steps.map((step, index) => {
+          const side = index % 2 === 0 ? 'left' : 'right';
+          return (
+            <div key={step.id} className="absolute inset-x-0" style={{ top: index * ROW, height: ROW }} data-step>
+              <button
+                type="button"
+                tabIndex={-1}
+                aria-hidden="true"
+                onClick={() => onSelect(step.id)}
+                className="absolute top-1/2 z-10 -translate-x-1/2 -translate-y-1/2"
+                style={{ left: side === 'left' ? '20%' : '80%' }}
+              >
+                <Node status={step.status} index={index} />
+              </button>
+              {step.status === 'next' && (
+                <span
+                  className="pointer-events-none absolute z-10 -translate-x-1/2 text-[13px] font-medium whitespace-nowrap text-crayon-text"
+                  style={{ left: side === 'left' ? '20%' : '80%', top: 'calc(50% + 3rem)' }}
+                >
+                  ↑ you are here
+                </span>
+              )}
+              <button
+                type="button"
+                aria-pressed={step.id === selectedId}
+                aria-label={`${step.title}. ${metaLine(step)}`}
+                onClick={() => onSelect(step.id)}
+                className="absolute top-1/2 z-10 w-[min(15rem,36%)] -translate-y-1/2"
+                style={side === 'left' ? { left: 'calc(20% + 3rem)' } : { right: 'calc(20% + 3rem)' }}
+              >
+                <StepCard step={step} selected={step.id === selectedId} />
+              </button>
+            </div>
+          );
+        })}
+      </div>
+      {hidden > 0 && (
+        <div className="sticky bottom-3 z-20 mt-3 flex justify-center">
+          <button
+            type="button"
+            onClick={scrollMore}
+            className="inline-flex items-center gap-1.5 rounded-full border-2 border-ink bg-ink px-4 py-2 text-[14px] font-medium text-paper"
+          >
+            Scroll for {hidden} more {hidden === 1 ? 'step' : 'steps'}
+            <IconBack className="h-4 w-4 -rotate-90" />
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function StepPanel({
+  step,
+  index,
+  sources,
+  onClose,
+  onAdd,
+}: {
+  step: TrailStep;
+  index: number;
+  sources?: SourceFile[];
+  onClose: () => void;
+  onAdd?: () => void;
+}) {
+  const resume =
+    step.status === 'done' ? 'Watch again' : `Resume${step.timeLeft ? ` · ${step.timeLeft} left` : ''}`;
+
+  return (
+    <aside className={cardClass(false, false, 'p-4 lg:sticky lg:top-4')}>
+      <div className="flex items-start justify-between gap-3">
+        <p className="text-[12px] font-semibold tracking-[0.14em] text-muted uppercase">
+          Step {index + 1} · {statusLabel[step.status]}
+        </p>
+        <button
+          type="button"
+          aria-label="Close step details"
+          onClick={onClose}
+          className="flex h-8 w-8 items-center justify-center rounded-full text-ink"
+        >
+          <IconClose className="h-4 w-4" />
+        </button>
+      </div>
+      <div className="relative mt-3">
+        <TopicArt topicId={step.artId} className="aspect-[16/9]" />
+        {step.duration && (
+          <span className="absolute right-2 bottom-2 rounded-md bg-ink px-1.5 py-0.5 text-[12px] font-medium text-paper">
+            {step.duration}
+          </span>
+        )}
+      </div>
+      <h2 className="mt-3 font-serif text-[1.7rem] leading-tight text-ink">{step.title}</h2>
+      <p className="mt-1 text-[15px] leading-relaxed text-muted">{step.detail}</p>
+      <div className="mt-3">
+        <CrayonProgress
+          value={step.progress}
+          label={`${step.title} progress`}
+          tone={step.status === 'done' ? 'done' : 'crayon'}
+          showValue
+        />
+      </div>
+      {step.status === 'locked' || (!step.href && !step.onOpen) ? (
+        <button type="button" disabled className={buttonClass('secondary', 'mt-4 w-full')}>
+          {step.hint ?? 'Locked'}
+        </button>
+      ) : step.href ? (
+        <Link to={step.href} className={buttonClass(step.status === 'done' ? 'secondary' : 'primary', 'mt-4 w-full')}>
+          {step.status !== 'done' && <IconPlay className="h-4 w-4" />}
+          {resume}
+        </Link>
+      ) : (
+        <button type="button" onClick={step.onOpen} className={buttonClass('primary', 'mt-4 w-full')}>
+          <IconPlay className="h-4 w-4" />
+          {resume}
+        </button>
+      )}
+      <div className="mt-5">
+        <p className="text-[12px] font-semibold tracking-[0.14em] text-muted uppercase">In this lesson</p>
+        {step.chapters.length === 0 ? (
+          <p className="mt-2 text-[15px] text-muted">The lesson is written when you open it.</p>
+        ) : (
+          <ul className="mt-2 grid gap-1">
+            {step.chapters.map((chapter) => (
+              <li
+                key={chapter.id}
+                className={cx(
+                  'flex items-center gap-2 rounded-xl px-2 py-1.5',
+                  chapter.state === 'resume' && 'bg-[#fff6d4]',
+                )}
+              >
+                {chapter.state === 'watched' ? (
+                  <IconCheck className="h-4 w-4 shrink-0 text-done" />
+                ) : chapter.state === 'resume' ? (
+                  <IconPlay className="h-4 w-4 shrink-0 text-ink" />
+                ) : (
+                  <span className="h-4 w-4 shrink-0 rounded-full border border-ink/30" />
+                )}
+                <span className="min-w-0 flex-1 truncate text-[15px] text-ink" title={chapter.title}>
+                  {chapter.title}
+                </span>
+                <span className="shrink-0 text-[13px] text-muted tabular-nums">{chapter.duration}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+      {sources && (
+        <div className="mt-5">
+          <p className="text-[12px] font-semibold tracking-[0.14em] text-muted uppercase">Sources</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {sources.map((source) => (
+              <Chip key={source.name}>
+                {source.kind === 'pdf' ? <IconFile className="h-4 w-4" /> : <IconImage className="h-4 w-4" />}
+                <span className="max-w-[12rem] truncate">{source.name}</span>
+              </Chip>
+            ))}
+            {onAdd && (
+              <Chip onClick={onAdd}>
+                <IconPlus className="h-4 w-4" />
+                Add
+              </Chip>
+            )}
+          </div>
+        </div>
+      )}
+    </aside>
   );
 }

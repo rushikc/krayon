@@ -52,6 +52,8 @@ export function GeneratedLessonView({ topicId }: { topicId: string }) {
   const pending = useRef<number | null>(null);
   const [frame, setFrame] = useState(0);
   const [playing, setPlaying] = useState(false);
+  const [muted, setMuted] = useState(false);
+  const [panelOpen, setPanelOpen] = useState(true);
   const [tool, setTool] = useState<LessonTool | null>(null);
   const marksKey = `study:${topicId}`;
   const marks = lessonMarks(marksKey);
@@ -149,42 +151,82 @@ export function GeneratedLessonView({ topicId }: { topicId: string }) {
     playerRef.current?.pause();
     void session.regenerate(topic, segment);
   };
+  const chooseTool = (nextTool: LessonTool) => {
+    playerRef.current?.pause();
+    if (nextTool === 'highlight') {
+      setTool((current) => (current === nextTool ? null : nextTool));
+      return;
+    }
+    setPanelOpen(true);
+    setTool((current) => (panelOpen && current === nextTool ? null : nextTool));
+  };
+  const toggleMute = () => {
+    const player = playerRef.current;
+    if (!player) return;
+    if (player.isMuted()) {
+      player.unmute();
+      setMuted(false);
+    } else {
+      player.mute();
+      setMuted(true);
+    }
+  };
+  const closePanel = () => {
+    setPanelOpen(false);
+    setTool((current) => (current === 'highlight' ? current : null));
+  };
+  const lessonDone =
+    !!lesson && lesson.segments.length > 0 && lesson.segments.every((item) => marks.watchedIds.includes(item.id));
 
   return (
     <Shell>
       <div className="mt-4">
         <div className="flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <Link to="/study" className="inline-flex items-center gap-1 text-[15px] font-medium text-ink">
-              <IconBack className="h-4 w-4" />
-              Roadmap
+          <div className="flex items-start gap-3">
+            <Link
+              to="/study"
+              aria-label="Back to roadmap"
+              className="mt-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-full border-[2.5px] border-ink bg-paper shadow-[2px_2px_0_var(--color-ink)]"
+            >
+              <IconBack className="h-5 w-5" />
             </Link>
-            <h1 className="mt-3 font-serif text-4xl text-ink sm:text-5xl">
-              <HandUnderline>{topic.title}</HandUnderline>
-            </h1>
-            <p className="mt-2 max-w-xl text-[16px] text-muted">
-              {topic.summary}
-              {ordered.length > 0 ? ` · Step ${stepIndex + 1} of ${ordered.length}` : ''}
-            </p>
+            <div>
+              <h1 className="font-serif text-4xl text-ink sm:text-5xl">
+                <HandUnderline>{topic.title}</HandUnderline>
+              </h1>
+              <p className="mt-2 max-w-xl text-[15px] text-muted">
+                {session.fileName ?? 'Your notes'}
+                {ordered.length > 0 ? ` · Step ${stepIndex + 1} of ${ordered.length}` : ''}
+              </p>
+            </div>
           </div>
-          {nextTopic && (
+          {nextTopic && lessonDone && (
             <Link to={`/study/${nextTopic.id}`} className={buttonClass('secondary')}>
               Next step
               <IconArrow className="h-4 w-4" />
             </Link>
           )}
+          {nextTopic && !lessonDone && (
+            <button type="button" disabled className={buttonClass('secondary')}>
+              Next step
+            </button>
+          )}
         </div>
-        {session.error && <p className="mt-3 text-[15px] text-crayon-text">{session.error}</p>}
+        {(session.error || (session.regeneratingId && session.statusDetail)) && (
+          <p className={`mt-3 text-[15px] ${session.error ? 'text-crayon-text' : 'text-muted'}`}>
+            {session.error ?? session.statusDetail}
+          </p>
+        )}
 
-        <div className="mt-5 grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
+        <div className={`mt-5 grid items-start gap-4 ${panelOpen ? 'lg:grid-cols-[minmax(0,1fr)_320px]' : ''}`}>
           <div>
             {loading && (
               <Card className="p-6">
-                <p className="text-[16px] text-ink">Writing the lesson…</p>
+                <p className="text-[16px] text-ink">{session.statusDetail ?? 'Writing the lesson…'}</p>
                 <div
                   role="progressbar"
-                  aria-label="Writing the lesson"
-                  aria-valuetext="Writing the lesson"
+                  aria-label={session.statusDetail ?? 'Writing the lesson'}
+                  aria-valuetext={session.statusDetail ?? 'Writing the lesson'}
                   className="mt-3 h-3 overflow-hidden rounded-full bg-line"
                 >
                   <div className="crayon-indeterminate h-full w-1/3 rounded-full bg-crayon" />
@@ -208,11 +250,11 @@ export function GeneratedLessonView({ topicId }: { topicId: string }) {
                   else player.play();
                 }}
                 onSeek={seekTo}
-                onTool={(next) => {
-                  playerRef.current?.pause();
-                  setTool((current) => (current === next ? null : next));
-                }}
+                onTool={chooseTool}
                 onExplain={explain}
+                muted={muted}
+                onMute={toggleMute}
+                onFullscreen={() => playerRef.current?.requestFullscreen()}
                 onPin={() => {
                   patchMarks(marksKey, (current) => ({
                     ...current,
@@ -227,7 +269,12 @@ export function GeneratedLessonView({ topicId }: { topicId: string }) {
                 {lesson && inputProps ? (
                   <Player
                     ref={playerRef}
-                    key={lesson.segments.map((item) => `${item.id}:${item.durationInFrames}`).join('|')}
+                    key={lesson.segments
+                      .map(
+                        (item) =>
+                          `${item.id}:${item.durationInFrames}:${item.scene.layout.type}:${item.debug?.repairRounds ?? 0}`,
+                      )
+                      .join('|')}
                     component={GeneratedLesson}
                     inputProps={inputProps}
                     durationInFrames={duration}
@@ -270,12 +317,44 @@ export function GeneratedLessonView({ topicId }: { topicId: string }) {
                 </pre>
               </Card>
             )}
+            {import.meta.env.DEV && lesson && (
+              <details className="mt-4 rounded-2xl border border-line bg-paper px-4 py-3">
+                <summary className="cursor-pointer text-[15px] font-medium text-ink">Scene debug</summary>
+                <div className="mt-3 grid gap-4">
+                  {lesson.segments.map((item, index) => (
+                    <div key={item.id}>
+                      <p className="text-[14px] text-ink">
+                        Segment {index + 1}: {item.title}
+                      </p>
+                      <p className="text-[13px] text-muted">
+                        {item.debug?.repairRounds ?? 0} repair rounds · {item.debug?.issues.length ?? 0} issues
+                      </p>
+                      {(item.debug?.issues.length ?? 0) > 0 && (
+                        <ul className="mt-1 grid gap-1">
+                          {item.debug?.issues.map((issue) => (
+                            <li key={`${issue.path}-${issue.message}`} className="text-[13px] text-muted">
+                              {issue.path}: {issue.message}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                      <pre className="mt-2 overflow-auto font-sans text-[12px] leading-relaxed whitespace-pre-wrap text-ink">
+                        {JSON.stringify(item.scene.layout, null, 2)}
+                      </pre>
+                    </div>
+                  ))}
+                </div>
+              </details>
+            )}
           </div>
-          {!loading && (
+          {!loading && panelOpen && (
             <DoubtPanel
               topicId={topicId}
               paused={!playing}
               timeLabel={formatClock(frame, FPS)}
+              chapterLabel={`Chapter ${String(activeIndex + 1).padStart(2, '0')}`}
+              highlightAttached={marks.strokes.length > 0}
+              onClose={closePanel}
               answer={answer}
               marks={marks}
               tool={tool}

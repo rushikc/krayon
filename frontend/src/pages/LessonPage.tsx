@@ -38,6 +38,8 @@ function CuratedLesson() {
   const pending = useRef<number | null>(null);
   const [frame, setFrame] = useState(0);
   const [playing, setPlaying] = useState(false);
+  const [muted, setMuted] = useState(false);
+  const [panelOpen, setPanelOpen] = useState(true);
   const [tool, setTool] = useState<LessonTool | null>(null);
   const home = prefix || '/';
   const base = home === '/' ? '' : home;
@@ -144,27 +146,51 @@ function CuratedLesson() {
   const chooseTool = (nextTool: LessonTool) => {
     playerRef.current?.pause();
     setPlaying(false);
-    setTool((current) => (current === nextTool ? null : nextTool));
+    if (nextTool === 'highlight') {
+      setTool((current) => (current === nextTool ? null : nextTool));
+      return;
+    }
+    setPanelOpen(true);
+    setTool((current) => (panelOpen && current === nextTool ? null : nextTool));
+  };
+
+  const toggleMute = () => {
+    const player = playerRef.current;
+    if (!player) return;
+    if (player.isMuted()) {
+      player.unmute();
+      setMuted(false);
+    } else {
+      player.mute();
+      setMuted(true);
+    }
+  };
+
+  const closePanel = () => {
+    setPanelOpen(false);
+    setTool((current) => (current === 'highlight' ? current : null));
   };
 
   return (
     <Shell>
       <div className="mt-4">
         <div className="flex flex-wrap items-end justify-between gap-3">
-          <div>
+          <div className="flex items-start gap-3">
             <Link
               to={`${base}/topics/${topic.id}`}
-              className="inline-flex items-center gap-1 text-[15px] font-medium text-ink"
+              aria-label={`Back to ${topic.title}`}
+              className="mt-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-full border-[2.5px] border-ink bg-paper shadow-[2px_2px_0_var(--color-ink)]"
             >
-              <IconBack className="h-4 w-4" />
-              {topic.title}
+              <IconBack className="h-5 w-5" />
             </Link>
-            <h1 className="mt-3 font-serif text-4xl leading-tight text-ink sm:text-5xl">
-              <HandUnderline>{subtopic.title}</HandUnderline>
-            </h1>
-            <p className="mt-2 text-[15px] text-muted">
-              {topic.field} · Step {index + 1} of {topic.subtopics.length}
-            </p>
+            <div>
+              <h1 className="font-serif text-4xl leading-tight text-ink sm:text-5xl">
+                <HandUnderline>{subtopic.title}</HandUnderline>
+              </h1>
+              <p className="mt-2 text-[15px] text-muted">
+                {topic.title} · Step {index + 1} of {topic.subtopics.length}
+              </p>
+            </div>
           </div>
           {next && !nextLocked && (
             <Link to={`${base}/topics/${topic.id}/${next.id}`} className={buttonClass('secondary')}>
@@ -179,7 +205,7 @@ function CuratedLesson() {
           )}
         </div>
 
-        <div className="mt-5 grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
+        <div className={`mt-5 grid items-start gap-4 ${panelOpen ? 'lg:grid-cols-[minmax(0,1fr)_320px]' : ''}`}>
           <div>
             <LessonFrame
               chapters={chapters}
@@ -213,6 +239,9 @@ function CuratedLesson() {
                 });
               }}
               onPin={() => savePin(answer)}
+              muted={muted}
+              onMute={toggleMute}
+              onFullscreen={() => playerRef.current?.requestFullscreen()}
               onStrokes={(strokes) => {
                 patchMarks(lessonKey(topic.id, subtopic.id), (current) => ({ ...current, strokes }));
               }}
@@ -239,10 +268,14 @@ function CuratedLesson() {
               onSeek={seekTo}
             />
           </div>
+          {panelOpen && (
           <DoubtPanel
             topicId={topic.id}
             paused={!playing}
             timeLabel={formatClock(frame, FPS)}
+            chapterLabel={`Chapter ${String(activeIndex + 1).padStart(2, '0')}`}
+            highlightAttached={marks.strokes.length > 0}
+            onClose={closePanel}
             answer={answer}
             marks={marks}
             tool={tool}
@@ -289,6 +322,7 @@ function CuratedLesson() {
               });
             }}
           />
+          )}
         </div>
       </div>
     </Shell>

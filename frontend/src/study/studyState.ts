@@ -1,13 +1,14 @@
 import { createContext, useContext } from 'react';
 import type { GeneratedLesson, GeneratedSegment, Roadmap, RoadmapTopic } from '../remotion/scene.ts';
 
-export type StudyStatus = 'idle' | 'roadmap' | 'lesson' | 'segment';
+export type StudyStatus = 'idle' | 'roadmap' | 'lesson' | 'segment' | 'checking' | 'repairing';
 
 export type StudySessionValue = {
   fileName: string | null;
   roadmap: Roadmap | null;
   lessons: Record<string, GeneratedLesson>;
   status: StudyStatus;
+  statusDetail: string | null;
   error: string | null;
   activeTopicId: string | null;
   regeneratingId: string | null;

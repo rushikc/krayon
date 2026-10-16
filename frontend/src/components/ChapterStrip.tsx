@@ -28,14 +28,15 @@ export function ChapterStrip({ chapters, activeIndex, watchedIds, frame, onSeek 
               onClick={() => onSeek(chapter.start)}
               className={cardClass(active, false, cx('h-full w-full p-3 text-left', active && 'bg-[#fff6d4]'))}
             >
-              <span className="text-[12px] font-semibold tracking-[0.08em] text-muted uppercase">{label}</span>
-              {watched && (
-                <span className="mt-1 flex items-center gap-1 text-[13px] font-medium text-done">
-                  <IconCheck className="h-4 w-4" />
-                  watched
-                </span>
-              )}
-              {active && !watched && <span className="mt-1 block text-[13px] font-medium text-ink">playing</span>}
+              <span className="flex flex-wrap items-center gap-1 text-[12px] font-semibold tracking-[0.04em] uppercase">
+                <span className="text-muted">{label}</span>
+                {watched && (
+                  <span className="inline-flex items-center gap-0.5 text-done">
+                    · <IconCheck className="h-3.5 w-3.5" /> watched
+                  </span>
+                )}
+                {active && !watched && <span className="text-ink">· playing</span>}
+              </span>
               <span className="mt-1 block text-[15px] leading-snug text-ink">{chapter.title}</span>
               <div className="mt-3">
                 <CrayonProgress

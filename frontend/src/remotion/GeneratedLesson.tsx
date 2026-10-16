@@ -1,7 +1,7 @@
 import type { FC } from 'react';
 import { AbsoluteFill, Series } from 'remotion';
 import type { GeneratedSegment } from './scene.ts';
-import { SceneRenderer } from './SceneRenderer.tsx';
+import { SceneLayoutView } from './templates/SceneLayoutView.tsx';
 import { theme } from './theme.ts';
 
 export type GeneratedLessonProps = {
@@ -11,7 +11,7 @@ export type GeneratedLessonProps = {
 const SegmentFrame: FC<{ segment: GeneratedSegment }> = ({ segment }) => {
   return (
     <AbsoluteFill style={{ backgroundColor: theme.paper }}>
-      <SceneRenderer elements={segment.scene.elements} />
+      <SceneLayoutView layout={segment.scene.layout} durationInFrames={segment.durationInFrames} />
       <div
         style={{
           position: 'absolute',

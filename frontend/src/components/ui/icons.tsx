@@ -186,3 +186,30 @@ export function IconClock(props: IconProps) {
     </Svg>
   );
 }
+
+export function IconVolume(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M4.8 9.2h3.2l4.2-3.2v12l-4.2-3.2H4.8z" />
+      <path d="M15.2 9.2c1.2.8 1.8 1.8 1.8 2.8s-.6 2-1.8 2.8" />
+      <path d="M17.4 7c2 .1 3.2 2.2 3.2 5s-1.2 4.6-3.2 5" />
+    </Svg>
+  );
+}
+
+export function IconMuted(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M4.8 9.2h3.2l4.2-3.2v12l-4.2-3.2H4.8z" />
+      <path d="M16 10l4 4M20 10l-4 4" />
+    </Svg>
+  );
+}
+
+export function IconFullscreen(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M5 9.2V5.4h3.8M15.2 5.4H19V9.2M19 14.8v3.8h-3.8M8.8 18.6H5v-3.8" />
+    </Svg>
+  );
+}

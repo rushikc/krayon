@@ -1,24 +1,20 @@
+import { useState } from 'react';
+import type { ReactNode } from 'react';
 import { Link, Navigate, useMatch, useParams } from 'react-router-dom';
-import { RoadmapTrail } from '../components/RoadmapTrail.tsx';
-import type { TrailStep } from '../components/RoadmapTrail.tsx';
-import { Button, buttonClass } from '../components/ui/Button.tsx';
-import { Card } from '../components/ui/Card.tsx';
-import { Chip } from '../components/ui/Chip.tsx';
-import { CrayonProgress } from '../components/ui/CrayonProgress.tsx';
+import { RoadmapTrail, StepPanel } from '../components/RoadmapTrail.tsx';
+import type { TrailChapter, TrailStep } from '../components/RoadmapTrail.tsx';
+import { Button } from '../components/ui/Button.tsx';
 import { HandUnderline } from '../components/ui/HandUnderline.tsx';
-import { IconBack, IconFile, IconImage, IconPlus } from '../components/ui/icons.tsx';
+import { IconBack, IconCheck, IconClock } from '../components/ui/icons.tsx';
 import { Shell } from '../components/ui/Shell.tsx';
+import type { SourceFile, Subtopic } from '../data/topics.ts';
 import { getTopic } from '../data/topics.ts';
 import { usePalette } from '../paletteState.ts';
 import { orderTopics } from '../remotion/scene.ts';
-import {
-  lessonKey,
-  nextSubtopic,
-  stepStatus,
-  topicKey,
-  useLocalStudy,
-} from '../study/localStudy.tsx';
-import { formatClock, formatLength, subtopicFrames, topicFrames } from '../study/time.ts';
+import { curatedChapters, generatedChapters } from '../study/chapters.ts';
+import type { Chapter } from '../study/chapters.ts';
+import { lessonKey, nextSubtopic, stepStatus, topicKey, useLocalStudy } from '../study/localStudy.tsx';
+import { formatClock, formatLength, topicFrames } from '../study/time.ts';
 import { useUpload } from '../study/uploadState.tsx';
 import { useStudySession } from '../study/studyState.ts';
 
@@ -28,6 +24,141 @@ const artCycle = [
   'how-the-internet-works',
   'unit-economics',
 ];
+
+const pill = 'inline-flex items-center gap-2 rounded-full border-2 border-ink px-3.5 py-2 text-[15px] font-medium';
+
+function chaptersFor(chapters: Chapter[], watchedIds: string[]): { items: TrailChapter[]; progress: number; timeLeft: string } {
+  const watched = new Set(watchedIds);
+  let markedResume = false;
+  const items = chapters.map((chapter) => {
+    let state: TrailChapter['state'] = 'later';
+    if (watched.has(chapter.id)) state = 'watched';
+    else if (!markedResume) {
+      state = 'resume';
+      markedResume = true;
+    }
+    return {
+      id: chapter.id,
+      title: chapter.title,
+      duration: formatClock(chapter.duration),
+      state,
+    };
+  });
+  const total = chapters.reduce((sum, chapter) => sum + chapter.duration, 0);
+  const seen = chapters.filter((chapter) => watched.has(chapter.id)).reduce((sum, chapter) => sum + chapter.duration, 0);
+  return {
+    items,
+    progress: total === 0 ? 0 : Math.round((seen / total) * 100),
+    timeLeft: formatClock(Math.max(0, total - seen)),
+  };
+}
+
+function RoadmapLayout({
+  backTo,
+  backLabel,
+  eyebrow,
+  title,
+  summary,
+  pills,
+  notice,
+  steps,
+  sources,
+  onAdd,
+  legend,
+  empty,
+}: {
+  backTo: string;
+  backLabel: string;
+  eyebrow?: string;
+  title: string;
+  summary: string;
+  pills?: ReactNode;
+  notice?: ReactNode;
+  steps: TrailStep[];
+  sources?: SourceFile[];
+  onAdd?: () => void;
+  legend: 'locked' | 'ready';
+  empty?: ReactNode;
+}) {
+  const fallback = steps.find((step) => step.status === 'next')?.id ?? steps[0]?.id ?? null;
+  const [picked, setPicked] = useState<string | null>(null);
+  const [panelOpen, setPanelOpen] = useState(true);
+  const selectedId = picked ?? fallback;
+  const selectedIndex = steps.findIndex((step) => step.id === selectedId);
+  const selected = selectedIndex >= 0 ? steps[selectedIndex] : undefined;
+
+  return (
+    <Shell>
+      <div className="mt-6 lg:mt-8">
+        <Link to={backTo} className="inline-flex items-center gap-1 text-[15px] font-medium text-ink">
+          <IconBack className="h-4 w-4" />
+          {backLabel}
+        </Link>
+        <div className="mt-5 flex flex-wrap items-end justify-between gap-4">
+          <div className="max-w-xl">
+            {eyebrow && (
+              <p className="text-[12px] font-semibold tracking-[0.16em] text-muted uppercase">{eyebrow}</p>
+            )}
+            <h1 className="mt-2 font-serif text-5xl leading-[1.05] text-ink">
+              <HandUnderline>{title}</HandUnderline>
+            </h1>
+            <p className="mt-3 text-[16px] leading-relaxed text-muted">{summary}</p>
+          </div>
+          {pills}
+        </div>
+        {notice}
+        {steps.length === 0 ? (
+          <div className="mt-6">{empty}</div>
+        ) : (
+          <div
+            className={
+              panelOpen && selected
+                ? 'mt-8 grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_320px]'
+                : 'mt-8'
+            }
+          >
+            <RoadmapTrail
+              steps={steps}
+              selectedId={panelOpen ? selectedId ?? undefined : undefined}
+              legend={legend}
+              onSelect={(id) => {
+                setPicked(id);
+                setPanelOpen(true);
+              }}
+            />
+            {panelOpen && selected && (
+              <StepPanel
+                step={selected}
+                index={selectedIndex}
+                sources={sources}
+                onAdd={onAdd}
+                onClose={() => setPanelOpen(false)}
+              />
+            )}
+          </div>
+        )}
+      </div>
+    </Shell>
+  );
+}
+
+function StatPills({ done, total, length, quizReady }: { done: number; total: number; length?: string; quizReady: number }) {
+  return (
+    <div className="flex flex-wrap gap-2">
+      <span className={`${pill} bg-yellow`}>
+        <IconCheck className="h-4 w-4" />
+        {done}/{total} steps done
+      </span>
+      {length && (
+        <span className={`${pill} bg-paper`}>
+          <IconClock className="h-4 w-4" />
+          {length} total
+        </span>
+      )}
+      <span className={`${pill} bg-paper`}>{quizReady} quiz ready</span>
+    </div>
+  );
+}
 
 export function RoadmapPage() {
   const { topicId } = useParams();
@@ -41,60 +172,79 @@ export function RoadmapPage() {
 
   if (isStudy) {
     const ordered = session.roadmap ? orderTopics(session.roadmap.topics) : [];
+    let markedNext = false;
     const steps: TrailStep[] = ordered.map((item, index) => {
       const lesson = session.lessons[item.id];
-      const watched = lessonMarks(`study:${item.id}`).watchedIds;
-      const complete = !!lesson && lesson.segments.every((segment) => watched.includes(segment.id));
-      const frames = lesson?.segments.reduce((total, segment) => total + segment.durationInFrames, 0) ?? 0;
+      const marks = lessonMarks(`study:${item.id}`);
+      const chapters = lesson ? generatedChapters(lesson.segments) : [];
+      const built = chaptersFor(chapters, marks.watchedIds);
+      const complete = chapters.length > 0 && chapters.every((chapter) => marks.watchedIds.includes(chapter.id));
+      let status: TrailStep['status'] = 'open';
+      if (complete) status = 'done';
+      else if (!markedNext) {
+        status = 'next';
+        markedNext = true;
+      }
+      const frames = chapters.reduce((total, chapter) => total + chapter.duration, 0);
       return {
         id: item.id,
         title: item.title,
         detail: item.summary,
-        status: complete ? 'done' : 'open',
+        status,
         artId: artCycle[index % artCycle.length],
         duration: frames ? formatClock(frames) : '',
-        progress: complete ? 100 : 0,
-        action: complete ? 'Watch again' : 'Open',
+        progress: status === 'done' ? 100 : built.progress,
+        timeLeft: frames ? built.timeLeft : '',
         href: `/study/${item.id}`,
+        chapters: built.items,
       };
     });
+    const doneCount = steps.filter((step) => step.status === 'done').length;
+    const quizReady = ordered.filter((item) => lessonMarks(`study:${item.id}`).quizReady).length;
+    const totalFrames = ordered.reduce((total, item) => {
+      const lesson = session.lessons[item.id];
+      return total + (lesson?.segments.reduce((sum, segment) => sum + segment.durationInFrames, 0) ?? 0);
+    }, 0);
+    const fileName = session.fileName ?? '';
+    const sources: SourceFile[] = fileName
+      ? [{ name: fileName, kind: /\.(png|jpe?g|gif|webp)$/i.test(fileName) ? 'image' : 'pdf' }]
+      : [];
 
     return (
-      <Shell>
-        <div className="mt-8">
-          <Link to="/" className="inline-flex items-center gap-1 text-[15px] font-medium text-ink">
-            <IconBack className="h-4 w-4" />
-            Library
-          </Link>
-          <h1 className="mt-4 font-serif text-5xl text-ink">
-            <HandUnderline>Roadmap</HandUnderline>
-          </h1>
-          <p className="mt-3 max-w-xl text-[16px] text-muted">
-            {session.roadmap && session.fileName
-              ? `From ${session.fileName}. Open a topic to generate its lesson.`
-              : 'Add a document from the library to build a roadmap.'}
-          </p>
-          {session.fileName && (
-            <div className="mt-4">
-              <Chip>
-                <IconFile className="h-4 w-4" />
-                {session.fileName}
-              </Chip>
-            </div>
-          )}
-          {session.status === 'roadmap' && <p className="mt-4 text-[16px] text-muted">Reading the document…</p>}
-          {session.error && <p className="mt-4 text-[16px] text-crayon-text">{session.error}</p>}
-          {steps.length > 0 ? (
-            <div className="mt-8">
-              <RoadmapTrail steps={steps} />
-            </div>
+      <RoadmapLayout
+        backTo="/"
+        backLabel="Library"
+        title="Roadmap"
+        summary={
+          session.roadmap && session.fileName
+            ? `From ${session.fileName}. Open a topic to generate its lesson.`
+            : 'Add a document from the library to build a roadmap.'
+        }
+        pills={
+          steps.length > 0 ? (
+            <StatPills
+              done={doneCount}
+              total={steps.length}
+              length={totalFrames ? formatLength(totalFrames) : undefined}
+              quizReady={quizReady}
+            />
+          ) : undefined
+        }
+        notice={
+          session.error ? <p className="mt-4 text-[16px] text-crayon-text">{session.error}</p> : undefined
+        }
+        steps={steps}
+        sources={sources}
+        onAdd={() => openUpload()}
+        legend="ready"
+        empty={
+          session.status === 'roadmap' ? (
+            <p className="text-[16px] text-muted">Reading the document…</p>
           ) : (
-            <Button className="mt-6" onClick={() => openUpload()}>
-              Create a lesson from your notes
-            </Button>
-          )}
-        </div>
-      </Shell>
+            <Button onClick={() => openUpload()}>Create a lesson from your notes</Button>
+          )
+        }
+      />
     );
   }
 
@@ -109,86 +259,46 @@ export function RoadmapPage() {
     topic.subtopics.findIndex((subtopic) => subtopic.id === current.id),
   );
   const finished = done.length >= topic.subtopics.length;
-  const percent = Math.round((done.length / topic.subtopics.length) * 100);
-  const quizReady = topic.subtopics.filter(
-    (subtopic) => lessonMarks(lessonKey(topic.id, subtopic.id)).quizReady,
-  ).length;
-  const sources = sourceList(topicKey(topic.id));
+  const quizReady = topic.subtopics.filter((subtopic) => lessonMarks(lessonKey(topic.id, subtopic.id)).quizReady).length;
 
-  const steps: TrailStep[] = topic.subtopics.map((subtopic, index) => {
-    const status = stepStatus(done, ids, subtopic.id);
+  const stepFrom = (subtopic: Subtopic): TrailStep => {
+    const status = finished ? 'done' : stepStatus(done, ids, subtopic.id);
     const marks = lessonMarks(lessonKey(topic.id, subtopic.id));
-    const watched = Math.round((marks.watchedIds.length / subtopic.beats.length) * 100);
+    const built = chaptersFor(curatedChapters(subtopic), marks.watchedIds);
     return {
       id: subtopic.id,
       title: subtopic.title,
-      detail: `${subtopic.beats.length}-part lesson`,
+      detail: subtopic.beats[0] ?? '',
       status,
-      artId: artCycle[index % artCycle.length],
-      duration: formatClock(subtopicFrames(subtopic.beats.length)),
-      progress: status === 'done' ? 100 : watched,
-      action: status === 'done' ? 'Watch again' : 'Resume',
+      artId: topic.id,
+      duration: formatClock(curatedChapters(subtopic).reduce((total, chapter) => total + chapter.duration, 0)),
+      progress: status === 'done' ? 100 : built.progress,
+      timeLeft: built.timeLeft,
       hint: status === 'locked' ? `Finish step ${currentIndex + 1} first` : undefined,
       href: status === 'locked' ? undefined : `${base}/topics/${topic.id}/${subtopic.id}`,
+      chapters: built.items,
     };
-  });
+  };
 
   return (
-    <Shell>
-      <div className="mt-6 grid items-start gap-10 lg:mt-10 lg:grid-cols-[minmax(260px,340px)_minmax(0,1fr)] lg:gap-12">
-        <div>
-          <Link to={home} className="inline-flex items-center gap-1 text-[15px] font-medium text-ink">
-            <IconBack className="h-4 w-4" />
-            All topics
-          </Link>
-          <p className="mt-5 text-[12px] font-semibold tracking-[0.16em] text-crayon-text uppercase">
-            {topic.field}
-          </p>
-          <h1 className="mt-2 font-serif text-5xl leading-[1.05] text-ink">
-            <HandUnderline>{topic.title}</HandUnderline>
-          </h1>
-          <p className="mt-4 text-[16px] leading-relaxed text-muted">{topic.howTo}</p>
-          <dl className="mt-6 flex flex-wrap gap-6">
-            <div>
-              <dt className="font-serif text-3xl text-ink">
-                {done.length}
-                <span className="text-muted"> / {topic.subtopics.length}</span>
-              </dt>
-              <dd className="text-[13px] text-muted">steps done</dd>
-            </div>
-            <div>
-              <dt className="font-serif text-3xl text-ink">{formatLength(topicFrames(topic))}</dt>
-              <dd className="text-[13px] text-muted">total</dd>
-            </div>
-            <div>
-              <dt className="font-serif text-3xl text-ink">{quizReady}</dt>
-              <dd className="text-[13px] text-muted">quiz ready</dd>
-            </div>
-          </dl>
-          <div className="mt-4 max-w-xs">
-            <CrayonProgress value={percent} label={`${topic.title} progress`} showValue />
-          </div>
-          <Link to={`${base}/topics/${topic.id}/${current.id}`} className={buttonClass('primary', 'mt-5')}>
-            {finished ? 'Review step 1' : `Resume step ${currentIndex + 1}`}
-          </Link>
-          <Card className="mt-6 p-4">
-            <h2 className="font-serif text-2xl text-ink">Sources</h2>
-            <div className="mt-3 flex flex-wrap gap-2">
-              {sources.map((source) => (
-                <Chip key={source.name}>
-                  {source.kind === 'pdf' ? <IconFile className="h-4 w-4" /> : <IconImage className="h-4 w-4" />}
-                  <span className="max-w-[14rem] truncate">{source.name}</span>
-                </Chip>
-              ))}
-              <Chip onClick={() => openUpload(topic.id)}>
-                <IconPlus className="h-4 w-4" />
-                Add
-              </Chip>
-            </div>
-          </Card>
-        </div>
-        <RoadmapTrail steps={steps} />
-      </div>
-    </Shell>
+    <RoadmapLayout
+      backTo={home}
+      backLabel="All topics"
+      eyebrow={`${topic.field} · Roadmap`}
+      title={topic.title}
+      summary={topic.howTo}
+      pills={
+        <StatPills
+          done={done.length}
+          total={topic.subtopics.length}
+          length={formatLength(topicFrames(topic))}
+          quizReady={quizReady}
+        />
+      }
+      steps={topic.subtopics.map(stepFrom)}
+      sources={sourceList(topicKey(topic.id))}
+      onAdd={() => openUpload(topic.id)}
+      legend="locked"
+    />
   );
 }

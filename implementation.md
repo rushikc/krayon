@@ -119,3 +119,9 @@ Graphics are Remotion components. Still unsettled: does a segment also include s
 ### Quizzes and mock exams
 
 - A quiz belongs to one topic lesson. A mock exam spans the roadmap (several topics). Confirm before designing either.
+
+## Backend (local-backend)
+
+- Generation moved off the client. `frontend/src/lib/ai.ts` keeps the prompts, zod validation and repair loop, but uploads the source file once (`/api/uploads`) and calls `/api/ai/generate`, which calls Vertex AI (krayon-ai, global, gemini-2.5-flash) with gcloud ADC. Firebase AI Logic is no longer used for generation.
+- Study progress, sources and marks (doubts, pins, notes, highlights) are mirrored to the mock Firestore doc `users/local-user/state/study`. localStorage is still the source of truth; the backend only seeds an empty browser.
+- Next: move the prompts and validation into Python, run ingestion as a job (`/api/jobs`), replace the stub auth with Firebase ID tokens, and add Firestore/GCS implementations for deploying to Cloud Run.

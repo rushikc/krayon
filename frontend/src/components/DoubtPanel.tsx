@@ -3,7 +3,7 @@ import type { FormEvent } from 'react';
 import type { LessonTool } from './LessonFrame.tsx';
 import { Button } from './ui/Button.tsx';
 import { Card } from './ui/Card.tsx';
-import { IconArrow, IconPin } from './ui/icons.tsx';
+import { IconArrow, IconClose, IconPin } from './ui/icons.tsx';
 import { TopicArt } from './ui/TopicArt.tsx';
 import type { LessonMarks } from '../study/localStudy.tsx';
 
@@ -20,6 +20,9 @@ type DoubtPanelProps = {
   onPin: (text: string) => void;
   onNote: (text: string) => void;
   onQuizToggle: (id: string) => void;
+  chapterLabel: string;
+  highlightAttached: boolean;
+  onClose: () => void;
 };
 
 export function DoubtPanel({
@@ -35,6 +38,9 @@ export function DoubtPanel({
   onPin,
   onNote,
   onQuizToggle,
+  chapterLabel,
+  highlightAttached,
+  onClose,
 }: DoubtPanelProps) {
   const inputId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -64,13 +70,27 @@ export function DoubtPanel({
 
   return (
     <Card className="grid gap-4 p-4">
+      <div className="flex items-start justify-between gap-2">
+        <h2 className="font-serif text-[1.65rem] leading-tight text-ink">Ask about this moment</h2>
+        <button
+          type="button"
+          aria-label="Close ask panel"
+          onClick={onClose}
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-ink"
+        >
+          <IconClose className="h-4 w-4" />
+        </button>
+      </div>
       <div className="flex items-center gap-3 rounded-2xl border-[2.5px] border-ink bg-paper p-2">
         <TopicArt topicId={topicId} className="h-14 w-20 shrink-0" />
         <div>
-          <p className="text-[12px] font-semibold tracking-[0.14em] text-muted uppercase">
-            {paused ? 'Paused at' : 'At'}
+          <p className="text-[15px] font-medium text-ink">
+            {paused ? 'Paused at' : 'At'} {timeLabel}
           </p>
-          <p className="font-serif text-2xl leading-none text-ink">{timeLabel}</p>
+          <p className="text-[13px] leading-snug text-muted">
+            {chapterLabel}
+            {highlightAttached ? ' · your crayon highlight attached' : ''}
+          </p>
         </div>
       </div>
 

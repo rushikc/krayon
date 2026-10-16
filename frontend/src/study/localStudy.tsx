@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { SourceFile, Topic } from '../data/topics.ts';
+import { apiFetch, apiJson } from '../lib/api.ts';
 
 export type Stroke = {
   points: { x: number; y: number }[];
@@ -36,6 +37,7 @@ export type TopicProgress = {
 const PROGRESS_KEY = 'krayon.progress.v1';
 const SOURCES_KEY = 'krayon.sources.v1';
 const MARKS_KEY = 'krayon.marks.v1';
+const STUDY_DOC = '/api/docs/users/local-user/state/study';
 
 export const emptyMarks = (): LessonMarks => ({
   strokes: [],
@@ -103,6 +105,36 @@ export function LocalStudyProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     localStorage.setItem(MARKS_KEY, JSON.stringify(marks));
   }, [marks]);
+
+  // Mirror progress, sources and marks to local-backend (mock Firestore).
+  // localStorage stays the source of truth; the backend only seeds an empty browser.
+  const [synced, setSynced] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    apiFetch<{ data: { progress?: Record<string, TopicProgress>; sources?: Record<string, SourceFile[]>; marks?: Record<string, LessonMarks> } }>(STUDY_DOC)
+      .then(({ data }) => {
+        if (cancelled) return;
+        const empty = (key: string) => !localStorage.getItem(key) || localStorage.getItem(key) === '{}';
+        if (data.progress && empty(PROGRESS_KEY)) setProgress(data.progress);
+        if (data.sources && empty(SOURCES_KEY)) setSources(data.sources);
+        if (data.marks && empty(MARKS_KEY)) setMarks(data.marks);
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (!cancelled) setSynced(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!synced) return;
+    const timer = setTimeout(() => {
+      void apiJson(STUDY_DOC, 'PUT', { progress, sources, marks }).catch(() => undefined);
+    }, 800);
+    return () => clearTimeout(timer);
+  }, [synced, progress, sources, marks]);
 
   const value = useMemo<LocalStudyValue>(
     () => ({

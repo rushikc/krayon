@@ -7,12 +7,15 @@ import { cx } from './ui/cx.ts';
 import {
   IconArrow,
   IconAsk,
+  IconFullscreen,
   IconHighlight,
+  IconMuted,
   IconNote,
   IconPause,
   IconPin,
   IconPlay,
   IconQuiz,
+  IconVolume,
 } from './ui/icons.tsx';
 
 export type LessonTool = 'ask' | 'highlight' | 'note' | 'quiz';
@@ -33,6 +36,9 @@ type LessonFrameProps = {
   onPin: () => void;
   explaining: boolean;
   onStrokes: (strokes: Stroke[]) => void;
+  muted: boolean;
+  onMute: () => void;
+  onFullscreen: () => void;
 };
 
 const tools: { id: LessonTool; label: string; icon: typeof IconAsk }[] = [
@@ -57,6 +63,9 @@ export function LessonFrame({
   onPin,
   explaining,
   onStrokes,
+  muted,
+  onMute,
+  onFullscreen,
 }: LessonFrameProps) {
   const draw = (event: PointerEvent<SVGSVGElement>, next: Stroke) => {
     const rect = event.currentTarget.getBoundingClientRect();
@@ -80,7 +89,7 @@ export function LessonFrame({
             onClick={() => onTool('ask')}
           >
             <IconAsk className="h-4 w-4" />
-            <span className="hidden sm:inline">Ask a doubt</span>
+            <span className="hidden sm:inline">Ask</span>
           </ToolButton>
           <ToolButton label="Explain longer" onClick={onExplain} disabled={explaining}>
             <IconArrow className="h-4 w-4" />
@@ -206,6 +215,23 @@ export function LessonFrame({
             );
           })}
         </div>
+        <button
+          type="button"
+          aria-label={muted ? 'Unmute lesson' : 'Mute lesson'}
+          aria-pressed={muted}
+          onClick={onMute}
+          className="flex h-8 w-8 shrink-0 items-center justify-center text-paper"
+        >
+          {muted ? <IconMuted className="h-5 w-5" /> : <IconVolume className="h-5 w-5" />}
+        </button>
+        <button
+          type="button"
+          aria-label="Full screen"
+          onClick={onFullscreen}
+          className="flex h-8 w-8 shrink-0 items-center justify-center text-paper"
+        >
+          <IconFullscreen className="h-5 w-5" />
+        </button>
       </div>
     </div>
   );

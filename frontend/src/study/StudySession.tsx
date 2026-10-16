@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { generateLesson, generateRoadmap, regenerateSegment } from '../lib/ai.ts';
+import type { LessonProgress } from '../lib/ai.ts';
 import type { GeneratedLesson, GeneratedSegment, Roadmap, RoadmapTopic } from '../remotion/scene.ts';
 import { StudySessionContext } from './studyState.ts';
 import type { StudyStatus } from './studyState.ts';
@@ -17,6 +18,7 @@ export function StudySessionProvider({ children }: StudySessionProviderProps) {
   const [roadmap, setRoadmap] = useState<Roadmap | null>(null);
   const [lessons, setLessons] = useState<Record<string, GeneratedLesson>>({});
   const [status, setStatus] = useState<StudyStatus>('idle');
+  const [statusDetail, setStatusDetail] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [activeTopicId, setActiveTopicId] = useState<string | null>(null);
   const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
@@ -26,6 +28,7 @@ export function StudySessionProvider({ children }: StudySessionProviderProps) {
   const value = useMemo(() => {
     const startFromFile = async (nextFile: File) => {
       setStatus('roadmap');
+      setStatusDetail(null);
       setError(null);
       setFile(nextFile);
       setRoadmap(null);
@@ -40,8 +43,16 @@ export function StudySessionProvider({ children }: StudySessionProviderProps) {
         throw caught;
       } finally {
         setStatus('idle');
+        setStatusDetail(null);
       }
     };
+
+    const report =
+      (writing: StudyStatus) =>
+      (progress: LessonProgress) => {
+        setStatus(progress.phase === 'writing' ? writing : progress.phase);
+        setStatusDetail(progress.detail);
+      };
 
     const openTopic = async (topicId: string) => {
       setActiveTopicId(topicId);
@@ -52,8 +63,9 @@ export function StudySessionProvider({ children }: StudySessionProviderProps) {
       if (!topic) return;
       inflight.current.add(topicId);
       setStatus('lesson');
+      setStatusDetail('Writing the lesson…');
       try {
-        const lesson = await generateLesson(topic, file);
+        const lesson = await generateLesson(topic, file, report('lesson'));
         setLessons((current) => ({ ...current, [topicId]: lesson }));
         setFallbackTopicId((current) => (current === topicId ? null : current));
       } catch (caught) {
@@ -62,15 +74,18 @@ export function StudySessionProvider({ children }: StudySessionProviderProps) {
       } finally {
         inflight.current.delete(topicId);
         setStatus('idle');
+        setStatusDetail(null);
       }
     };
 
     const regenerate = async (topic: RoadmapTopic, segment: GeneratedSegment) => {
       if (!file) return;
       setRegeneratingId(segment.id);
+      setStatus('segment');
+      setStatusDetail('Writing the lesson…');
       setError(null);
       try {
-        const replacement = await regenerateSegment(topic, file, segment);
+        const replacement = await regenerateSegment(topic, file, segment, report('segment'));
         setLessons((current) => {
           const lesson = current[topic.id];
           if (!lesson) return current;
@@ -89,6 +104,8 @@ export function StudySessionProvider({ children }: StudySessionProviderProps) {
         setError(messageOf(caught));
       } finally {
         setRegeneratingId(null);
+        setStatus('idle');
+        setStatusDetail(null);
       }
     };
 
@@ -97,6 +114,7 @@ export function StudySessionProvider({ children }: StudySessionProviderProps) {
       roadmap,
       lessons,
       status,
+      statusDetail,
       error,
       activeTopicId,
       regeneratingId,
@@ -106,7 +124,7 @@ export function StudySessionProvider({ children }: StudySessionProviderProps) {
       regenerate,
       closeTopic: () => setActiveTopicId(null),
     };
-  }, [activeTopicId, error, fallbackTopicId, file, lessons, regeneratingId, roadmap, status]);
+  }, [activeTopicId, error, fallbackTopicId, file, lessons, regeneratingId, roadmap, status, statusDetail]);
 
   return <StudySessionContext.Provider value={value}>{children}</StudySessionContext.Provider>;
 }
