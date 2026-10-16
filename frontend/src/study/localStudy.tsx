@@ -24,6 +24,7 @@ export type LessonMarks = {
   doubts: DoubtTurn[];
   expanded: boolean;
   quizReady: boolean;
+  quizIds: string[];
   watchedIds: string[];
 };
 
@@ -43,6 +44,7 @@ export const emptyMarks = (): LessonMarks => ({
   doubts: [],
   expanded: false,
   quizReady: false,
+  quizIds: [],
   watchedIds: [],
 });
 
@@ -109,7 +111,7 @@ export function LocalStudyProvider({ children }: { children: ReactNode }) {
       marks,
       doneIds: (key) => progress[key]?.doneIds ?? [],
       sourceList: (key) => sources[key] ?? [],
-      lessonMarks: (key) => marks[key] ?? emptyMarks(),
+      lessonMarks: (key) => ({ ...emptyMarks(), ...(marks[key] ?? {}) }),
       touchTopic: (key) => {
         setProgress((current) => {
           const prev = current[key] ?? { doneIds: [], updatedAt: 0 };
@@ -140,7 +142,7 @@ export function LocalStudyProvider({ children }: { children: ReactNode }) {
       },
       patchMarks: (key, update) => {
         setMarks((current) => {
-          const prev = current[key] ?? emptyMarks();
+          const prev = { ...emptyMarks(), ...(current[key] ?? {}) };
           const next = update(prev);
           if (next === prev) return current;
           return { ...current, [key]: next };

@@ -72,7 +72,7 @@ export function LessonFrame({
   return (
     <div className="relative overflow-hidden rounded-[18px] border-[2.5px] border-ink bg-chalk shadow-[5px_5px_0_var(--color-ink)]">
       {children}
-      <div className="pointer-events-none absolute inset-3 z-20 flex justify-center">
+      <div className="pointer-events-none absolute inset-x-3 top-3 z-20 flex justify-center">
         <div className="pointer-events-auto flex max-w-full -rotate-1 flex-wrap items-center gap-1 rounded-full border-[2.5px] border-ink bg-paper px-2 py-1.5 shadow-[3px_3px_0_var(--color-ink)]">
           <ToolButton
             label="Ask a doubt"

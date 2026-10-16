@@ -2,10 +2,10 @@ import { Player, type PlayerRef } from '@remotion/player';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
 import { ChapterStrip } from '../components/ChapterStrip.tsx';
+import { DoubtPanel } from '../components/DoubtPanel.tsx';
 import { LessonFrame } from '../components/LessonFrame.tsx';
 import type { LessonTool } from '../components/LessonFrame.tsx';
 import { buttonClass } from '../components/ui/Button.tsx';
-import { Card } from '../components/ui/Card.tsx';
 import { HandUnderline } from '../components/ui/HandUnderline.tsx';
 import { IconArrow, IconBack } from '../components/ui/icons.tsx';
 import { Shell } from '../components/ui/Shell.tsx';
@@ -117,6 +117,14 @@ export function LessonPage() {
   const nextLocked = !!next && !done.includes(subtopic.id);
   const answer = marks.expanded ? subtopic.beats.join(' ') : (active.title === subtopic.title ? subtopic.beats[0] : active.title);
 
+  const prompts = subtopic.beats.map((text, beatIndex) => ({ id: `beat-${beatIndex}`, text }));
+  const savePin = (text: string) => {
+    patchMarks(lessonKey(topic.id, subtopic.id), (current) => ({
+      ...current,
+      pins: [...current.pins, { id: `${Date.now()}`, timestamp: formatClock(frame, FPS), text }],
+    }));
+  };
+
   const seekTo = (nextFrame: number) => {
     const clamped = Math.max(0, Math.min(duration - 1, nextFrame));
     pending.current = clamped;
@@ -183,21 +191,19 @@ export function LessonPage() {
               onTool={chooseTool}
               onExplain={() => {
                 playerRef.current?.pause();
-                patchMarks(lessonKey(topic.id, subtopic.id), (current) => ({ ...current, expanded: true }));
+                const longer = subtopic.beats.join(' ');
+                patchMarks(lessonKey(topic.id, subtopic.id), (current) => {
+                  const last = current.doubts.findLastIndex((item) => item.role === 'krayon');
+                  return {
+                    ...current,
+                    expanded: true,
+                    doubts: current.doubts.map((turn, turnIndex) =>
+                      turnIndex === last ? { ...turn, text: longer } : turn,
+                    ),
+                  };
+                });
               }}
-              onPin={() => {
-                patchMarks(lessonKey(topic.id, subtopic.id), (current) => ({
-                  ...current,
-                  pins: [
-                    ...current.pins,
-                    {
-                      id: `${Date.now()}`,
-                      timestamp: formatClock(frame, FPS),
-                      text: answer,
-                    },
-                  ],
-                }));
-              }}
+              onPin={() => savePin(answer)}
               onStrokes={(strokes) => {
                 patchMarks(lessonKey(topic.id, subtopic.id), (current) => ({ ...current, strokes }));
               }}
@@ -224,15 +230,56 @@ export function LessonPage() {
               onSeek={seekTo}
             />
           </div>
-          <Card className="p-4">
-            <p className="text-[12px] font-semibold tracking-[0.14em] text-crayon-text uppercase">
-              Paused at {formatClock(frame, FPS)}
-            </p>
-            <p className="mt-3 text-[16px] leading-relaxed text-ink">{answer}</p>
-            {tool === 'ask' && (
-              <p className="mt-3 text-[15px] text-muted">The doubt chat for this moment is on the right.</p>
-            )}
-          </Card>
+          <DoubtPanel
+            topicId={topic.id}
+            paused={!playing}
+            timeLabel={formatClock(frame, FPS)}
+            answer={answer}
+            marks={marks}
+            tool={tool}
+            prompts={prompts}
+            onAsk={(question) => {
+              patchMarks(lessonKey(topic.id, subtopic.id), (current) => ({
+                ...current,
+                doubts: [
+                  ...current.doubts,
+                  { role: 'user', text: question },
+                  { role: 'krayon', text: answer },
+                ],
+              }));
+            }}
+            onExplain={() => {
+              playerRef.current?.pause();
+              const longer = subtopic.beats.join(' ');
+              patchMarks(lessonKey(topic.id, subtopic.id), (current) => {
+                const doubts = current.doubts.map((turn, turnIndex) =>
+                  turn.role === 'krayon' && turnIndex === current.doubts.findLastIndex((item) => item.role === 'krayon')
+                    ? { ...turn, text: longer }
+                    : turn,
+                );
+                return { ...current, expanded: true, doubts };
+              });
+            }}
+            onPin={savePin}
+            onNote={(text) => {
+              patchMarks(lessonKey(topic.id, subtopic.id), (current) => ({
+                ...current,
+                notes: [...current.notes, { id: `${Date.now()}`, timestamp: formatClock(frame, FPS), text }],
+              }));
+            }}
+            onQuizToggle={(id) => {
+              patchMarks(lessonKey(topic.id, subtopic.id), (current) => {
+                const quizIds = current.quizIds.includes(id)
+                  ? current.quizIds.filter((item) => item !== id)
+                  : [...current.quizIds, id];
+                return {
+                  ...current,
+                  quizIds,
+                  quizReady: prompts.every((prompt) => quizIds.includes(prompt.id)),
+                };
+              });
+            }}
+          />
         </div>
       </div>
     </Shell>
