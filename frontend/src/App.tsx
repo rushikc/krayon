@@ -16,6 +16,7 @@ export default function App() {
             <Routes>
               <Route path="/" element={<HomePage />} />
               <Route path="/study" element={<RoadmapPage />} />
+              <Route path="/study/:topicId" element={<LessonPage />} />
               <Route path="/topics/:topicId" element={<RoadmapPage />} />
               <Route path="/topics/:topicId/:subtopicId" element={<LessonPage />} />
               <Route path="/preview/:paletteId" element={<PalettePreview />}>

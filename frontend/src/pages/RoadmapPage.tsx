@@ -1,5 +1,4 @@
 import { Link, Navigate, useMatch, useParams } from 'react-router-dom';
-import { GeneratedLessonDrawer } from '../components/GeneratedLessonDrawer.tsx';
 import { RoadmapTrail } from '../components/RoadmapTrail.tsx';
 import type { TrailStep } from '../components/RoadmapTrail.tsx';
 import { Button, buttonClass } from '../components/ui/Button.tsx';
@@ -42,19 +41,23 @@ export function RoadmapPage() {
 
   if (isStudy) {
     const ordered = session.roadmap ? orderTopics(session.roadmap.topics) : [];
-    const active = ordered.find((item) => item.id === session.activeTopicId) ?? null;
-    const steps: TrailStep[] = ordered.map((item, index) => ({
-      id: item.id,
-      title: item.title,
-      detail: item.summary,
-      status: 'open',
-      artId: artCycle[index % artCycle.length],
-      duration: '',
-      progress: session.lessons[item.id] ? 100 : 0,
-      action: session.lessons[item.id] ? 'Watch again' : 'Open',
-      onOpen: () => void session.openTopic(item.id),
-      disabled: session.status === 'lesson',
-    }));
+    const steps: TrailStep[] = ordered.map((item, index) => {
+      const lesson = session.lessons[item.id];
+      const watched = lessonMarks(`study:${item.id}`).watchedIds;
+      const complete = !!lesson && lesson.segments.every((segment) => watched.includes(segment.id));
+      const frames = lesson?.segments.reduce((total, segment) => total + segment.durationInFrames, 0) ?? 0;
+      return {
+        id: item.id,
+        title: item.title,
+        detail: item.summary,
+        status: complete ? 'done' : 'open',
+        artId: artCycle[index % artCycle.length],
+        duration: frames ? formatClock(frames) : '',
+        progress: complete ? 100 : 0,
+        action: complete ? 'Watch again' : 'Open',
+        href: `/study/${item.id}`,
+      };
+    });
 
     return (
       <Shell>
@@ -71,8 +74,16 @@ export function RoadmapPage() {
               ? `From ${session.fileName}. Open a topic to generate its lesson.`
               : 'Add a document from the library to build a roadmap.'}
           </p>
+          {session.fileName && (
+            <div className="mt-4">
+              <Chip>
+                <IconFile className="h-4 w-4" />
+                {session.fileName}
+              </Chip>
+            </div>
+          )}
           {session.status === 'roadmap' && <p className="mt-4 text-[16px] text-muted">Reading the document…</p>}
-          {session.error && !active && <p className="mt-4 text-[16px] text-crayon-text">{session.error}</p>}
+          {session.error && <p className="mt-4 text-[16px] text-crayon-text">{session.error}</p>}
           {steps.length > 0 ? (
             <div className="mt-8">
               <RoadmapTrail steps={steps} />
@@ -83,16 +94,6 @@ export function RoadmapPage() {
             </Button>
           )}
         </div>
-        {active && (
-          <GeneratedLessonDrawer
-            topic={active}
-            lesson={session.lessons[active.id] ?? null}
-            loading={session.status === 'lesson' && !session.lessons[active.id]}
-            failed={session.fallbackTopicId === active.id && !session.lessons[active.id]}
-            error={session.error}
-            onClose={session.closeTopic}
-          />
-        )}
       </Shell>
     );
   }

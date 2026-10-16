@@ -1,6 +1,7 @@
 import { Player, type PlayerRef } from '@remotion/player';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
+import { Link, Navigate, useMatch, useNavigate, useParams } from 'react-router-dom';
+import { GeneratedLessonView } from './GeneratedLessonView.tsx';
 import { ChapterStrip } from '../components/ChapterStrip.tsx';
 import { DoubtPanel } from '../components/DoubtPanel.tsx';
 import { LessonFrame } from '../components/LessonFrame.tsx';
@@ -19,6 +20,14 @@ import { lessonKey, topicKey, useLocalStudy } from '../study/localStudy.tsx';
 import { formatClock } from '../study/time.ts';
 
 export function LessonPage() {
+  const generated = useMatch('/study/:topicId');
+  if (generated?.params.topicId) {
+    return <GeneratedLessonView topicId={generated.params.topicId} />;
+  }
+  return <CuratedLesson />;
+}
+
+function CuratedLesson() {
   const { topicId, subtopicId } = useParams();
   const navigate = useNavigate();
   const { prefix, colors } = usePalette();

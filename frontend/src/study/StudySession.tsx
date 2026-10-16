@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { generateLesson, generateRoadmap, regenerateSegment } from '../lib/ai.ts';
 import type { GeneratedLesson, GeneratedSegment, Roadmap, RoadmapTopic } from '../remotion/scene.ts';
@@ -21,6 +21,7 @@ export function StudySessionProvider({ children }: StudySessionProviderProps) {
   const [activeTopicId, setActiveTopicId] = useState<string | null>(null);
   const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
   const [fallbackTopicId, setFallbackTopicId] = useState<string | null>(null);
+  const inflight = useRef(new Set<string>());
 
   const value = useMemo(() => {
     const startFromFile = async (nextFile: File) => {
@@ -46,9 +47,10 @@ export function StudySessionProvider({ children }: StudySessionProviderProps) {
       setActiveTopicId(topicId);
       setError(null);
       if (!file || !roadmap) return;
-      if (lessons[topicId]) return;
+      if (lessons[topicId] || inflight.current.has(topicId)) return;
       const topic = roadmap.topics.find((item) => item.id === topicId);
       if (!topic) return;
+      inflight.current.add(topicId);
       setStatus('lesson');
       try {
         const lesson = await generateLesson(topic, file);
@@ -58,6 +60,7 @@ export function StudySessionProvider({ children }: StudySessionProviderProps) {
         setError(messageOf(caught));
         setFallbackTopicId(topicId);
       } finally {
+        inflight.current.delete(topicId);
         setStatus('idle');
       }
     };
