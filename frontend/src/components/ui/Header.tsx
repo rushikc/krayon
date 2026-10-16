@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 import { usePalette } from '../../paletteState.ts';
-import { useUpload } from '../../study/uploadState.ts';
+import { useUpload } from '../../study/uploadState.tsx';
 import { LogoMark } from './icons.tsx';
 
 const itemClass = 'shrink-0 text-[15px] font-medium text-ink';
