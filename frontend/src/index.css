@@ -46,3 +46,16 @@ body {
   max-width: 1120px;
   margin-inline: auto;
 }
+
+@keyframes crayon-indeterminate {
+  0% {
+    transform: translateX(-120%);
+  }
+  100% {
+    transform: translateX(260%);
+  }
+}
+
+.crayon-indeterminate {
+  animation: crayon-indeterminate 1.1s ease-in-out infinite;
+}
