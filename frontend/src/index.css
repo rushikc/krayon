@@ -4,11 +4,18 @@
   --font-sans: 'Outfit', system-ui, sans-serif;
   --font-serif: 'Fraunces', Georgia, serif;
   --color-paper: #f6f1e8;
-  --color-ink: #1c1612;
-  --color-muted: #6f645b;
+  --color-ink: #1f1b16;
+  --color-muted: #5c5148;
   --color-crayon: #e4572e;
+  --color-crayon-text: #b8401f;
+  --color-yellow: #f2c14e;
+  --color-done: #217a45;
+  --color-done-fill: #3c9a55;
+  --color-focus: #3d6fb6;
   --color-stone: #ebe4d8;
-  --color-line: #ddd4c6;
+  --color-line: #d9d0c3;
+  --color-chalk: #1a2420;
+  --color-dot: rgba(31, 27, 22, 0.14);
 }
 
 html,
@@ -19,8 +26,23 @@ body,
 
 body {
   margin: 0;
-  background: var(--color-stone);
+  background-color: var(--color-stone);
+  background-image: radial-gradient(var(--color-dot) 1.15px, transparent 1.15px);
+  background-size: 16px 16px;
   color: var(--color-ink);
   font-family: var(--font-sans);
+  font-size: 16px;
+  line-height: 1.5;
   -webkit-font-smoothing: antialiased;
+}
+
+:focus-visible {
+  outline: 3px solid var(--color-focus);
+  outline-offset: 3px;
+}
+
+@utility page-wrap {
+  width: 100%;
+  max-width: 1120px;
+  margin-inline: auto;
 }
