@@ -1,0 +1,25 @@
+# Dependencies and build output
+node_modules/
+dist/
+dist-ssr/
+
+# Secrets
+.env
+.env.*
+!.env.example
+*.local
+
+# Firebase CLI cache and debug logs
+.firebase/
+*-debug.log
+
+# Logs
+logs/
+*.log
+
+# OS and editors
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json

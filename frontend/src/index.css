@@ -1,0 +1,26 @@
+@import 'tailwindcss';
+
+@theme {
+  --font-sans: 'Outfit', system-ui, sans-serif;
+  --font-serif: 'Fraunces', Georgia, serif;
+  --color-paper: #f6f1e8;
+  --color-ink: #1c1612;
+  --color-muted: #6f645b;
+  --color-crayon: #e4572e;
+  --color-stone: #ebe4d8;
+  --color-line: #ddd4c6;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-stone);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
