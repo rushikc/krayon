@@ -1,8 +1,12 @@
 import { useState } from 'react';
-import { Link, Navigate, useLocation, useParams } from 'react-router-dom';
+import { Link, Navigate, useLocation, useMatch, useParams } from 'react-router-dom';
+import { GeneratedLessonDrawer } from '../components/GeneratedLessonDrawer.tsx';
 import { LessonDrawer } from '../components/LessonDrawer.tsx';
 import type { SourceFile, Subtopic } from '../data/topics.ts';
 import { getTopic } from '../data/topics.ts';
+import { usePalette } from '../paletteState.ts';
+import { orderTopics } from '../remotion/scene.ts';
+import { useStudySession } from '../study/studyState.ts';
 
 const readSources = (state: unknown): SourceFile[] => {
   if (!state || typeof state !== 'object' || !('sources' in state)) return [];
@@ -22,16 +26,75 @@ const readSources = (state: unknown): SourceFile[] => {
 export function RoadmapPage() {
   const { topicId } = useParams();
   const location = useLocation();
+  const isStudy = useMatch('/study');
+  const session = useStudySession();
+  const { prefix } = usePalette();
   const topic = topicId ? getTopic(topicId) : undefined;
   const sources = readSources(location.state);
   const [open, setOpen] = useState<Subtopic | null>(null);
+  const home = prefix || '/';
 
-  if (!topic) return <Navigate to="/" replace />;
+  if (isStudy) {
+    const ordered = session.roadmap ? orderTopics(session.roadmap.topics) : [];
+    const active = ordered.find((item) => item.id === session.activeTopicId) ?? null;
+    return (
+      <div className="min-h-full px-5 py-6 md:px-10 md:py-8">
+        <header className="mx-auto max-w-3xl">
+          <Link to="/" className="text-[11px] font-semibold tracking-[0.18em] text-crayon uppercase">
+            Krayon
+          </Link>
+          <h1 className="mt-4 font-serif text-4xl leading-none text-ink md:text-5xl">Roadmap</h1>
+          <p className="mt-4 max-w-xl text-sm leading-relaxed text-muted">
+            {session.roadmap && session.fileName
+              ? `From ${session.fileName}. Open a topic to generate its lesson.`
+              : 'Add a document from the home page to build a roadmap.'}
+          </p>
+          {session.status === 'roadmap' && (
+            <p className="mt-4 text-sm text-muted">Reading the document…</p>
+          )}
+          {session.error && !active && <p className="mt-4 text-sm text-crayon">{session.error}</p>}
+        </header>
+        <ol className="mx-auto mt-10 grid max-w-3xl">
+          {ordered.map((item, index) => (
+            <li key={item.id} className="grid grid-cols-[2.5rem_minmax(0,1fr)] gap-x-4">
+              <div className="flex flex-col items-center">
+                <span className="flex h-10 w-10 items-center justify-center rounded-full border border-crayon bg-paper text-sm font-medium text-ink">
+                  {index + 1}
+                </span>
+                {index < ordered.length - 1 && <span className="w-px flex-1 bg-line" />}
+              </div>
+              <button
+                type="button"
+                disabled={session.status === 'lesson'}
+                onClick={() => void session.openTopic(item.id)}
+                className="mb-4 rounded-2xl border border-line bg-paper px-4 py-4 text-left transition-colors hover:border-crayon disabled:opacity-60"
+              >
+                <span className="block font-serif text-2xl leading-tight text-ink">{item.title}</span>
+                <span className="mt-1 block text-sm text-muted">{item.summary}</span>
+              </button>
+            </li>
+          ))}
+        </ol>
+        {active && (
+          <GeneratedLessonDrawer
+            topic={active}
+            lesson={session.lessons[active.id] ?? null}
+            loading={session.status === 'lesson' && !session.lessons[active.id]}
+            failed={session.fallbackTopicId === active.id && !session.lessons[active.id]}
+            error={session.error}
+            onClose={session.closeTopic}
+          />
+        )}
+      </div>
+    );
+  }
+
+  if (!topic) return <Navigate to={home} replace />;
 
   return (
     <div className="min-h-full px-5 py-6 md:px-10 md:py-8">
       <header className="mx-auto max-w-3xl">
-        <Link to="/" className="text-[11px] font-semibold tracking-[0.18em] text-crayon uppercase">
+        <Link to={home} className="text-[11px] font-semibold tracking-[0.18em] text-crayon uppercase">
           Krayon
         </Link>
         <p className="mt-4 text-[11px] font-semibold tracking-[0.16em] text-muted uppercase">

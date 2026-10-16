@@ -16,6 +16,19 @@ A lesson is a list of segments. Each segment has a duration and a Remotion compo
 
 The stand-in lesson is “Slope of a line”: three segments you can play and seek between.
 
+## Test materials and input assumptions
+
+Krayon expects two kinds of input:
+
+- **Lecturer PDFs**: handouts and study material that are mostly text, with a few diagrams, tables and practice questions.
+- **Student photos (JPG)**: phone photos of textbook pages, handwritten notes on ruled or graph paper, and filled-in paper worksheets. Expect slight rotation, perspective, shadows and uneven lighting.
+
+Sample inputs for testing live on the Desktop (all mocks). For now the topics favour explanations built from boxes, diagrams and text rather than math and physics:
+
+- `~/Desktop/Business-Porters-Five-Forces/`: one lecturer handout PDF
+- `~/Desktop/Economics-Supply-and-Demand/`: four student photos (handwritten notes, a graph-paper diagram, a textbook page, a worksheet)
+- `~/Desktop/Software-Client-Server-and-REST-APIs/`: one lecturer handout PDF and three student photos
+
 ## Stack
 
 - React, Vite, and Tailwind in `frontend/`

@@ -1,6 +1,7 @@
 import { Player } from '@remotion/player';
 import { useEffect, useId } from 'react';
 import type { Subtopic } from '../data/topics.ts';
+import { usePalette } from '../paletteState.ts';
 import { COMPOSITION_HEIGHT, COMPOSITION_WIDTH, FPS } from '../remotion/catalog.ts';
 import { TopicLesson } from '../remotion/TopicLesson.tsx';
 import { topicLessonDuration } from '../remotion/topicLessonTiming.ts';
@@ -12,6 +13,7 @@ type LessonDrawerProps = {
 
 export function LessonDrawer({ subtopic, onClose }: LessonDrawerProps) {
   const titleId = useId();
+  const { colors } = usePalette();
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -57,7 +59,7 @@ export function LessonDrawer({ subtopic, onClose }: LessonDrawerProps) {
             <Player
               key={subtopic.id}
               component={TopicLesson}
-              inputProps={{ title: subtopic.title, beats: subtopic.beats }}
+              inputProps={{ title: subtopic.title, beats: subtopic.beats, colors }}
               durationInFrames={topicLessonDuration(subtopic.beats.length)}
               compositionWidth={COMPOSITION_WIDTH}
               compositionHeight={COMPOSITION_HEIGHT}

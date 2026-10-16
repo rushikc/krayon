@@ -2,8 +2,10 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { AddDocsPopup } from '../components/AddDocsPopup.tsx';
 import { topics } from '../data/topics.ts';
+import { usePalette } from '../paletteState.ts';
 
 export function HomePage() {
+  const { prefix } = usePalette();
   const [adding, setAdding] = useState(false);
 
   return (
@@ -30,7 +32,7 @@ export function HomePage() {
         {topics.map((topic) => (
           <li key={topic.id}>
             <Link
-              to={`/topics/${topic.id}`}
+              to={`${prefix}/topics/${topic.id}`}
               className="flex h-full flex-col rounded-2xl border border-line bg-paper px-5 py-5 transition-colors hover:border-crayon"
             >
               <span className="text-[11px] font-semibold tracking-[0.16em] text-crayon uppercase">

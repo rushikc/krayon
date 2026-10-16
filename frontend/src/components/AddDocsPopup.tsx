@@ -1,18 +1,21 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import type { DragEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
-import type { SourceFile } from '../data/topics.ts';
+import { MAX_INLINE_BYTES } from '../lib/ai.ts';
 import { topics } from '../data/topics.ts';
+import { useStudySession } from '../study/studyState.ts';
 
-type ListedFile = SourceFile | { name: string; kind: 'rejected' };
+type ListedFile =
+  | { name: string; kind: 'pdf' | 'image'; file: File }
+  | { name: string; kind: 'rejected' };
 
 const classify = (file: File): ListedFile => {
   const name = file.name;
   if (file.type === 'application/pdf' || name.toLowerCase().endsWith('.pdf')) {
-    return { name, kind: 'pdf' };
+    return { name, kind: 'pdf', file };
   }
   if (file.type.startsWith('image/')) {
-    return { name, kind: 'image' };
+    return { name, kind: 'image', file };
   }
   return { name, kind: 'rejected' };
 };
@@ -23,10 +26,13 @@ type AddDocsPopupProps = {
 
 export function AddDocsPopup({ onClose }: AddDocsPopupProps) {
   const navigate = useNavigate();
+  const { startFromFile } = useStudySession();
   const titleId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
   const [topicId, setTopicId] = useState(topics[0].id);
   const [files, setFiles] = useState<ListedFile[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -46,11 +52,25 @@ export function AddDocsPopup({ onClose }: AddDocsPopupProps) {
     addFiles(event.dataTransfer.files);
   };
 
-  const accepted = files.filter((file): file is SourceFile => file.kind !== 'rejected');
+  const accepted = files.filter((file) => file.kind !== 'rejected');
 
-  const continueToRoadmap = () => {
-    if (accepted.length === 0) return;
-    navigate(`/topics/${topicId}`, { state: { sources: accepted } });
+  const continueToRoadmap = async () => {
+    const first = accepted[0];
+    if (!first) return;
+    if (first.file.size > MAX_INLINE_BYTES) {
+      setError('That file is over 20MB. Choose a smaller PDF or photo.');
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      await startFromFile(first.file);
+      navigate('/study');
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'The roadmap could not be created.');
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -85,7 +105,8 @@ export function AddDocsPopup({ onClose }: AddDocsPopupProps) {
           </button>
         </div>
         <p className="mt-2 text-sm leading-relaxed text-muted">
-          PDFs and photos only. They attach to a topic that already exists.
+          PDFs and photos only. The first file is read into a roadmap. The topic list below stays
+          for the curated paths.
         </p>
 
         <label className="mt-5 block text-[11px] font-semibold tracking-[0.16em] text-muted uppercase">
@@ -125,6 +146,10 @@ export function AddDocsPopup({ onClose }: AddDocsPopupProps) {
           <span className="mt-1 text-xs text-muted">or click to browse</span>
         </button>
 
+        {accepted.length > 1 && (
+          <p className="mt-3 text-xs text-muted">Using the first file, {accepted[0]?.name}.</p>
+        )}
+
         {files.length > 0 && (
           <ul className="mt-4 grid gap-2">
             {files.map((file, index) => (
@@ -145,13 +170,15 @@ export function AddDocsPopup({ onClose }: AddDocsPopupProps) {
           </ul>
         )}
 
+        {error && <p className="mt-4 text-sm text-crayon">{error}</p>}
+
         <button
           type="button"
-          disabled={accepted.length === 0}
-          onClick={continueToRoadmap}
+          disabled={accepted.length === 0 || busy}
+          onClick={() => void continueToRoadmap()}
           className="mt-5 w-full rounded-full bg-ink px-4 py-2.5 text-sm font-medium text-paper disabled:opacity-40"
         >
-          Open roadmap
+          {busy ? 'Reading the document…' : 'Open roadmap'}
         </button>
       </div>
     </div>

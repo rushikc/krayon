@@ -1,11 +1,13 @@
 import type { FC } from 'react';
 import { AbsoluteFill, Easing, interpolate, Series, useCurrentFrame } from 'remotion';
+import type { LessonColors } from '../paletteState.ts';
 import { theme } from './theme.ts';
 import { TOPIC_BEAT_FRAMES, TOPIC_TITLE_FRAMES } from './topicLessonTiming.ts';
 
 export type TopicLessonProps = {
   title: string;
   beats: string[];
+  colors: LessonColors;
 };
 
 const clamp = {
@@ -13,7 +15,7 @@ const clamp = {
   extrapolateRight: 'clamp',
 } as const;
 
-const TitleFrame: FC<{ title: string }> = ({ title }) => {
+const TitleFrame: FC<{ title: string; colors: LessonColors }> = ({ title, colors }) => {
   const frame = useCurrentFrame();
   const rise = interpolate(frame, [0, 16], [18, 0], {
     ...clamp,
@@ -23,8 +25,8 @@ const TitleFrame: FC<{ title: string }> = ({ title }) => {
   return (
     <AbsoluteFill
       style={{
-        backgroundColor: theme.paper,
-        color: theme.ink,
+        backgroundColor: colors.paper,
+        color: colors.ink,
         fontFamily: theme.sans,
       }}
     >
@@ -35,7 +37,7 @@ const TitleFrame: FC<{ title: string }> = ({ title }) => {
           bottom: 0,
           left: 0,
           width: 10,
-          backgroundColor: theme.crayon,
+          backgroundColor: colors.crayon,
         }}
       />
       <div
@@ -56,15 +58,19 @@ const TitleFrame: FC<{ title: string }> = ({ title }) => {
   );
 };
 
-const BeatFrame: FC<{ index: number; text: string }> = ({ index, text }) => {
+const BeatFrame: FC<{ index: number; text: string; colors: LessonColors }> = ({
+  index,
+  text,
+  colors,
+}) => {
   const frame = useCurrentFrame();
   const opacity = interpolate(frame, [0, 12], [0, 1], clamp);
 
   return (
     <AbsoluteFill
       style={{
-        backgroundColor: theme.paper,
-        color: theme.ink,
+        backgroundColor: colors.paper,
+        color: colors.ink,
         fontFamily: theme.sans,
       }}
     >
@@ -75,7 +81,7 @@ const BeatFrame: FC<{ index: number; text: string }> = ({ index, text }) => {
           bottom: 0,
           left: 0,
           width: 10,
-          backgroundColor: theme.crayon,
+          backgroundColor: colors.crayon,
         }}
       />
       <div
@@ -86,7 +92,7 @@ const BeatFrame: FC<{ index: number; text: string }> = ({ index, text }) => {
           fontSize: 16,
           letterSpacing: '0.16em',
           textTransform: 'uppercase',
-          color: theme.muted,
+          color: colors.muted,
         }}
       >
         0{index + 1}
@@ -109,16 +115,16 @@ const BeatFrame: FC<{ index: number; text: string }> = ({ index, text }) => {
   );
 };
 
-export const TopicLesson: FC<TopicLessonProps> = ({ title, beats }) => {
+export const TopicLesson: FC<TopicLessonProps> = ({ title, beats, colors }) => {
   return (
-    <AbsoluteFill style={{ backgroundColor: theme.paper }}>
+    <AbsoluteFill style={{ backgroundColor: colors.paper }}>
       <Series>
         <Series.Sequence durationInFrames={TOPIC_TITLE_FRAMES}>
-          <TitleFrame title={title} />
+          <TitleFrame title={title} colors={colors} />
         </Series.Sequence>
         {beats.map((beat, index) => (
           <Series.Sequence key={`${index}-${beat}`} durationInFrames={TOPIC_BEAT_FRAMES}>
-            <BeatFrame index={index} text={beat} />
+            <BeatFrame index={index} text={beat} colors={colors} />
           </Series.Sequence>
         ))}
       </Series>
