@@ -141,7 +141,9 @@ export function LocalStudyProvider({ children }: { children: ReactNode }) {
       patchMarks: (key, update) => {
         setMarks((current) => {
           const prev = current[key] ?? emptyMarks();
-          return { ...current, [key]: update(prev) };
+          const next = update(prev);
+          if (next === prev) return current;
+          return { ...current, [key]: next };
         });
       },
     }),

@@ -46,6 +46,14 @@ export function LogoMark({ className = 'h-8 w-8' }: { className?: string }) {
   );
 }
 
+export function IconPause(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M8 5.4v13.2M16 5.4v13.2" />
+    </Svg>
+  );
+}
+
 export function IconPlay(props: IconProps) {
   return (
     <Svg {...props}>

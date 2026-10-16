@@ -1,5 +1,6 @@
 import { BrowserRouter, Route, Routes } from 'react-router-dom';
 import { HomePage } from './pages/HomePage.tsx';
+import { LessonPage } from './pages/LessonPage.tsx';
 import { PalettePreview } from './pages/PalettePreview.tsx';
 import { RoadmapPage } from './pages/RoadmapPage.tsx';
 import { LocalStudyProvider } from './study/localStudy.tsx';
@@ -16,9 +17,11 @@ export default function App() {
               <Route path="/" element={<HomePage />} />
               <Route path="/study" element={<RoadmapPage />} />
               <Route path="/topics/:topicId" element={<RoadmapPage />} />
+              <Route path="/topics/:topicId/:subtopicId" element={<LessonPage />} />
               <Route path="/preview/:paletteId" element={<PalettePreview />}>
                 <Route index element={<HomePage />} />
                 <Route path="topics/:topicId" element={<RoadmapPage />} />
+                <Route path="topics/:topicId/:subtopicId" element={<LessonPage />} />
               </Route>
             </Routes>
           </UploadProvider>

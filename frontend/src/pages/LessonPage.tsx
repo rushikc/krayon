@@ -1,0 +1,240 @@
+import { Player, type PlayerRef } from '@remotion/player';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
+import { ChapterStrip } from '../components/ChapterStrip.tsx';
+import { LessonFrame } from '../components/LessonFrame.tsx';
+import type { LessonTool } from '../components/LessonFrame.tsx';
+import { buttonClass } from '../components/ui/Button.tsx';
+import { Card } from '../components/ui/Card.tsx';
+import { HandUnderline } from '../components/ui/HandUnderline.tsx';
+import { IconArrow, IconBack } from '../components/ui/icons.tsx';
+import { Shell } from '../components/ui/Shell.tsx';
+import { getTopic } from '../data/topics.ts';
+import { usePalette } from '../paletteState.ts';
+import { COMPOSITION_HEIGHT, COMPOSITION_WIDTH, FPS } from '../remotion/catalog.ts';
+import { TopicLesson } from '../remotion/TopicLesson.tsx';
+import { topicLessonDuration } from '../remotion/topicLessonTiming.ts';
+import { chapterIndexAtFrame, curatedChapters } from '../study/chapters.ts';
+import { lessonKey, topicKey, useLocalStudy } from '../study/localStudy.tsx';
+import { formatClock } from '../study/time.ts';
+
+export function LessonPage() {
+  const { topicId, subtopicId } = useParams();
+  const navigate = useNavigate();
+  const { prefix, colors } = usePalette();
+  const { doneIds, lessonMarks, patchMarks, markSubtopicDone, touchTopic } = useLocalStudy();
+  const topic = topicId ? getTopic(topicId) : undefined;
+  const subtopic = topic?.subtopics.find((item) => item.id === subtopicId);
+  const playerRef = useRef<PlayerRef>(null);
+  const pending = useRef<number | null>(null);
+  const [frame, setFrame] = useState(0);
+  const [playing, setPlaying] = useState(false);
+  const [tool, setTool] = useState<LessonTool | null>(null);
+  const home = prefix || '/';
+  const base = home === '/' ? '' : home;
+
+  const chapters = useMemo(() => (subtopic ? curatedChapters(subtopic) : []), [subtopic]);
+  const inputProps = useMemo(
+    () => (subtopic ? { title: subtopic.title, beats: subtopic.beats, colors } : null),
+    [colors, subtopic],
+  );
+  const duration = subtopic ? topicLessonDuration(subtopic.beats.length) : 1;
+  const marks = subtopic && topic ? lessonMarks(lessonKey(topic.id, subtopic.id)) : null;
+  const activeIndex = chapterIndexAtFrame(frame, chapters);
+  const active = chapters[activeIndex];
+  const finished = useRef(false);
+  const seenTopic = useRef<string | null>(null);
+
+  useEffect(() => {
+    finished.current = false;
+  }, [subtopic?.id]);
+
+  useEffect(() => {
+    if (!topic || seenTopic.current === topic.id) return;
+    seenTopic.current = topic.id;
+    touchTopic(topicKey(topic.id));
+  }, [topic, touchTopic]);
+
+  useEffect(() => {
+    const player = playerRef.current;
+    if (!player) return;
+    const onFrame = (event: { detail: { frame: number } }) => {
+      const target = pending.current;
+      if (target !== null && Math.abs(event.detail.frame - target) > 2) return;
+      pending.current = null;
+      setFrame(event.detail.frame);
+    };
+    const onPlay = () => setPlaying(true);
+    const onPause = () => setPlaying(false);
+    player.addEventListener('frameupdate', onFrame);
+    player.addEventListener('seeked', onFrame);
+    player.addEventListener('play', onPlay);
+    player.addEventListener('pause', onPause);
+    return () => {
+      player.removeEventListener('frameupdate', onFrame);
+      player.removeEventListener('seeked', onFrame);
+      player.removeEventListener('play', onPlay);
+      player.removeEventListener('pause', onPause);
+    };
+  }, [subtopic?.id]);
+
+  useEffect(() => {
+    if (!topic || !subtopic) return;
+    const watchedNow = chapters
+      .filter((chapter) => frame >= chapter.start + chapter.duration - 1)
+      .map((chapter) => chapter.id);
+    if (watchedNow.length === 0) return;
+    patchMarks(lessonKey(topic.id, subtopic.id), (current) => {
+      if (watchedNow.every((id) => current.watchedIds.includes(id))) return current;
+      return { ...current, watchedIds: [...new Set([...current.watchedIds, ...watchedNow])] };
+    });
+  }, [chapters, frame, patchMarks, subtopic, topic]);
+
+  useEffect(() => {
+    if (!topic || !subtopic || !marks || finished.current) return;
+    const allWatched = chapters.length > 0 && chapters.every((chapter) => marks.watchedIds.includes(chapter.id));
+    if (!allWatched) return;
+    finished.current = true;
+    markSubtopicDone(topicKey(topic.id), subtopic.id);
+  }, [chapters, markSubtopicDone, marks, subtopic, topic]);
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || document.querySelector('[role="dialog"]')) return;
+      if (topic) navigate(`${base}/topics/${topic.id}`);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [base, navigate, topic]);
+
+  if (!topic || !subtopic || !marks || !active) {
+    return <Navigate to={home} replace />;
+  }
+
+  const index = topic.subtopics.findIndex((item) => item.id === subtopic.id);
+  const next = topic.subtopics[index + 1];
+  const done = doneIds(topicKey(topic.id));
+  const nextLocked = !!next && !done.includes(subtopic.id);
+  const answer = marks.expanded ? subtopic.beats.join(' ') : (active.title === subtopic.title ? subtopic.beats[0] : active.title);
+
+  const seekTo = (nextFrame: number) => {
+    const clamped = Math.max(0, Math.min(duration - 1, nextFrame));
+    pending.current = clamped;
+    playerRef.current?.seekTo(clamped);
+    setFrame(clamped);
+  };
+
+  const chooseTool = (nextTool: LessonTool) => {
+    playerRef.current?.pause();
+    setPlaying(false);
+    setTool((current) => (current === nextTool ? null : nextTool));
+  };
+
+  return (
+    <Shell>
+      <div className="mt-4">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <Link
+              to={`${base}/topics/${topic.id}`}
+              className="inline-flex items-center gap-1 text-[15px] font-medium text-ink"
+            >
+              <IconBack className="h-4 w-4" />
+              {topic.title}
+            </Link>
+            <h1 className="mt-3 font-serif text-4xl leading-tight text-ink sm:text-5xl">
+              <HandUnderline>{subtopic.title}</HandUnderline>
+            </h1>
+            <p className="mt-2 text-[15px] text-muted">
+              {topic.field} · Step {index + 1} of {topic.subtopics.length}
+            </p>
+          </div>
+          {next && !nextLocked && (
+            <Link to={`${base}/topics/${topic.id}/${next.id}`} className={buttonClass('secondary')}>
+              Next step
+              <IconArrow className="h-4 w-4" />
+            </Link>
+          )}
+          {next && nextLocked && (
+            <button type="button" disabled className={buttonClass('secondary')}>
+              Next step
+            </button>
+          )}
+        </div>
+
+        <div className="mt-5 grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
+          <div>
+            <LessonFrame
+              chapters={chapters}
+              frame={frame}
+              duration={duration}
+              playing={playing}
+              activeTool={tool}
+              drawing={tool === 'highlight'}
+              strokes={marks.strokes}
+              explaining={false}
+              onToggle={() => {
+                const player = playerRef.current;
+                if (!player) return;
+                if (player.isPlaying()) player.pause();
+                else player.play();
+              }}
+              onSeek={seekTo}
+              onTool={chooseTool}
+              onExplain={() => {
+                playerRef.current?.pause();
+                patchMarks(lessonKey(topic.id, subtopic.id), (current) => ({ ...current, expanded: true }));
+              }}
+              onPin={() => {
+                patchMarks(lessonKey(topic.id, subtopic.id), (current) => ({
+                  ...current,
+                  pins: [
+                    ...current.pins,
+                    {
+                      id: `${Date.now()}`,
+                      timestamp: formatClock(frame, FPS),
+                      text: answer,
+                    },
+                  ],
+                }));
+              }}
+              onStrokes={(strokes) => {
+                patchMarks(lessonKey(topic.id, subtopic.id), (current) => ({ ...current, strokes }));
+              }}
+            >
+              <Player
+                ref={playerRef}
+                key={subtopic.id}
+                component={TopicLesson}
+                inputProps={inputProps ?? { title: subtopic.title, beats: subtopic.beats, colors }}
+                durationInFrames={duration}
+                compositionWidth={COMPOSITION_WIDTH}
+                compositionHeight={COMPOSITION_HEIGHT}
+                fps={FPS}
+                controls={false}
+                acknowledgeRemotionLicense
+                style={{ width: '100%' }}
+              />
+            </LessonFrame>
+            <ChapterStrip
+              chapters={chapters}
+              activeIndex={activeIndex}
+              watchedIds={marks.watchedIds}
+              frame={frame}
+              onSeek={seekTo}
+            />
+          </div>
+          <Card className="p-4">
+            <p className="text-[12px] font-semibold tracking-[0.14em] text-crayon-text uppercase">
+              Paused at {formatClock(frame, FPS)}
+            </p>
+            <p className="mt-3 text-[16px] leading-relaxed text-ink">{answer}</p>
+            {tool === 'ask' && (
+              <p className="mt-3 text-[15px] text-muted">The doubt chat for this moment is on the right.</p>
+            )}
+          </Card>
+        </div>
+      </div>
+    </Shell>
+  );
+}
