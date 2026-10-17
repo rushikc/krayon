@@ -100,15 +100,38 @@ export { reduceCourse, reduceLesson } from './reduceCourse.js';
 export type { CourseFold } from './reduceCourse.js';
 export { pipelineEventTypes } from './events.js';
 export type { ClientMessage, PipelineEvent, PipelineEventType, ServerMessage } from './events.js';
+export { mediaId, mediaKey } from './media.js';
+export { chapterFrom, courseFrom, lessonSummaryFrom, progressFrom, segmentFrom } from './assemble.js';
 export type {
   AuthProvider,
   AuthUser,
-  BlobMeta,
+  AuthVerifier,
+  BatchOp,
+  BlobStat,
   BlobStorage,
+  CancelScope,
+  Clock,
+  Coordination,
+  DocData,
   DocRecord,
   DocStore,
+  DocTx,
   EventBus,
   JobHandler,
   JobQueue,
+  KeyframeRenderer,
+  ModelClient,
+  ModelFile,
+  Notifier,
   PipelineEmit,
+  RequestCtx,
+  TaskDispatcher,
+  TaskKind,
+  TaskPayload,
+  TaskQueue,
+  TaskRequest,
+  TtsClient,
+  Where,
+  WhereOp,
+  WorkPriority,
 } from './ports.js';

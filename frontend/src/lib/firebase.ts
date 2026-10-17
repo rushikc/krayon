@@ -1,6 +1,10 @@
 import { getAnalytics, isSupported } from 'firebase/analytics'
 import { getApps, initializeApp } from 'firebase/app'
-import { initializeAppCheck, ReCaptchaEnterpriseProvider } from 'firebase/app-check'
+import { getToken, initializeAppCheck, ReCaptchaEnterpriseProvider } from 'firebase/app-check'
+import { getAuth, onAuthStateChanged, onIdTokenChanged, signInAnonymously } from 'firebase/auth'
+import { setRenderToken } from './api.ts'
+
+export const isGcpBackend = import.meta.env.VITE_BACKEND === 'gcp'
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -31,3 +35,33 @@ export const appCheck = initializeAppCheck(firebaseApp, {
 void isSupported().then((supported) => {
   if (supported) getAnalytics(firebaseApp)
 })
+
+export const auth = getAuth(firebaseApp)
+
+/** Local dev has no Firebase user. GCP uses anonymous auth. */
+export const currentUid = () => (isGcpBackend ? (auth.currentUser?.uid ?? '') : 'local-user')
+
+export const idToken = async () => {
+  const user = auth.currentUser
+  if (!isGcpBackend || !user) return ''
+  return user.getIdToken()
+}
+
+export const appCheckToken = async () => {
+  if (!isGcpBackend) return ''
+  const result = await getToken(appCheck, false)
+  return result.token
+}
+
+if (isGcpBackend) {
+  onAuthStateChanged(auth, (user) => {
+    if (!user) void signInAnonymously(auth)
+  })
+  onIdTokenChanged(auth, (user) => {
+    if (!user) {
+      setRenderToken('')
+      return
+    }
+    void user.getIdToken().then((token) => setRenderToken(token))
+  })
+}

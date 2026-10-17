@@ -110,12 +110,12 @@ export const createChapterStages = (rt: Runtime) => {
   const { docs, log } = rt;
 
   const structure = async (uid: string, courseId: string) => {
-    const course = docs.get(coursePath(uid, courseId));
+    const course = (await docs.get(coursePath(uid, courseId)));
     if (!course) throw new Error('Course not found');
     const sources = (course.data.sources as Array<{ id: string; content_type: string }>) ?? [];
     const startedAt = Date.now();
-    docs.set(coursePath(uid, courseId), { status: 'structure', stage: 'structure', error: null, errorInfo: null }, true);
-    rt.emit({ type: 'structure.started', courseId, flow: 'structure', step: 'started' });
+    await docs.set(coursePath(uid, courseId), { status: 'structure', stage: 'structure', error: null, errorInfo: null }, { merge: true });
+    await rt.emit({ type: 'structure.started', courseId, flow: 'structure', step: 'started' });
     const fields = { courseId };
     try {
       const ranges: Array<PdfRange & { sourceId: string }> = [];
@@ -160,10 +160,10 @@ export const createChapterStages = (rt: Runtime) => {
         });
         ranges.push(...converted.map((range) => ({ ...range, sourceId: source.id })));
       }
-      for (const old of docs.list(chaptersPath(uid, courseId))) docs.delete(chapterPath(uid, courseId, old.id));
-      ranges.forEach((range, index) => {
+      for (const old of (await docs.list(chaptersPath(uid, courseId)))) await docs.delete(chapterPath(uid, courseId, old.id));
+      for (const [index, range] of ranges.entries()) {
         const chapterId = chapterIdFor(courseId, index);
-        docs.set(chapterPath(uid, courseId, chapterId), {
+        await docs.set(chapterPath(uid, courseId, chapterId), {
           index,
           sourceId: range.sourceId,
           title: range.title,
@@ -175,16 +175,16 @@ export const createChapterStages = (rt: Runtime) => {
           error: null,
           errorInfo: null,
         });
-        docs.set(chapterIndexPath(uid, chapterId), { courseId });
-      });
-      docs.set(coursePath(uid, courseId), { title, category, pageCount: pageTotal, stage: 'chapters', status: 'writing' }, true);
+        await docs.set(chapterIndexPath(uid, chapterId), { courseId });
+      }
+      await docs.set(coursePath(uid, courseId), { title, category, pageCount: pageTotal, stage: 'chapters', status: 'writing' }, { merge: true });
       log.info('Structure ready', { ...fields, event: 'structure.ready', duration_ms: Date.now() - startedAt, chapters: ranges.length });
-      rt.emit({
+      await rt.emit({
         type: 'structure.ready',
         courseId,
         title: title ?? undefined,
         category: category ?? undefined,
-        chapters: assembleCourse(docs, uid, courseId)?.chapters ?? [],
+        chapters: (await assembleCourse(docs, uid, courseId))?.chapters ?? [],
         flow: 'structure',
         step: 'ready',
       });
@@ -193,8 +193,8 @@ export const createChapterStages = (rt: Runtime) => {
       if (isCancelled(error)) throw error;
       const failure = rt.failureOf(error, fields);
       log.error(`Structure failed: ${failure.code} ${failure.message}`, { ...fields, event: 'structure.failed', code: failure.code });
-      docs.set(coursePath(uid, courseId), { status: 'failed', error: failure.message, errorInfo: failure }, true);
-      rt.emit({ type: 'structure.failed', courseId, error: failure.message, errorInfo: failure, flow: 'structure', step: 'failed' });
+      await docs.set(coursePath(uid, courseId), { status: 'failed', error: failure.message, errorInfo: failure }, { merge: true });
+      await rt.emit({ type: 'structure.failed', courseId, error: failure.message, errorInfo: failure, flow: 'structure', step: 'failed' });
       return false;
     }
   };
@@ -311,28 +311,28 @@ export const createChapterStages = (rt: Runtime) => {
    */
   const writeChapter = async (uid: string, courseId: string, chapterId: string) => {
     const path = chapterPath(uid, courseId, chapterId);
-    const found = docs.get(path);
+    const found = (await docs.get(path));
     if (!found || found.data.skip === true || found.data.status === 'ready') return;
     const startedAt = Date.now();
     const fields = { courseId, chapterId };
     const chapter = { id: chapterId, ...(found.data as unknown as ChapterDoc) };
-    const detail = (statusDetail: string) => {
-      docs.set(path, { status: 'writing', statusDetail }, true);
-      rt.emitChapter(uid, courseId, chapterId, 'chapter.writing', { detail: statusDetail, step: 'writing' });
+    const detail = async (statusDetail: string) => {
+      await docs.set(path, { status: 'writing', statusDetail, leaseUntil: Date.now() + 15 * 60 * 1000 }, { merge: true });
+      await rt.emitChapter(uid, courseId, chapterId, 'chapter.writing', { detail: statusDetail, step: 'writing' });
     };
     /** One roadmap row per lesson, as soon as its title is known and again as its script or notes finish. */
-    const publishWriting = (
+    const publishWriting = async (
       index: number,
       lesson: { title: string; focus: string; pageStart: number; pageEnd: number },
       statusDetail: string,
     ) => {
       const lessonId = lessonIdFor(chapterId, index);
       const lessonDoc = lessonPath(uid, courseId, lessonId);
-      const existing = docs.get(lessonDoc);
-      if (existing && existing.data.status !== 'writing' && existing.data.status !== 'failed') return;
+      const existing = (await docs.get(lessonDoc));
+      if (existing && existing.data.status !== 'writing') return;
       const pages: number[] = [];
       for (let page = lesson.pageStart; page <= lesson.pageEnd; page += 1) pages.push(page + 1);
-      docs.set(
+      await docs.set(
         lessonDoc,
         {
           courseId,
@@ -354,34 +354,34 @@ export const createChapterStages = (rt: Runtime) => {
           error: null,
           errorInfo: null,
         },
-        true,
+        { merge: true },
       );
-      docs.set(lessonIndexPath(uid, lessonId), { courseId, chapterId });
-      rt.emitLesson(uid, courseId, lessonId, 'lesson.writing', { step: 'writing' });
+      await docs.set(lessonIndexPath(uid, lessonId), { courseId, chapterId });
+      await rt.emitLesson(uid, courseId, lessonId, 'lesson.writing', { step: 'writing' });
     };
-    const dropExtraWriting = (count: number) => {
-      for (const row of docs.list(lessonsPath(uid, courseId))) {
+    const dropExtraWriting = async (count: number) => {
+      for (const row of (await docs.list(lessonsPath(uid, courseId)))) {
         if (row.data.chapterId !== chapterId || row.data.status !== 'writing') continue;
         if (Number(row.data.index) < count) continue;
-        docs.delete(lessonPath(uid, courseId, row.id));
-        docs.delete(lessonIndexPath(uid, row.id));
+        await docs.delete(lessonPath(uid, courseId, row.id));
+        await docs.delete(lessonIndexPath(uid, row.id));
       }
     };
-    docs.set(path, { error: null, errorInfo: null }, true);
+    await docs.set(path, { error: null, errorInfo: null }, { merge: true });
     try {
       if (!chapter.chapterText) {
-        detail('Reading the chapter');
+        await detail('Reading the chapter');
         const parts = subRanges(chapter.pdfPageStart, chapter.pdfPageEnd, CHAPTER_TEXT_PAGES);
         const texts = await Promise.all(
           parts.map((part, index) => explainPages(uid, courseId, chapter, part.start, part.end, index + 1, parts.length)),
         );
         chapter.chapterText = texts.join('\n\n');
-        docs.set(path, { chapterText: chapter.chapterText }, true);
+        await docs.set(path, { chapterText: chapter.chapterText }, { merge: true });
         log.info('Chapter text written', { ...fields, event: 'chapter.text', duration_ms: Date.now() - startedAt, words: wordCount(chapter.chapterText), parts: parts.length });
       }
 
       if (!chapter.outline) {
-        detail('Splitting into lessons');
+        await detail('Splitting into lessons');
         const pages = chapter.pdfPageEnd - chapter.pdfPageStart + 1;
         const { suggested } = lessonTarget({ words: wordCount(chapter.chapterText ?? ''), pages });
         const result = await rt.modelJson({
@@ -401,30 +401,34 @@ export const createChapterStages = (rt: Runtime) => {
           pageStart: chapter.pdfPageStart + lesson.pageStart - 1,
           pageEnd: chapter.pdfPageStart + lesson.pageEnd - 1,
         }));
-        docs.set(path, { outline: chapter.outline, drafts: chapter.outline.map(() => null) }, true);
+        await docs.set(path, { outline: chapter.outline, drafts: chapter.outline.map(() => null) }, { merge: true });
       }
 
       if (!chapter.planned) {
         const outline = chapter.outline ?? [];
         const drafts = chapter.drafts?.length === outline.length ? [...chapter.drafts] : outline.map(() => null);
-        outline.forEach((lesson, index) => publishWriting(index, lesson, drafts[index] ? 'Script written' : 'Writing the script'));
-        detail(`Writing ${outline.length} lesson script${outline.length === 1 ? '' : 's'}`);
-        await Promise.all(
+        for (const [index, lesson] of outline.entries()) {
+          await publishWriting(index, lesson, drafts[index] ? 'Script written' : 'Writing the script');
+        }
+        await detail(`Writing ${outline.length} lesson script${outline.length === 1 ? '' : 's'}`);
+        const scripts = await Promise.allSettled(
           outline.map(async (lesson, index) => {
             if (drafts[index]) return;
             drafts[index] = await writeScript(uid, courseId, chapter, lesson, {
               previousTitle: outline[index - 1]?.title,
               nextTitle: outline[index + 1]?.title,
             });
-            docs.set(path, { drafts }, true);
-            publishWriting(index, lesson, 'Script written');
+            await docs.set(path, { drafts }, { merge: true });
+            await publishWriting(index, lesson, 'Script written');
           }),
         );
+        const scriptError = scripts.find((result) => result.status === 'rejected');
+        if (scriptError?.status === 'rejected') throw scriptError.reason;
         const planned: DraftLesson[] = planLessonSizes(
           outline.map((lesson, index) => ({ ...lesson, script: drafts[index] ?? '' })),
         );
         chapter.planned = planned;
-        docs.set(path, { planned }, true);
+        await docs.set(path, { planned }, { merge: true });
         log.info(`Chapter split into ${planned.length} lessons`, {
           ...fields,
           event: 'chapter.lessons',
@@ -434,20 +438,24 @@ export const createChapterStages = (rt: Runtime) => {
       }
 
       const planned = chapter.planned ?? [];
-      dropExtraWriting(planned.length);
-      planned.forEach((lesson, index) => publishWriting(index, lesson, lesson.studyDoc ? 'Study notes written' : 'Writing study notes'));
-      detail('Writing study notes');
-      await Promise.all(
+      await dropExtraWriting(planned.length);
+      for (const [index, lesson] of planned.entries()) {
+        await publishWriting(index, lesson, lesson.studyDoc ? 'Study notes written' : 'Writing study notes');
+      }
+      await detail('Writing study notes');
+      const notes = await Promise.allSettled(
         planned.map(async (lesson, index) => {
           if (lesson.studyDoc) return;
           const written = { ...lesson, studyDoc: await writeStudyDoc(uid, courseId, chapter, lesson) };
           planned[index] = written;
-          docs.set(path, { planned }, true);
-          publishWriting(index, written, 'Study notes written');
+          await docs.set(path, { planned }, { merge: true });
+          await publishWriting(index, written, 'Study notes written');
         }),
       );
+      const noteError = notes.find((result) => result.status === 'rejected');
+      if (noteError?.status === 'rejected') throw noteError.reason;
 
-      planned.forEach((lesson, index) => {
+      for (const [index, lesson] of planned.entries()) {
         const stored = storedLessonSchema.safeParse({
           title: lesson.title,
           explanationSummary: lesson.script,
@@ -458,7 +466,7 @@ export const createChapterStages = (rt: Runtime) => {
         const lessonId = lessonIdFor(chapterId, index);
         const pages: number[] = [];
         for (let page = lesson.pageStart; page <= lesson.pageEnd; page += 1) pages.push(page + 1);
-        docs.set(lessonPath(uid, courseId, lessonId), {
+        await docs.set(lessonPath(uid, courseId, lessonId), {
           courseId,
           chapterId,
           sourceId: chapter.sourceId,
@@ -480,24 +488,24 @@ export const createChapterStages = (rt: Runtime) => {
           error: null,
           errorInfo: null,
         });
-        docs.set(lessonIndexPath(uid, lessonId), { courseId, chapterId });
-        rt.emitLesson(uid, courseId, lessonId, 'lesson.outlined', { step: 'outlined' });
-      });
+        await docs.set(lessonIndexPath(uid, lessonId), { courseId, chapterId });
+        await rt.emitLesson(uid, courseId, lessonId, 'lesson.outlined', { step: 'outlined' });
+      }
 
-      docs.set(path, { status: 'ready', statusDetail: null }, true);
+      await docs.set(path, { status: 'ready', statusDetail: null }, { merge: true });
       log.info('Chapter ready', { ...fields, event: 'chapter.ready', duration_ms: Date.now() - startedAt, lessons: planned.length });
-      rt.emitChapter(uid, courseId, chapterId, 'chapter.ready', { step: 'ready' });
+      await rt.emitChapter(uid, courseId, chapterId, 'chapter.ready', { step: 'ready' });
     } catch (error) {
       if (isCancelled(error)) throw error;
       const failure = rt.failureOf(error, fields);
       log.error(`Chapter failed: ${failure.code} ${failure.message}`, { ...fields, event: 'chapter.failed', code: failure.code, issues: failure.issues.slice(0, 10) });
-      docs.set(path, { status: 'failed', statusDetail: null, error: failure.message, errorInfo: failure }, true);
-      for (const row of docs.list(lessonsPath(uid, courseId))) {
+      await docs.set(path, { status: 'failed', statusDetail: null, error: failure.message, errorInfo: failure }, { merge: true });
+      for (const row of (await docs.list(lessonsPath(uid, courseId)))) {
         if (row.data.chapterId !== chapterId || row.data.status !== 'writing') continue;
-        docs.set(lessonPath(uid, courseId, row.id), { status: 'failed', statusDetail: null, error: failure.message, errorInfo: failure }, true);
-        rt.emitLesson(uid, courseId, row.id, 'lesson.failed', { error: failure.message, errorInfo: failure, step: 'failed' });
+        await docs.set(lessonPath(uid, courseId, row.id), { status: 'failed', statusDetail: null, error: failure.message, errorInfo: failure }, { merge: true });
+        await rt.emitLesson(uid, courseId, row.id, 'lesson.failed', { error: failure.message, errorInfo: failure, step: 'failed' });
       }
-      rt.emitChapter(uid, courseId, chapterId, 'chapter.failed', { error: failure.message, errorInfo: failure, step: 'failed' });
+      await rt.emitChapter(uid, courseId, chapterId, 'chapter.failed', { error: failure.message, errorInfo: failure, step: 'failed' });
     }
   };
 

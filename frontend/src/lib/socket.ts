@@ -1,10 +1,12 @@
 import type { CourseState, PipelineEvent, ServerMessage } from '@krayon/shared';
+import { currentUid } from './firebase.ts';
 
 const socketUrl = (courseId: string) => {
   const base = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '');
-  if (base) return `${base.replace(/^http/, 'ws')}/ws?courseId=${encodeURIComponent(courseId)}&uid=local-user`;
+  const uid = encodeURIComponent(currentUid());
+  if (base) return `${base.replace(/^http/, 'ws')}/ws?courseId=${encodeURIComponent(courseId)}&uid=${uid}`;
   const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
-  return `${proto}://${window.location.host}/ws?courseId=${encodeURIComponent(courseId)}&uid=local-user`;
+  return `${proto}://${window.location.host}/ws?courseId=${encodeURIComponent(courseId)}&uid=${uid}`;
 };
 
 export type CourseSocket = {

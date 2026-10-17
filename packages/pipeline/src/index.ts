@@ -16,4 +16,7 @@ export type { DraftLesson } from './scriptLength.js';
 export { detectOffset, headerOffset, normalizeRanges, subRanges, toPdfRanges, validateRanges } from './pageRanges.js';
 export type { PdfRange, RawChapter } from './pageRanges.js';
 export { createSourceCache, slicePdf } from './pdf.js';
+export { audioKey, keyframeKey, looseUploadKey, pageTextKey, sliceKey, sourceKey, textKey } from './keys.js';
+export { setGeminiConcurrency } from './gemini.js';
 export { createRenderer } from './render.js';
+export { recoverStale } from './recovery.js';

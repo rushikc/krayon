@@ -2,9 +2,10 @@ import websocket from '@fastify/websocket';
 import type { FastifyInstance } from 'fastify';
 import type { ClientMessage } from '@krayon/shared';
 import { assembleCourse } from '@krayon/pipeline';
-import { events, store } from '../context.js';
+import type { KrayonContext } from '../context.js';
 
-export const registerWebsocket = async (app: FastifyInstance) => {
+export const registerWebsocket = async (app: FastifyInstance, ctx: KrayonContext) => {
+  const { events, store } = ctx;
   await app.register(websocket);
 
   app.get('/ws', { websocket: true }, (socket, request) => {
@@ -13,9 +14,9 @@ export const registerWebsocket = async (app: FastifyInstance) => {
     const uid = query.uid || 'local-user';
     let unsubscribe = () => {};
 
-    const sendSnapshot = () => {
+    const sendSnapshot = async () => {
       if (!courseId) return;
-      const course = assembleCourse(store, uid, courseId);
+      const course = await assembleCourse(store, uid, courseId);
       if (!course) {
         socket.send(JSON.stringify({ type: 'error', detail: 'Not found' }));
         return;
@@ -28,7 +29,7 @@ export const registerWebsocket = async (app: FastifyInstance) => {
       courseId = id;
       // The most recent subscribe is the course on screen; its work goes first in the queues.
       events.setViewedCourse(id);
-      sendSnapshot();
+      void sendSnapshot();
       unsubscribe = events.subscribe(id, (event) => {
         socket.send(JSON.stringify({ type: 'event', event }));
       });

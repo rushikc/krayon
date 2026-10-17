@@ -41,8 +41,6 @@ const envSchema = z.object({
 });
 
 const parsed = envSchema.parse(process.env);
-// The Gemini queue in @krayon/pipeline reads this at call time.
-process.env.GEMINI_MAX_CONCURRENCY = String(parsed.GEMINI_MAX_CONCURRENCY);
 
 export const rootDir = ROOT;
 

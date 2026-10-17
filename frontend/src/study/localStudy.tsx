@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { SourceFile, Topic } from '../data/topics.ts';
 import { apiFetch, apiJson } from '../lib/api.ts';
+import { currentUid } from '../lib/firebase.ts';
 
 export type Stroke = {
   segmentId: string;
@@ -42,7 +43,7 @@ export type TopicProgress = {
 const PROGRESS_KEY = 'krayon.progress.v1';
 const SOURCES_KEY = 'krayon.sources.v1';
 const MARKS_KEY = 'krayon.marks.v1';
-const STUDY_DOC = '/api/docs/users/local-user/state/study';
+const studyDoc = () => `/api/docs/users/${currentUid()}/state/study`;
 
 export const emptyMarks = (): LessonMarks => ({
   strokes: [],
@@ -116,7 +117,7 @@ export function LocalStudyProvider({ children }: { children: ReactNode }) {
   const [synced, setSynced] = useState(false);
   useEffect(() => {
     let cancelled = false;
-    apiFetch<{ data: { progress?: Record<string, TopicProgress>; sources?: Record<string, SourceFile[]>; marks?: Record<string, LessonMarks> } }>(STUDY_DOC)
+    apiFetch<{ data: { progress?: Record<string, TopicProgress>; sources?: Record<string, SourceFile[]>; marks?: Record<string, LessonMarks> } }>(studyDoc())
       .then(({ data }) => {
         if (cancelled) return;
         const empty = (key: string) => !localStorage.getItem(key) || localStorage.getItem(key) === '{}';
@@ -136,7 +137,7 @@ export function LocalStudyProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!synced) return;
     const timer = setTimeout(() => {
-      void apiJson(STUDY_DOC, 'PUT', { progress, sources, marks }).catch(() => undefined);
+      void apiJson(studyDoc(), 'PUT', { progress, sources, marks }).catch(() => undefined);
     }, 800);
     return () => clearTimeout(timer);
   }, [synced, progress, sources, marks]);

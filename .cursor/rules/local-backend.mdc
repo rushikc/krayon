@@ -11,7 +11,7 @@ local-backend mimics Google Cloud on a laptop. It is never deployed.
 - Do not add a Dockerfile, container config, Cloud Run/Cloud Functions/App Engine config, Cloud Build file, Terraform, deploy script, or CI deploy workflow under `local-backend/`.
 - Mock the cloud resources here: Firestore as SQLite (`data/firestore.sqlite3`), Cloud Storage as files (`data/storage`), Cloud Tasks as the in-process job runner, Firebase Auth as the `X-User-Id` header stub, and the event bus as in-memory WebSocket fan-out.
 - Gemini on Vertex (Application Default Credentials), Genkit, and Remotion rendering are allowed. They run on the laptop.
-- Business logic stays in `packages/pipeline` and uses only the interfaces in `packages/shared/ports.ts`. This folder implements those interfaces and wires them in `src/index.ts`.
+- Business logic stays in `packages/pipeline` and `packages/api`. This folder implements the ports (SQLite, files, in-process jobs, the `X-User-Id` stub, WebSocket) and wires them in `src/index.ts`. HTTP routes are registered by `registerKrayonApi`.
 - Cloud-hosted code belongs in `backend/`, not here.
 - Keep `logs/app.log` and `logs/app.jsonl`, request ids, redaction, and truncated bodies.
 

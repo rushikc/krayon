@@ -1,16 +1,18 @@
 # Repository structure
 
-npm workspaces monorepo (`package.json`: `frontend`, `local-backend`, `packages/shared`, `packages/pipeline`). Dependency direction: `frontend` → `shared`; `local-backend` → `pipeline` → `shared`. `shared` depends on nothing in the repo.
+npm workspaces monorepo (`package.json`: `frontend`, `local-backend`, `packages/shared`, `packages/pipeline`, `packages/api`, `packages/renderer`, `backend`). Dependency direction: `frontend` → `shared`; `local-backend` and `backend` → `api` → `pipeline` → `shared`; `renderer` → `shared`. `shared` depends on nothing in the repo.
 
 ## Folders
 
 | Path | Purpose | Contains | Belongs here / does not |
 |---|---|---|---|
 | `frontend/` | The web app (desktop, ≥ 1200 px) | React 19 + Vite + Tailwind 4 in `src/` (`pages/`, `components/`, `study/` session and local state, `lib/` API, WebSocket, Firebase, AI helpers, `remotion/` player compositions and the sample "Slope of a line" lesson), `public/`, `dist/` (build output Hosting serves) | **Yes:** UI, client state, playback with `@remotion/player`, calls to `/api` and `/ws`. **No:** pipeline logic, secrets (only `.env.example` is committed), server code |
-| `local-backend/` | Local-only mock of the Google Cloud backend; never deployed (`AGENTS.md`) | Fastify server in `src/` (`routes/`, `services/` SQLite docstore, file storage, job runner, auth stub, `bus.ts` events, `logging.ts`), `test/` (vitest), `data/` (SQLite + files), `logs/` (`app.jsonl`, `app.log`) | **Yes:** local implementations of the `packages/shared/src/ports.ts` interfaces, HTTP routes, logging contract. **No:** business logic (goes in `packages/pipeline`), Dockerfiles, Cloud Run or deploy configs (go in `backend/`). `data/` and `logs/` are gitignored runtime state |
+| `local-backend/` | Local-only adapters; never deployed (`AGENTS.md`) | Fastify shell in `src/` (SQLite docstore, file storage, in-process jobs, auth stub, WebSocket, logging). HTTP routes live in `packages/api`. `test/`, `data/`, `logs/` | **Yes:** local ports. **No:** course/lesson/segment decisions, Dockerfiles, Cloud Run. `data/` and `logs/` are gitignored |
 | `packages/shared/` (`@krayon/shared`) | Contracts used by every other package | `src/`: zod schemas (`schemas.ts`, `modelSchema.ts` → Gemini JSON schemas), limits (`limits.ts`), scene types and `sceneValidator.ts`, course/event types, `ports.ts` (DocStore, BlobStorage, JobQueue, EventBus, AuthProvider), Remotion templates (`remotion/`, also used to render stills); `test/` | **Yes:** types, schemas, validators, limits, render templates shared by browser and server. **No:** I/O, Node-only APIs, model calls |
-| `packages/pipeline/` (`@krayon/pipeline`) | Generation business logic, meant to run unchanged locally and on GCP | `src/`: Genkit flows (`pipeline.ts`), validated model calls (`generate.ts`, `gemini.ts`), prompts, Remotion keyframe renderer (`render.ts`), priority queue (`queue.ts`), PDF slicing/page text (`pdf.ts`), printed→PDF page mapping (`pageRanges.ts`), doc paths and readers (`store.ts`, `courses.ts`); `scripts/gen-schemas.mjs`; `src/ai_schemas.json` (generated copy for review) | **Yes:** stages, prompts, retries, rendering and review logic, written only against `ports.ts`. **No:** Fastify, SQLite, filesystem layout, cloud SDK adapters |
-| `backend/` | Future production backend on GCP (design only today) | `architecture.md` | **Yes:** cloud-hosted code and deploy config when that work starts (Cloud Run, Firestore/Storage adapters, rules). **No:** local mocks |
+| `packages/pipeline/` (`@krayon/pipeline`) | Generation business logic, the same locally and on GCP | Stages, handlers (`src/handlers/`), prompts, Gemini, TTS, local stills (`render.ts`), recovery, keys | **Yes:** stage bodies and task handlers, written only against `ports.ts`. **No:** Fastify, SQLite, cloud SDK adapters |
+| `packages/api/` (`@krayon/api`) | HTTP services shared by both backends | `registerKrayonApi`, course/lesson/media/doc services, errors, byte ranges | **Yes:** request validation and response shapes. **No:** generation decisions, storage drivers |
+| `packages/renderer/` (`@krayon/renderer`) | Cloud Run stills service | `src/server.ts`, `src/runStill.ts`, `Dockerfile` (Chrome) | **Yes:** Remotion bundle and `POST /render`. **No:** course logic |
+| `backend/` | GCP adapters and Cloud Run entrypoints | `src/api.ts`, `src/worker.ts`, Firestore/GCS/Cloud Tasks/Auth adapters, Dockerfiles, `scripts/` (print only), `env/` | **Yes:** cloud drivers and deploy config. **No:** generation logic, local mocks |
 | `diagrams/` | Architecture diagrams | `krayon-architecture.excalidraw` + three PNG exports (frontend flow, backend create-course, interactions and storage) | **Yes:** diagrams and their sources. Documents the topic-based pipeline, which predates Course > Chapter > Lesson |
 | `lessons/` | Empty | — | No content and no references found; purpose unclear (candidate to remove or document) |
 | `.cursor/rules/` | Agent rules for Cursor | `local-backend.mdc`, `debug.mdc`, `desktop-only.mdc`, `commit-finished-plan.mdc` | **Yes:** coding and agent conventions. **No:** product docs |
@@ -24,13 +26,17 @@ npm workspaces monorepo (`package.json`: `frontend`, `local-backend`, `packages/
 |---|---|
 | `package.json` | Workspace list and scripts: `setup`, `dev` (builds shared + pipeline, then runs both watchers, backend :8787 and Vite :5173 via `concurrently`), `genkit`, `build`, `test` |
 | `package-lock.json` | Lockfile for all workspaces |
-| `firebase.json` | Firebase Hosting only: serves `frontend/dist` with an SPA rewrite to `index.html`. No Firestore, Storage or Functions config yet |
+| `firebase.json` | Hosting SPA rewrite, plus Firestore, Storage and emulator config. No `/api` rewrite. The browser calls the Cloud Run URL in `VITE_API_BASE_URL` |
 | `.firebaserc` | Default Firebase project `krayon-ai` |
 | `.gitignore` | `node_modules/`, `dist/`, `.env*` (except `.env.example`), `.firebase/`, `logs/`, `*.log`, OS/editor files. `local-backend/.gitignore` also ignores `data/` |
 | `README.md` | Product summary, run and deploy steps, backends overview |
 | `implementation.md` | Living product and pipeline notes plus open questions (still describes the topic-based roadmap) |
 | `structure.md` | This file |
 | `.DS_Store` | macOS artifact (gitignored) |
+
+## Where new code goes
+
+If a change decides what a course, chapter, lesson or segment does next, it belongs in `packages/pipeline` (a stage body or a handler). If it is an HTTP shape both backends share, it belongs in `packages/api`. `local-backend/` and `backend/` only adapt ports: SQLite and files on the laptop, Firestore, GCS and Cloud Tasks on GCP.
 
 ## Notes
 

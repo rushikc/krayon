@@ -1,0 +1,21 @@
+---
+description: Business logic stays in packages/pipeline and packages/api
+globs: local-backend/**,backend/**
+alwaysApply: false
+---
+
+# No generation logic in the backends
+
+`local-backend/` and `backend/` adapt ports. They do not decide what a course, chapter, lesson or segment does next.
+
+- A status check that chooses the next stage belongs in `packages/pipeline` (a handler or a stage body).
+- An HTTP shape both backends share belongs in `packages/api`.
+- SQLite, files, the in-process dispatcher and `/ws` stay in `local-backend/`.
+- Firestore, GCS, Cloud Tasks, Firebase Auth and the Cloud Run entrypoints stay in `backend/`.
+
+```text
+// Bad: backend/src/api.ts
+if (chapter.status === 'ready') dispatch('lesson.plan')
+
+// Good: packages/pipeline/src/handlers
+```

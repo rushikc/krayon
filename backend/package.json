@@ -1,0 +1,25 @@
+{
+  "name": "@krayon/backend",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "api": "node dist/api.js",
+    "worker": "node dist/worker.js"
+  },
+  "dependencies": {
+    "@google-cloud/storage": "^7.17.0",
+    "@google-cloud/tasks": "^6.2.0",
+    "@krayon/api": "*",
+    "@krayon/pipeline": "*",
+    "@krayon/shared": "*",
+    "fastify": "^5.6.1",
+    "firebase-admin": "^13.5.0",
+    "google-auth-library": "^9.15.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.3",
+    "typescript": "~6.0.2"
+  }
+}

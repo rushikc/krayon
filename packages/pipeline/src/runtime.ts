@@ -1,7 +1,7 @@
 import { genkit } from 'genkit';
 import { googleAI, vertexAI } from '@genkit-ai/google-genai';
 import { GenerationError, toGenerationError } from '@krayon/shared';
-import type { BlobStorage, DocStore, EventBus, GenerationErrorInfo, PipelineEmit, PipelineEventType } from '@krayon/shared';
+import type { BlobStorage, Clock, DocStore, EventBus, GenerationErrorInfo, ModelClient, PipelineEmit, PipelineEventType, TaskDispatcher } from '@krayon/shared';
 import {
   GENERATE_TIMEOUT_MS,
   LONG_OUTPUT_TOKENS,
@@ -10,6 +10,7 @@ import {
   callTypeForAttempt,
   geminiQueue,
   runGeminiCall,
+  setGeminiConcurrency,
   thinkingConfigFor,
 } from './gemini.js';
 import type { GeminiConfig, PipelineLogger } from './gemini.js';
@@ -48,6 +49,7 @@ export type PipelineConfig = GeminiConfig & {
   ttsRate: number;
   ttsConcurrency: number;
   ttsQuotaProject: string;
+  geminiMaxConcurrency: number;
 };
 
 export type PipelineDeps = {
@@ -58,6 +60,24 @@ export type PipelineDeps = {
   log: PipelineLogger;
   /** Test double. Production builds one from config. */
   tts?: TtsClient;
+  /** Test double. Production uses Genkit. */
+  model?: ModelClient;
+  clock?: Clock;
+  /** Cloud Tasks on GCP. Local runs each task in this process. */
+  dispatcher?: TaskDispatcher;
+  /** Test double. Production builds one from config. */
+  renderer?: {
+    renderKeyframes: (
+      owner: string,
+      segment: import('@krayon/shared').GeneratedSegment,
+      priority?: import('./queue.js').Priority,
+      fields?: Record<string, unknown>,
+    ) => Promise<{ frames: number[]; keyframeIds: string[] }>;
+    warmup: () => Promise<unknown>;
+    health: () => { ok: boolean; error?: string };
+    close: () => Promise<void>;
+    clear: () => void;
+  };
 };
 
 /** Only the structure pass may attach the whole document; every other call gets page slices. */
@@ -79,8 +99,12 @@ export type ModelRequest<T> = Omit<ValidatedRequest<T>, 'generate' | 'log' | 'at
 
 export const createRuntime = (deps: PipelineDeps) => {
   const { docs, blobs, events, config, log } = deps;
+  const clock = deps.clock ?? { now: () => Date.now() };
+  setGeminiConcurrency(config.geminiMaxConcurrency);
   const plugin = config.useVertex && config.project ? 'vertexai' : 'googleai';
-  const ai = genkit({
+  const ai = deps.model
+    ? null
+    : genkit({
     plugins: [
       config.useVertex && config.project
         ? vertexAI({ projectId: config.project, location: config.location })
@@ -88,11 +112,13 @@ export const createRuntime = (deps: PipelineDeps) => {
     ],
   });
   const sources = createSourceCache(blobs, docs);
-  const renderer = createRenderer(config.remotionEntry, blobs, config.renderKeyframesMax, {
-    timeoutMs: config.renderTimeoutMs,
-    concurrency: config.renderConcurrency,
-    log,
-  });
+  const renderer =
+    deps.renderer ??
+    createRenderer(config.remotionEntry, blobs, config.renderKeyframesMax, {
+      timeoutMs: config.renderTimeoutMs,
+      concurrency: config.renderConcurrency,
+      log,
+    });
   geminiQueue.setViewedCourse(() => events.viewedCourse());
   const tts =
     deps.tts ??
@@ -105,7 +131,7 @@ export const createRuntime = (deps: PipelineDeps) => {
         quotaProject: config.ttsQuotaProject,
       },
       log,
-      { docs, blobs },
+      { blobs },
     );
 
   /** Bumped by reset; work started under an older epoch stops at its next check. */
@@ -148,10 +174,21 @@ export const createRuntime = (deps: PipelineDeps) => {
       },
       call: async () => {
         assertLive(captured);
+        if (deps.model) {
+          return deps.model.generateJson({
+            prompt,
+            files,
+            model,
+            responseSchema,
+            long: options.long,
+            callType: options.callType,
+            priority: options.priority,
+          });
+        }
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), timeoutMs);
         try {
-          return await ai.generate({
+          const value = await ai!.generate({
             model: `${plugin}/${model}`,
             prompt: toParts(prompt, files),
             config: {
@@ -161,21 +198,23 @@ export const createRuntime = (deps: PipelineDeps) => {
             output: { jsonSchema: responseSchema },
             abortSignal: controller.signal,
           });
+          return {
+            text: value.text,
+            finishReason: value.finishReason === 'length' ? 'MAX_TOKENS' : value.finishReason,
+            usage: value.usage
+              ? {
+                  prompt: value.usage.inputTokens,
+                  output: value.usage.outputTokens,
+                  total: value.usage.totalTokens,
+                  thinking_tokens: value.usage.thoughtsTokens,
+                }
+              : undefined,
+          };
         } finally {
           clearTimeout(timer);
         }
       },
-      outcome: (value) => ({
-        finishReason: value.finishReason === 'length' ? 'MAX_TOKENS' : value.finishReason,
-        usage: value.usage
-          ? {
-              prompt: value.usage.inputTokens,
-              output: value.usage.outputTokens,
-              total: value.usage.totalTokens,
-              thinking_tokens: value.usage.thoughtsTokens,
-            }
-          : undefined,
-      }),
+      outcome: (value) => ({ finishReason: value.finishReason, usage: value.usage }),
     });
     assertLive(captured);
     return response.text;
@@ -211,17 +250,17 @@ export const createRuntime = (deps: PipelineDeps) => {
 
   const emit = (event: PipelineEmit) => events.emit(event);
 
-  const emitChapter = (uid: string, courseId: string, chapterId: string, type: PipelineEventType, extra: Partial<PipelineEmit> = {}) => {
-    const chapter = loadChapter(docs, uid, courseId, chapterId);
-    if (chapter) emit({ type, courseId, chapterId, chapter, flow: 'chapter', ...extra });
+  const emitChapter = async (uid: string, courseId: string, chapterId: string, type: PipelineEventType, extra: Partial<PipelineEmit> = {}) => {
+    const chapter = await loadChapter(docs, uid, courseId, chapterId);
+    if (chapter) await emit({ type, courseId, chapterId, chapter, flow: 'chapter', ...extra });
   };
 
-  const emitLesson = (uid: string, courseId: string, lessonId: string, type: PipelineEventType, extra: Partial<PipelineEmit> = {}) => {
-    const lesson = loadSummary(docs, uid, courseId, lessonId);
-    if (lesson) emit({ type, courseId, chapterId: lesson.chapterId, lessonId, lesson, flow: 'lesson', ...extra });
+  const emitLesson = async (uid: string, courseId: string, lessonId: string, type: PipelineEventType, extra: Partial<PipelineEmit> = {}) => {
+    const lesson = await loadSummary(docs, uid, courseId, lessonId);
+    if (lesson) await emit({ type, courseId, chapterId: lesson.chapterId, lessonId, lesson, flow: 'lesson', ...extra });
   };
 
-  const emitSegment = (
+  const emitSegment = async (
     uid: string,
     courseId: string,
     lessonId: string,
@@ -229,9 +268,9 @@ export const createRuntime = (deps: PipelineDeps) => {
     type: PipelineEventType,
     extra: Partial<PipelineEmit> = {},
   ) => {
-    const segment = loadSegment(docs, uid, courseId, lessonId, segmentId);
-    const lesson = loadSummary(docs, uid, courseId, lessonId);
-    if (segment) emit({ type, courseId, lessonId, segmentId, segment, lesson: lesson ?? undefined, flow: 'segment', ...extra });
+    const segment = await loadSegment(docs, uid, courseId, lessonId, segmentId);
+    const lesson = await loadSummary(docs, uid, courseId, lessonId);
+    if (segment) await emit({ type, courseId, lessonId, segmentId, segment, lesson: lesson ?? undefined, flow: 'segment', ...extra });
   };
 
   const clear = () => {
@@ -261,6 +300,7 @@ export const createRuntime = (deps: PipelineDeps) => {
     currentEpoch,
     assertLive,
     clear,
+    clock,
   };
 };
 

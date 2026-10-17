@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto';
 import { GoogleAuth } from 'google-auth-library';
-import { GenerationError } from '@krayon/shared';
-import type { BlobStorage, DocStore, GenerationErrorCode, SegmentAudio } from '@krayon/shared';
+import { GenerationError, mediaId } from '@krayon/shared';
+import type { BlobStorage, GenerationErrorCode, SegmentAudio } from '@krayon/shared';
+import { audioKey } from './keys.js';
 import { backoffMs } from './gemini.js';
 import type { PipelineLogger } from './gemini.js';
 import { createPriorityQueue } from './queue.js';
@@ -26,8 +27,6 @@ export type TtsClient = {
   health: () => Promise<{ ok: boolean; error?: string }>;
   clear: () => void;
 };
-
-const cachePath = (uid: string, hash: string) => `users/${uid}/ttsCache/${hash}`;
 
 export const ttsHash = (voice: string, rate: number, narration: string) =>
   createHash('sha256').update(`${voice}|${rate}|wav|${narration}`).digest('hex');
@@ -77,7 +76,6 @@ export const createTts = (
   config: TtsConfig,
   log: PipelineLogger,
   deps: {
-    docs: DocStore;
     blobs: BlobStorage;
     fetch?: typeof fetch;
     token?: () => Promise<string>;
@@ -146,27 +144,32 @@ export const createTts = (
 
   const remember = (uid: string, hash: string, audio: SegmentAudio) => {
     memory.set(`${uid}/${hash}`, audio);
-    deps.docs.set(cachePath(uid, hash), { blobId: audio.blobId, seconds: audio.seconds, voice: audio.voice, rate: audio.rate, format: audio.format });
     return audio;
   };
 
-  const cached = (uid: string, hash: string): SegmentAudio | null => {
-    const hit = memory.get(`${uid}/${hash}`) ?? readCache(deps.docs, uid, hash, config);
-    if (!hit) return null;
-    if (!deps.blobs.get(uid, hit.blobId)) {
-      memory.delete(`${uid}/${hash}`);
-      deps.docs.delete(cachePath(uid, hash));
-      return null;
-    }
-    memory.set(`${uid}/${hash}`, hit);
-    return hit;
+  const cached = async (uid: string, hash: string): Promise<SegmentAudio | null> => {
+    const known = memory.get(`${uid}/${hash}`);
+    if (known && (await deps.blobs.stat(audioKey(uid, hash)))) return known;
+    memory.delete(`${uid}/${hash}`);
+    const found = await deps.blobs.get(audioKey(uid, hash));
+    if (!found) return null;
+    const audio: SegmentAudio = {
+      blobId: mediaId(audioKey(uid, hash)),
+      hash,
+      seconds: wavSeconds(found.data),
+      voice: config.voice,
+      rate: config.rate,
+      format: 'wav',
+    };
+    memory.set(`${uid}/${hash}`, audio);
+    return audio;
   };
 
   const voice = async (uid: string, narration: string, priority: Priority): Promise<SegmentAudio> => {
     const hash = ttsHash(config.voice, config.rate, narration);
     const started = Date.now();
     let queueWait = 0;
-    const existing = cached(uid, hash);
+    const existing = await cached(uid, hash);
     if (existing) {
       log.info('TTS cache hit', {
         event: 'tts',
@@ -182,7 +185,7 @@ export const createTts = (
     const made = await queue.run(
       priority,
       async () => {
-        const again = cached(uid, hash);
+        const again = await cached(uid, hash);
         if (again) return { hit: true as const, audio: again };
         const fresh = await synthesize(narration);
         return { hit: false as const, ...fresh };
@@ -204,8 +207,9 @@ export const createTts = (
       return made.audio;
     }
     const { data, seconds } = made;
-    const blob = deps.blobs.put(uid, `${hash}.wav`, 'audio/wav', data);
-    const audio: SegmentAudio = { blobId: blob.id, hash, seconds, voice: config.voice, rate: config.rate, format: 'wav' };
+    const key = audioKey(uid, hash);
+    await deps.blobs.put(key, data, { contentType: 'audio/wav' });
+    const audio: SegmentAudio = { blobId: mediaId(key), hash, seconds, voice: config.voice, rate: config.rate, format: 'wav' };
     log.info('TTS synthesized', {
       event: 'tts',
       call_type: 'tts',
@@ -238,18 +242,5 @@ export const createTts = (
       memory.clear();
       queue.clear();
     },
-  };
-};
-
-const readCache = (docs: DocStore, uid: string, hash: string, config: TtsConfig): SegmentAudio | null => {
-  const data = docs.get(cachePath(uid, hash))?.data;
-  if (!data || typeof data.blobId !== 'string' || typeof data.seconds !== 'number') return null;
-  return {
-    blobId: data.blobId,
-    hash,
-    seconds: data.seconds,
-    voice: typeof data.voice === 'string' ? data.voice : config.voice,
-    rate: typeof data.rate === 'number' ? data.rate : config.rate,
-    format: 'wav',
   };
 };

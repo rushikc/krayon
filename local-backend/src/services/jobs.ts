@@ -21,16 +21,16 @@ export class LocalJobRunner implements JobQueue {
     if (!handler) throw new Error(`No job handler named ${kind}`);
     const jobId = randomUUID().replace(/-/g, '');
     const path = `jobs/${jobId}`;
-    this.store.set(path, { owner, kind, status: 'queued', payload });
+    void this.store.set(path, { owner, kind, status: 'queued', payload });
     log.info(`Job queued ${kind}`, { event: 'job', job_id: jobId, kind, status: 'queued', owner });
     const rid = requestContext.getStore();
     const run = async () => {
       const start = performance.now();
-      this.store.set(path, { status: 'running' }, true);
+      await this.store.set(path, { status: 'running' }, { merge: true });
       log.info(`Job running ${kind}`, { event: 'job', job_id: jobId, kind, status: 'running' });
       try {
         const result = await handler(payload);
-        this.store.set(path, { status: 'done', result }, true);
+        await this.store.set(path, { status: 'done', result }, { merge: true });
         log.info(`Job done ${kind}`, {
           event: 'job',
           job_id: jobId,
@@ -40,7 +40,7 @@ export class LocalJobRunner implements JobQueue {
         });
       } catch (error) {
         log.error(`Job failed ${kind}`, { event: 'job', job_id: jobId, kind, status: 'error' }, error);
-        this.store.set(path, { status: 'error', error: error instanceof Error ? error.message : String(error) }, true);
+        await this.store.set(path, { status: 'error', error: error instanceof Error ? error.message : String(error) }, { merge: true });
       }
     };
     if (rid) void requestContext.run(rid, run);

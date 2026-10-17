@@ -1,5 +1,4 @@
 import { Player, type PlayerRef } from '@remotion/player';
-import { prefetch } from 'remotion';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import type { GeneratedSegment, LessonDetail, LessonProgress } from '@krayon/shared';
@@ -14,7 +13,7 @@ import { CrayonProgress } from '../components/ui/CrayonProgress.tsx';
 import { IconArrow, IconBack } from '../components/ui/icons.tsx';
 import { Markdown } from '../components/ui/Markdown.tsx';
 import { Shell } from '../components/ui/Shell.tsx';
-import { ApiError, askLesson, getLesson, mediaUrl, regenerateSegment, renderUrl, rerenderLesson, saveLessonProgress } from '../lib/api.ts';
+import { ApiError, askLesson, fetchAudioBlobUrl, getLesson, regenerateSegment, renderUrl, rerenderLesson, saveLessonProgress } from '../lib/api.ts';
 import { COMPOSITION_HEIGHT, COMPOSITION_WIDTH, FPS } from '../remotion/catalog.ts';
 import { GeneratedLesson } from '../remotion/GeneratedLesson.tsx';
 import { generatedDuration } from '../remotion/scene.ts';
@@ -67,24 +66,23 @@ const useSegmentAudio = (lessonId: string, clips: { id: string; audioUrl?: strin
       freed.add(free);
       free();
     };
-    const handles: Array<{ free: () => void }> = [];
+    const created: string[] = [];
     setUrls(null);
     setProgress(0);
     let finished = 0;
     const loaded: Record<string, string> = {};
     void Promise.all(
       wanted.map(async (clip) => {
-        const handle = prefetch(mediaUrl(clip.audioUrl));
-        handles.push(handle);
         try {
-          const src = await handle.waitUntilDone();
+          const src = await fetchAudioBlobUrl(clip.audioUrl);
           if (cancelled) {
-            release(handle.free);
+            URL.revokeObjectURL(src);
             return;
           }
+          created.push(src);
           loaded[clip.id] = src;
         } catch {
-          if (!cancelled) loaded[clip.id] = mediaUrl(clip.audioUrl);
+          /* leave the clip silent if the file cannot be fetched */
         } finally {
           finished += 1;
           if (!cancelled) setProgress(finished / wanted.length);
@@ -95,7 +93,7 @@ const useSegmentAudio = (lessonId: string, clips: { id: string; audioUrl?: strin
     });
     return () => {
       cancelled = true;
-      for (const handle of handles) release(handle.free);
+      for (const src of created) release(() => URL.revokeObjectURL(src));
     };
     // `key` is the clip identity. `clips` is rebuilt every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps

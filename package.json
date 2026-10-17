@@ -5,7 +5,10 @@
     "frontend",
     "local-backend",
     "packages/shared",
-    "packages/pipeline"
+    "packages/pipeline",
+    "packages/api",
+    "packages/renderer",
+    "backend"
   ],
   "scripts": {
     "setup": "npm install && npm run build -w @krayon/shared && npm run build -w @krayon/pipeline && ([ -f local-backend/.env ] || cp local-backend/.env.example local-backend/.env)",
@@ -15,12 +18,16 @@
     "dev:frontend": "npm run dev -w frontend",
     "dev:backend": "npm run dev -w local-backend",
     "genkit": "npm run genkit -w local-backend",
-    "build": "npm run build -w @krayon/shared && npm run build -w @krayon/pipeline && npm run build -w local-backend && npm run build -w frontend",
+    "build": "npm run build -w @krayon/shared && npm run build -w @krayon/pipeline && npm run build -w @krayon/api && npm run build -w local-backend && npm run build -w frontend",
     "test": "npm run test -w @krayon/shared && npm run test -w @krayon/pipeline && npm run test:backend:quick",
+    "test:emulators": "echo 'Opt-in only. Not run from this task. When the Firestore adapter suite exists: firebase emulators:exec --only firestore,storage npm run test -w @krayon/pipeline'",
+    "lint": "eslint packages/shared/src packages/pipeline/src packages/api/src local-backend/src",
     "test:backend": "npm run test -w local-backend",
     "test:backend:quick": "npm run test:quick -w local-backend"
   },
   "devDependencies": {
-    "concurrently": "^9.1.0"
+    "concurrently": "^9.1.0",
+    "eslint": "^10.13.0",
+    "typescript-eslint": "^8.71.2"
   }
 }

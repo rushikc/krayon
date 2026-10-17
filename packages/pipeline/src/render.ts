@@ -3,8 +3,9 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { bundle } from '@remotion/bundler';
 import { openBrowser, renderStill, selectComposition } from '@remotion/renderer';
-import { collectKeyframeFrames } from '@krayon/shared';
+import { collectKeyframeFrames, mediaId } from '@krayon/shared';
 import type { BlobStorage, GeneratedSegment } from '@krayon/shared';
+import { keyframeKey } from './keys.js';
 import type { PipelineLogger } from './gemini.js';
 import { BACKGROUND, createPriorityQueue } from './queue.js';
 import type { Priority } from './queue.js';
@@ -166,7 +167,7 @@ export const createRenderer = (
     return opening;
   };
 
-  const renderWith = async (url: string, instance: Browser, owner: string, segment: GeneratedSegment) => {
+  const renderWith = async (url: string, instance: Browser, owner: string, segment: GeneratedSegment, fields: Record<string, unknown>) => {
     const inputProps = { segment };
     const composition = await selectImpl({
       serveUrl: url,
@@ -190,8 +191,12 @@ export const createRenderer = (
           imageFormat: 'png',
         });
         const png = readFileSync(output);
-        const blob = blobs.put(owner, `frame-${segment.id}-${frame}.png`, 'image/png', png);
-        keyframeIds.push(blob.id);
+        const lessonId = String(fields.lessonId ?? segment.id);
+        const attempt = Number(fields.attempt ?? 1);
+        const round = Number(fields.round ?? 1);
+        const key = keyframeKey(owner, lessonId, segment.id, attempt, round, frame);
+        await blobs.put(key, png, { contentType: 'image/png' });
+        keyframeIds.push(mediaId(key));
       }
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -206,7 +211,7 @@ export const createRenderer = (
     renderQueue.run(priority, async () => {
       const started = performance.now();
       try {
-        const result = await renderNow(owner, segment);
+        const result = await renderNow(owner, segment, fields);
         options.log?.info(`Rendered ${result.frames.length} keyframes in ${Math.round(performance.now() - started)} ms`, {
           ...fields,
           event: 'render.done',
@@ -223,7 +228,7 @@ export const createRenderer = (
       if (waitMs > 0) options.log?.debug('Render slot wait', { ...fields, event: 'render.wait', segmentId: segment.id, queue_wait_ms: waitMs });
     });
 
-  const renderNow = async (owner: string, segment: GeneratedSegment) => {
+  const renderNow = async (owner: string, segment: GeneratedSegment, fields: Record<string, unknown>) => {
     inflight += 1;
     clearIdle();
     try {
@@ -232,7 +237,7 @@ export const createRenderer = (
       for (let attempt = 0; attempt < 2; attempt += 1) {
         const instance = await open();
         try {
-          const result = await withTimeout(renderWith(url, instance, owner, segment), timeoutMs);
+          const result = await withTimeout(renderWith(url, instance, owner, segment, fields), timeoutMs);
           lastRender = { ok: true };
           return result;
         } catch (error) {

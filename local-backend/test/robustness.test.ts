@@ -1,31 +1,26 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { GeminiError, geminiInFlight, runGeminiCall, withGeminiSlot } from '../../packages/pipeline/src/gemini.ts';
+import { GeminiError, geminiInFlight, runGeminiCall, setGeminiConcurrency, withGeminiSlot } from '../../packages/pipeline/src/gemini.ts';
 import { saveProgress } from '../../packages/pipeline/src/store.ts';
-import { afterEach, expect, it } from 'vitest';
-import { acquireJob, jobConflict, lockKey, releaseJob } from '../src/locks.ts';
+import { expect, it } from 'vitest';
+import { LocalEventBus } from '../src/bus.ts';
+import { LocalCoordination } from '../src/coordination.ts';
 import { LocalDocStore } from '../src/services/docstore.ts';
 
 const quiet = { info: () => undefined, error: () => undefined, debug: () => undefined };
 
-const withStore = (run: (store: LocalDocStore) => void) => {
+const withStore = async (run: (store: LocalDocStore) => Promise<void>) => {
   const dir = mkdtempSync(path.join(tmpdir(), 'krayon-recover-'));
   try {
-    run(new LocalDocStore(path.join(dir, 'db.sqlite3')));
+    await run(new LocalDocStore(path.join(dir, 'db.sqlite3')));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 };
 
-afterEach(() => {
-  releaseJob(lockKey('l', 's01'));
-  releaseJob(lockKey('l', 's02'));
-  releaseJob(lockKey('l'));
-});
-
 it('keeps at most GEMINI_MAX_CONCURRENCY calls in flight', async () => {
-  process.env.GEMINI_MAX_CONCURRENCY = '4';
+  setGeminiConcurrency(4);
   let current = 0;
   let max = 0;
   const release: Array<() => void> = [];
@@ -53,6 +48,7 @@ it('keeps at most GEMINI_MAX_CONCURRENCY calls in flight', async () => {
   await finished;
   expect(max).toBe(4);
   expect(geminiInFlight()).toBe(0);
+  setGeminiConcurrency(5);
 });
 
 it('retries a 429 and does not retry a safety block', async () => {
@@ -108,64 +104,62 @@ it('fails MAX_TOKENS at once instead of retrying', async () => {
   expect(calls).toBe(1);
 });
 
-it('returns busy while a lesson renders and while a segment or the lesson is locked', () => {
-  const segment = lockKey('l', 's01');
-  expect(jobConflict('rendering', segment)).toEqual({ error: 'busy', reason: 'Still rendering' });
-  expect(jobConflict('queued', segment)).toEqual({ error: 'busy', reason: 'Still rendering' });
-  expect(jobConflict('ready', segment)).toBeNull();
-  acquireJob(segment);
-  expect(jobConflict('ready', segment)).toEqual({ error: 'busy', reason: 'Already regenerating' });
-  expect(jobConflict('ready', lockKey('l', 's02'))).toBeNull();
-  expect(jobConflict('ready', lockKey('l'))).toEqual({ error: 'busy', reason: 'Already regenerating' });
-  releaseJob(segment);
-  acquireJob(lockKey('l'));
-  expect(jobConflict('ready', lockKey('l', 's02'))).toEqual({ error: 'busy', reason: 'Already regenerating' });
+it('holds a segment lease, and a lesson-wide lease blocks every segment', async () => {
+  const coordination = new LocalCoordination(new LocalEventBus());
+  expect(await coordination.acquireLease('regen/l/s01', 'u', 60_000)).toBe(true);
+  expect(await coordination.acquireLease('regen/l/s01', 'u', 60_000)).toBe(false);
+  expect(await coordination.acquireLease('regen/l/s02', 'u', 60_000)).toBe(true);
+  expect(await coordination.acquireLease('regen/l/*', 'u', 60_000)).toBe(false);
+  await coordination.releaseLease('regen/l/s01', 'u');
+  await coordination.releaseLease('regen/l/s02', 'u');
+  expect(await coordination.acquireLease('regen/l/*', 'u', 60_000)).toBe(true);
+  expect(await coordination.acquireLease('regen/l/s02', 'u', 60_000)).toBe(false);
 });
 
-it('recovers interrupted work without touching ready segments, and requeues the course', () => {
-  withStore((store) => {
+it('recovers interrupted work without touching ready segments, and requeues the course', async () => {
+  await withStore(async (store) => {
     const course = 'users/u/courses/c';
-    store.set(course, { status: 'writing', stage: 'chapters' });
-    store.set(`${course}/chapters/c-c1`, { status: 'ready' });
-    store.set(`${course}/chapters/c-c2`, { status: 'writing', statusDetail: 'Writing lesson scripts' });
-    store.set(`${course}/lessons/c-c1-l1`, { status: 'rendering', chapterId: 'c-c1' });
-    store.set(`${course}/lessons/c-c1-l2`, { status: 'outlined', chapterId: 'c-c1' });
+    await store.set(course, { status: 'writing', stage: 'chapters' });
+    await store.set(`${course}/chapters/c-c1`, { status: 'ready' });
+    await store.set(`${course}/chapters/c-c2`, { status: 'writing', statusDetail: 'Writing lesson scripts' });
+    await store.set(`${course}/lessons/c-c1-l1`, { status: 'rendering', chapterId: 'c-c1' });
+    await store.set(`${course}/lessons/c-c1-l2`, { status: 'outlined', chapterId: 'c-c1' });
     const ready = { status: 'ready', segment: { id: 's01' } };
-    store.set(`${course}/lessons/c-c1-l1/segments/s01`, ready);
-    store.set(`${course}/lessons/c-c1-l1/segments/s02`, { status: 'reviewing', segment: { id: 's02' } });
-    store.set(`${course}/lessons/c-c1-l1/segments/s03`, { status: 'failed' });
-    store.set('jobs/j1', { status: 'running', owner: 'u' });
+    await store.set(`${course}/lessons/c-c1-l1/segments/s01`, ready);
+    await store.set(`${course}/lessons/c-c1-l1/segments/s02`, { status: 'reviewing', segment: { id: 's02' } });
+    await store.set(`${course}/lessons/c-c1-l1/segments/s03`, { status: 'failed' });
+    await store.set('jobs/j1', { status: 'running', owner: 'u' });
     const requeued: string[] = [];
-    store.recoverInterrupted((uid, courseId) => requeued.push(`${uid}/${courseId}`));
+    await store.recoverInterrupted((uid, courseId) => requeued.push(`${uid}/${courseId}`));
 
-    expect(requeued).toEqual(['u/c']);
-    expect(store.get('jobs/j1')?.data).toMatchObject({ status: 'error', error: 'interrupted' });
-    expect(store.get(`${course}/chapters/c-c2`)?.data).toMatchObject({ status: 'pending', statusDetail: null });
-    expect(store.get(`${course}/chapters/c-c1`)?.data.status).toBe('ready');
-    expect(store.get(`${course}/lessons/c-c1-l1`)?.data.status).toBe('queued');
-    expect(store.get(`${course}/lessons/c-c1-l2`)?.data.status).toBe('outlined');
-    expect(store.get(`${course}/lessons/c-c1-l1/segments/s01`)?.data).toEqual(ready);
-    expect(store.get(`${course}/lessons/c-c1-l1/segments/s02`)?.data).toMatchObject({ status: 'pending', segment: { id: 's02' } });
-    expect(store.get(`${course}/lessons/c-c1-l1/segments/s03`)?.data.status).toBe('failed');
+    expect(requeued).toContain('u/c');
+    expect((await store.get('jobs/j1'))?.data).toMatchObject({ status: 'error', error: 'interrupted' });
+    expect((await store.get(`${course}/chapters/c-c2`))?.data).toMatchObject({ status: 'pending', statusDetail: null });
+    expect((await store.get(`${course}/chapters/c-c1`))?.data.status).toBe('ready');
+    expect((await store.get(`${course}/lessons/c-c1-l1`))?.data.status).toBe('queued');
+    expect((await store.get(`${course}/lessons/c-c1-l2`))?.data.status).toBe('outlined');
+    expect((await store.get(`${course}/lessons/c-c1-l1/segments/s01`))?.data).toEqual(ready);
+    expect((await store.get(`${course}/lessons/c-c1-l1/segments/s02`))?.data).toMatchObject({ status: 'pending', segment: { id: 's02' } });
+    expect((await store.get(`${course}/lessons/c-c1-l1/segments/s03`))?.data.status).toBe('failed');
   });
 });
 
-it('does not requeue a finished course', () => {
-  withStore((store) => {
-    store.set('users/u/courses/done', { status: 'ready', stage: 'done' });
-    store.set('users/u/courses/done/lessons/done-c1-l1', { status: 'ready' });
+it('does not requeue a finished course', async () => {
+  await withStore(async (store) => {
+    await store.set('users/u/courses/done', { status: 'ready', stage: 'done' });
+    await store.set('users/u/courses/done/lessons/done-c1-l1', { status: 'ready' });
     const requeued: string[] = [];
-    store.recoverInterrupted((uid, courseId) => requeued.push(`${uid}/${courseId}`));
+    await store.recoverInterrupted((uid, courseId) => requeued.push(`${uid}/${courseId}`));
     expect(requeued).toEqual([]);
   });
 });
 
-it('saves lesson progress without ever unwatching a lesson', () => {
-  withStore((store) => {
-    expect(saveProgress(store, 'u', 'l', { positionFrame: 120.4 })).toMatchObject({ watched: false, completed: false, positionFrame: 120 });
-    expect(saveProgress(store, 'u', 'l', { watched: true, positionFrame: 900 })).toMatchObject({ watched: true, completed: false });
-    expect(saveProgress(store, 'u', 'l', { watched: false, positionFrame: 30 })).toMatchObject({ watched: true, positionFrame: 30 });
-    expect(saveProgress(store, 'u', 'l', { completed: true, positionFrame: 0 })).toMatchObject({ watched: true, completed: true, positionFrame: 0 });
-    expect(saveProgress(store, 'u', 'l', { completed: false })).toMatchObject({ completed: true });
+it('saves lesson progress without ever unwatching a lesson', async () => {
+  await withStore(async (store) => {
+    expect(await saveProgress(store, 'u', 'l', { positionFrame: 120.4 })).toMatchObject({ watched: false, completed: false, positionFrame: 120 });
+    expect(await saveProgress(store, 'u', 'l', { watched: true, positionFrame: 900 })).toMatchObject({ watched: true, completed: false });
+    expect(await saveProgress(store, 'u', 'l', { watched: false, positionFrame: 30 })).toMatchObject({ watched: true, positionFrame: 30 });
+    expect(await saveProgress(store, 'u', 'l', { completed: true, positionFrame: 0 })).toMatchObject({ watched: true, completed: true, positionFrame: 0 });
+    expect(await saveProgress(store, 'u', 'l', { completed: false })).toMatchObject({ completed: true });
   });
 });

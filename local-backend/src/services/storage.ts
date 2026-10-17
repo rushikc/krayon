@@ -1,62 +1,84 @@
-import { randomUUID } from 'node:crypto';
-import { mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { createReadStream } from 'node:fs';
+import { mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import type { BlobMeta, BlobStorage } from '@krayon/shared';
+import type { BlobStat, BlobStorage } from '@krayon/shared';
 import { getLogger } from '../logging.js';
-
-export type { BlobMeta };
 
 const log = getLogger('krayon.storage');
 
-const safe = (value: string) => value.replace(/[^A-Za-z0-9_.-]/g, '_');
+const safeKey = (key: string) => {
+  if (!key || key.startsWith('/') || key.includes('..') || key.includes('\\') || key.includes('\0')) {
+    throw new Error('Invalid storage key');
+  }
+  return key;
+};
 
 export class LocalStorage implements BlobStorage {
   constructor(private readonly root: string) {
     mkdirSync(root, { recursive: true });
   }
 
-  private dir(owner: string, blobId: string) {
-    return path.join(this.root, 'uploads', safe(owner), safe(blobId));
+  private file(key: string) {
+    return path.join(this.root, safeKey(key));
   }
 
-  put(owner: string, name: string, contentType: string, data: Uint8Array): BlobMeta {
-    const id = randomUUID().replace(/-/g, '');
-    const folder = this.dir(owner, id);
-    mkdirSync(folder, { recursive: true });
-    writeFileSync(path.join(folder, 'content'), data);
-    const blob: BlobMeta = {
-      id,
-      name,
-      content_type: contentType,
-      size: data.length,
-      path: `uploads/${owner}/${id}`,
-    };
-    writeFileSync(path.join(folder, 'meta.json'), JSON.stringify(blob));
-    log.debug(`put ${blob.path}`, {
-      event: 'storage.put',
-      path: blob.path,
-      name,
-      content_type: contentType,
-      size: data.length,
-    });
-    return blob;
+  private metaFile(key: string) {
+    return `${this.file(key)}.meta.json`;
   }
 
-  get(owner: string, blobId: string): { blob: BlobMeta; data: Buffer } | null {
-    const folder = this.dir(owner, blobId);
-    const content = path.join(folder, 'content');
+  async put(key: string, data: Uint8Array, opts: { contentType: string }): Promise<BlobStat> {
+    const file = this.file(key);
+    mkdirSync(path.dirname(file), { recursive: true });
+    writeFileSync(file, data);
+    const stat: BlobStat = { key, size: data.byteLength, contentType: opts.contentType, updatedAt: Date.now() };
+    writeFileSync(this.metaFile(key), JSON.stringify(stat));
+    log.debug(`put ${key}`, { event: 'storage.put', path: key, content_type: opts.contentType, size: data.byteLength });
+    return stat;
+  }
+
+  async stat(key: string): Promise<BlobStat | null> {
     try {
-      const data = readFileSync(content);
-      const blob = JSON.parse(readFileSync(path.join(folder, 'meta.json'), 'utf8')) as BlobMeta;
-      log.debug(`get ${owner}/${blobId}`, { event: 'storage.get', owner, id: blobId, found: true });
-      return { blob, data };
+      const meta = JSON.parse(readFileSync(this.metaFile(key), 'utf8')) as BlobStat;
+      const size = statSync(this.file(key)).size;
+      return { ...meta, key, size };
     } catch {
-      log.debug(`get miss ${owner}/${blobId}`, { event: 'storage.get', owner, id: blobId, found: false });
       return null;
     }
   }
 
-  clear(): { files: number; bytes: number } {
+  async get(key: string) {
+    const stat = await this.stat(key);
+    if (!stat) return null;
+    try {
+      const data = readFileSync(this.file(key));
+      log.debug(`get ${key}`, { event: 'storage.get', path: key, found: true });
+      return { data, stat };
+    } catch {
+      return null;
+    }
+  }
+
+  async stream(key: string, range?: { start: number; end: number }) {
+    const stat = await this.stat(key);
+    if (!stat) return null;
+    return createReadStream(this.file(key), range ? { start: range.start, end: range.end } : undefined);
+  }
+
+  async delete(key: string) {
+    const file = this.file(key);
+    let deleted = false;
+    try {
+      rmSync(file, { force: true });
+      rmSync(this.metaFile(key), { force: true });
+      deleted = true;
+    } catch {
+      deleted = false;
+    }
+    return deleted;
+  }
+
+  /** Local admin reset. Not part of the BlobStorage port. */
+  clear() {
     const walk = (dir: string): string[] => {
       let found: string[] = [];
       let entries: Array<{ name: string; isDirectory: () => boolean }> = [];
@@ -76,8 +98,8 @@ export class LocalStorage implements BlobStorage {
       return found;
     };
     const files = walk(this.root);
-    const contents = files.filter((file) => path.basename(file) === 'content');
-    const bytes = files.reduce((total, file) => {
+    const contents = files.filter((file) => !file.endsWith('.meta.json'));
+    const bytes = contents.reduce((total, file) => {
       try {
         return total + statSync(file).size;
       } catch {

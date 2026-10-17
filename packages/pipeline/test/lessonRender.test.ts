@@ -1,4 +1,4 @@
-import { GenerationError, framesForAudio, toGenerationError } from '@krayon/shared';
+import { GenerationError, framesForAudio, mediaId, toGenerationError } from '@krayon/shared';
 import type { PipelineEmit } from '@krayon/shared';
 import { describe, expect, it } from 'vitest';
 import { createLessonStages } from '../src/lessonRender.js';
@@ -11,7 +11,10 @@ const COURSE = 'c';
 const LESSON = 'c-c1-l1';
 
 /** A runtime with scripted model answers. Scenes for `failing` segments throw SCHEMA_INVALID. */
-const setup = (options?: { tts?: boolean }) => {
+const keyframeKey = 'users/u/keyframes/c-c1-l1/s/a1-r1-0.png';
+const keyframeId = mediaId(keyframeKey);
+
+const setup = async (options?: { tts?: boolean }) => {
   const { docs } = memoryDocs();
   const failing = new Set<string>();
   const sceneCalls = new Map<string, number>();
@@ -21,8 +24,8 @@ const setup = (options?: { tts?: boolean }) => {
   let wideAppear = false;
   let renders = 0;
 
-  docs.set(lessonIndexPath(UID, LESSON), { courseId: COURSE });
-  docs.set(lessonPath(UID, COURSE, LESSON), {
+  await docs.set(lessonIndexPath(UID, LESSON), { courseId: COURSE });
+  await docs.set(lessonPath(UID, COURSE, LESSON), {
     courseId: COURSE,
     chapterId: 'c-c1',
     sourceId: 'src',
@@ -56,7 +59,7 @@ const setup = (options?: { tts?: boolean }) => {
 
   const rt = {
     docs,
-    blobs: { get: () => ({ data: new Uint8Array([1]) }) },
+    blobs: { get: async () => ({ data: new Uint8Array([1]), stat: { key: keyframeKey, size: 1, contentType: 'image/png', updatedAt: 0 } }) },
     config: { maxRepairRounds: 0, maxReviewRounds: 1, reviewPassScore: 7, segmentRetries: 2, reviewModel: 'review', ttsEnabled: options?.tts === true },
     tts: {
       voice: async (_uid: string, narration: string, priority: { userClicked?: boolean }) => {
@@ -76,7 +79,7 @@ const setup = (options?: { tts?: boolean }) => {
     renderer: {
       renderKeyframes: async () => {
         renders += 1;
-        return { frames: [0], keyframeIds: ['k'] };
+        return { frames: [0], keyframeIds: [keyframeId] };
       },
     },
     modelJson,
@@ -114,9 +117,9 @@ const types = (events: PipelineEmit[]) => events.map((event) => event.type);
 
 describe('lesson render', () => {
   it('is ready only when every segment is ready', async () => {
-    const { docs, rt, sceneCalls, events } = setup();
+    const { docs, rt, sceneCalls, events } = await setup();
     await createLessonStages(rt).renderLesson(UID, LESSON, { userClicked: true });
-    const detail = lessonDetail(docs, UID, LESSON)!;
+    const detail = await lessonDetail(docs, UID, LESSON)!;
     expect(detail.status).toBe('ready');
     expect(detail.segments.length).toBeGreaterThan(1);
     expect(detail.segments.every((item) => item.status === 'ready' && item.segment)).toBe(true);
@@ -127,10 +130,10 @@ describe('lesson render', () => {
   });
 
   it('retries a failing segment SEGMENT_RETRIES times, then fails the lesson without playing it', async () => {
-    const { docs, rt, failing, sceneCalls, events } = setup();
+    const { docs, rt, failing, sceneCalls, events } = await setup();
     failing.add('s02');
     await createLessonStages(rt).renderLesson(UID, LESSON, { userClicked: true });
-    const detail = lessonDetail(docs, UID, LESSON)!;
+    const detail = await lessonDetail(docs, UID, LESSON)!;
     expect(detail.status).toBe('failed');
     expect(detail.error).toBe(`1 of ${detail.segmentCount} segments could not be made.`);
     expect(detail.errorInfo?.issues).toEqual([{ path: 'segments.s02', message: expect.stringContaining('scene.layout.body') }]);
@@ -142,19 +145,19 @@ describe('lesson render', () => {
   });
 
   it('Retry re-runs only the failed segments', async () => {
-    const { docs, rt, failing, sceneCalls } = setup();
+    const { docs, rt, failing, sceneCalls } = await setup();
     const stages = createLessonStages(rt);
     failing.add('s02');
     await stages.renderLesson(UID, LESSON, { userClicked: true });
     failing.clear();
     sceneCalls.clear();
     await stages.renderLesson(UID, LESSON, { userClicked: true });
-    expect(lessonDetail(docs, UID, LESSON)?.status).toBe('ready');
+    expect((await lessonDetail(docs, UID, LESSON))?.status).toBe('ready');
     expect([...sceneCalls.entries()]).toEqual([['s02', 1]]);
   });
 
   it('shares one run when render is clicked twice, and leaves a ready lesson alone', async () => {
-    const { rt, sceneCalls, renders } = setup();
+    const { rt, sceneCalls, renders } = await setup();
     const stages = createLessonStages(rt);
     const first = stages.renderLesson(UID, LESSON, { userClicked: true });
     const second = stages.renderLesson(UID, LESSON, { userClicked: true });
@@ -167,11 +170,11 @@ describe('lesson render', () => {
   });
 
   it('voices on the lesson priority, retimes from the audio, and reuses it on retry', async () => {
-    const { docs, rt, failing, sceneCalls, voiceCalls, events } = setup({ tts: true });
+    const { docs, rt, failing, sceneCalls, voiceCalls, events } = await setup({ tts: true });
     const stages = createLessonStages(rt);
     failing.add('s02');
     await stages.renderLesson(UID, LESSON, { userClicked: true });
-    const failed = lessonDetail(docs, UID, LESSON)!;
+    const failed = await lessonDetail(docs, UID, LESSON)!;
     expect(failed.status).toBe('failed');
     expect(voiceCalls.length).toBe(failed.segmentCount);
     expect(voiceCalls.every((call) => call.userClicked)).toBe(true);
@@ -189,32 +192,32 @@ describe('lesson render', () => {
     failing.clear();
     sceneCalls.clear();
     await stages.renderLesson(UID, LESSON, { userClicked: true });
-    expect(lessonDetail(docs, UID, LESSON)?.status).toBe('ready');
+    expect((await lessonDetail(docs, UID, LESSON))?.status).toBe('ready');
     expect(voiceCalls).toHaveLength(voiced);
     expect([...sceneCalls.keys()]).toEqual(['s02']);
   });
 
   it('fails the lesson when narration fails and retries only the segments that have no audio', async () => {
-    const { docs, rt, voiceCalls, sceneCalls, failVoice, allowVoice } = setup({ tts: true });
+    const { docs, rt, voiceCalls, sceneCalls, failVoice, allowVoice } = await setup({ tts: true });
     const stages = createLessonStages(rt);
     failVoice();
     await stages.renderLesson(UID, LESSON, { userClicked: true });
-    const failed = lessonDetail(docs, UID, LESSON)!;
+    const failed = await lessonDetail(docs, UID, LESSON)!;
     expect(failed.status).toBe('failed');
     expect(failed.segments.every((segment) => segment.voice === 'failed' && !segment.audio)).toBe(true);
     expect(sceneCalls.size).toBe(0);
     allowVoice();
     const before = voiceCalls.length;
     await stages.renderLesson(UID, LESSON, { userClicked: true });
-    expect(lessonDetail(docs, UID, LESSON)?.status).toBe('ready');
+    expect((await lessonDetail(docs, UID, LESSON))?.status).toBe('ready');
     expect(voiceCalls.length).toBeGreaterThan(before);
   });
 
   it('normalizes an out-of-range appearAt before validation, so there is no repair call', async () => {
-    const { docs, rt, sceneCalls, wideAppear } = setup();
+    const { docs, rt, sceneCalls, wideAppear } = await setup();
     wideAppear();
     await createLessonStages(rt).renderLesson(UID, LESSON, { userClicked: true });
-    const detail = lessonDetail(docs, UID, LESSON)!;
+    const detail = await lessonDetail(docs, UID, LESSON)!;
     expect(detail.status).toBe('ready');
     expect([...sceneCalls.values()].every((count) => count === 1)).toBe(true);
     const layout = detail.segments[0]?.segment?.scene.layout;

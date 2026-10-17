@@ -1,4 +1,6 @@
 import type { FastifyReply } from 'fastify';
+import type { BlobStorage } from '@krayon/shared';
+import { httpError } from './errors.js';
 
 export type ByteRange = { start: number; end: number };
 
@@ -21,7 +23,45 @@ export const parseByteRange = (header: string | undefined, size: number): ByteRa
   return { start, end: Math.min(end, size - 1) };
 };
 
-/** Sends a buffer with byte-range support. Used by GET /api/audio/:blobId. */
+const readStream = async (stream: AsyncIterable<Uint8Array>) => {
+  const chunks: Uint8Array[] = [];
+  for await (const chunk of stream) chunks.push(chunk);
+  return Buffer.concat(chunks);
+};
+
+/** Sends one byte range from storage. Reads only that range, not the whole blob. */
+export const sendRange = async (
+  blobs: BlobStorage,
+  reply: FastifyReply,
+  key: string,
+  rangeHeader: string | undefined,
+  contentType: string,
+) => {
+  const stat = await blobs.stat(key);
+  if (!stat) throw httpError(404, 'Not found');
+  reply.header('Accept-Ranges', 'bytes');
+  reply.header('Cache-Control', 'public, max-age=31536000, immutable');
+  reply.type(contentType);
+  const range = parseByteRange(rangeHeader, stat.size);
+  if (range === 'bad') {
+    reply.header('Content-Range', `bytes */${stat.size}`);
+    return reply.code(416).send();
+  }
+  const start = range?.start ?? 0;
+  const end = range?.end ?? stat.size - 1;
+  const stream = await blobs.stream(key, { start, end });
+  if (!stream) throw httpError(404, 'Not found');
+  const data = await readStream(stream);
+  if (!range) {
+    reply.header('Content-Length', String(data.length));
+    return reply.send(data);
+  }
+  reply.header('Content-Range', `bytes ${start}-${end}/${stat.size}`);
+  reply.header('Content-Length', String(data.length));
+  return reply.code(206).send(data);
+};
+
+/** Buffer helper kept for tests that already hold the bytes. */
 export const sendBytes = (reply: FastifyReply, data: Buffer, rangeHeader: string | undefined, contentType: string) => {
   const size = data.length;
   reply.header('Accept-Ranges', 'bytes');

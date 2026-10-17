@@ -13,7 +13,7 @@ const CHAPTER = 'c-c1';
 it('accepts a long script, a messy outline, and an unfinished study doc without extra calls', async () => {
   const { docs } = memoryDocs();
   const names: string[] = [];
-  docs.set(chapterPath(UID, COURSE, CHAPTER), {
+  await docs.set(chapterPath(UID, COURSE, CHAPTER), {
     index: 0,
     sourceId: 'src',
     title: 'Sorting',
@@ -61,14 +61,14 @@ it('accepts a long script, a messy outline, and an unfinished study doc without 
   expect(names.filter((name) => name === 'studyDoc')).toHaveLength(2);
   expect(names.filter((name) => name === 'lessonOutline')).toHaveLength(1);
   expect(names).not.toContain('tighten');
-  const chapter = docs.get(chapterPath(UID, COURSE, CHAPTER))?.data;
+  const chapter = (await docs.get(chapterPath(UID, COURSE, CHAPTER)))?.data;
   expect(chapter?.status).toBe('ready');
   const outline = chapter?.outline as Array<{ title: string; pageStart: number; pageEnd: number }>;
   expect(outline.map((lesson) => [lesson.title, lesson.pageStart, lesson.pageEnd])).toEqual([
     ['Earlier', 10, 12],
     ['Later', 11, 12],
   ]);
-  const stored = docs.get(lessonPath(UID, COURSE, `${CHAPTER}-l1`))?.data;
+  const stored = (await docs.get(lessonPath(UID, COURSE, `${CHAPTER}-l1`)))?.data;
   expect(wordCount(String(stored?.explanationSummary))).toBe(wordCount(longScript));
   expect(String(stored?.studyDoc)).toBe('## Notes');
 });

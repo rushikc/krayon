@@ -16,6 +16,7 @@
     "@fastify/cors": "^11.1.0",
     "@fastify/multipart": "^9.2.1",
     "@fastify/websocket": "^11.2.0",
+    "@krayon/api": "*",
     "@krayon/pipeline": "*",
     "@krayon/shared": "*",
     "better-sqlite3": "^12.4.1",

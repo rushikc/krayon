@@ -23,6 +23,7 @@ vi.mock('../lib/api.ts', () => ({
   getLesson: () => gate.lesson,
   askLesson: vi.fn(),
   mediaUrl: (path: string) => path,
+  fetchAudioBlobUrl: async (path: string) => path,
   regenerateSegment: vi.fn(),
   rerenderLesson: vi.fn(),
   renderUrl: (id: string) => id,

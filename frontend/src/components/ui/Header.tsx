@@ -30,19 +30,23 @@ export function Header() {
         <LogoMark className="h-6 w-6" />
         Krayon
       </Link>
-      <button
-        type="button"
-        onClick={() => void clearResources()}
-        className="ml-auto text-[13px] font-medium text-muted"
-      >
-        Clear resources
-      </button>
+      <div className="ml-auto flex items-center gap-x-3">
+      {import.meta.env.VITE_BACKEND === 'gcp' ? null : (
+        <button
+          type="button"
+          onClick={() => void clearResources()}
+          className="text-[13px] font-medium text-muted"
+        >
+          Clear resources
+        </button>
+      )}
       <span
         aria-hidden="true"
         className="flex h-8 w-8 items-center justify-center rounded-full border-2 border-ink bg-yellow text-[13px] font-semibold text-ink"
       >
         R
       </span>
+      </div>
     </header>
   );
 }

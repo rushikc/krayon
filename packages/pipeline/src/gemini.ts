@@ -129,10 +129,14 @@ export const backoffMs = (attempt: number, random: () => number = Math.random, r
   return Math.round(base * (1 + (random() * 0.5 - 0.25)));
 };
 
-const geminiLimit = () => {
-  const raw = Number(process.env.GEMINI_MAX_CONCURRENCY);
-  return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 5;
+let geminiMax = 5;
+
+/** Slot limit for the shared Gemini queue. Set from config, not from process.env. */
+export const setGeminiConcurrency = (value: number) => {
+  geminiMax = Number.isFinite(value) && value > 0 ? Math.floor(value) : 5;
 };
+
+const geminiLimit = () => geminiMax;
 
 /** Process-wide priority queue in front of every Gemini call. */
 export const geminiQueue = createPriorityQueue({ limit: geminiLimit });

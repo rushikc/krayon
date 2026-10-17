@@ -12,29 +12,36 @@ const pdfOf = async (pages: number) => {
   return doc.save();
 };
 
+const sourceKey = 'users/u/sources/c/0.pdf';
+
 const blobsWith = (data: Uint8Array) => {
-  const stored = new Map<string, { data: Uint8Array; blob: { content_type: string } }>([['src', { data, blob: { content_type: 'application/pdf' } }]]);
+  const stored = new Map<string, { data: Uint8Array; stat: { key: string; size: number; contentType: string; updatedAt: number } }>();
+  stored.set(sourceKey, { data, stat: { key: sourceKey, size: data.byteLength, contentType: 'application/pdf', updatedAt: 0 } });
   return {
-    get: (_uid: string, id: string) => stored.get(id) ?? null,
-    put: (_uid: string, name: string, contentType: string, bytes: Uint8Array) => {
-      stored.set(name, { data: bytes, blob: { content_type: contentType } });
-      return { id: name };
+    put: async (key: string, bytes: Uint8Array, opts: { contentType: string }) => {
+      const stat = { key, size: bytes.byteLength, contentType: opts.contentType, updatedAt: 0 };
+      stored.set(key, { data: bytes, stat });
+      return stat;
     },
+    get: async (key: string) => stored.get(key) ?? null,
+    stat: async (key: string) => stored.get(key)?.stat ?? null,
+    stream: async () => null,
+    delete: async (key: string) => stored.delete(key),
   } as unknown as BlobStorage;
 };
 
 describe('page slices', () => {
   it('sends only the requested pages, and marks only full() as the whole document', async () => {
     const cache = createSourceCache(blobsWith(await pdfOf(8)), memoryDocs().docs);
-    const slice = await cache.slice('u', 'src', 2, 4);
+    const slice = await cache.slice('u', sourceKey, 2, 4);
     expect(slice.full).toBeUndefined();
     expect(slice.pages).toEqual({ start: 2, end: 4, total: 8 });
     expect((await PDFDocument.load(slice.data)).getPageCount()).toBe(3);
-    const whole = await cache.slice('u', 'src', 0, 7);
+    const whole = await cache.slice('u', sourceKey, 0, 7);
     expect(whole.full).toBeUndefined();
-    const full = await cache.full('u', 'src');
+    const full = await cache.full('u', sourceKey);
     expect(full).toMatchObject({ full: true, pages: { start: 0, end: 7, total: 8 } });
-    expect(await cache.text('u', 'src', 1, 2)).toMatch(/^\[PDF page 2\][\s\S]*\[PDF page 3\]/);
+    expect(await cache.text('u', sourceKey, 1, 2)).toMatch(/^\[PDF page 2\][\s\S]*\[PDF page 3\]/);
   });
 
   it('lets only the structure call attach the full document', () => {

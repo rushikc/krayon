@@ -1,5 +1,6 @@
 import {
   FPS,
+  mediaKey,
   GenerationError,
   LESSON_SECONDS,
   SEGMENT_FRAMES,
@@ -103,10 +104,10 @@ export const createLessonStages = (rt: Runtime) => {
   };
 
   /** Ready-segment count and total on the lesson doc, for the roadmap progress. */
-  const countReady = (uid: string, courseId: string, lessonId: string) => {
-    const rows = docs.list(segmentsPath(uid, courseId, lessonId));
+  const countReady = async (uid: string, courseId: string, lessonId: string) => {
+    const rows = (await docs.list(segmentsPath(uid, courseId, lessonId)));
     const ready = rows.filter((row) => row.data.status === 'ready').length;
-    docs.set(lessonPath(uid, courseId, lessonId), { segmentsReady: ready, segmentCount: rows.length }, true);
+    await docs.set(lessonPath(uid, courseId, lessonId), { segmentsReady: ready, segmentCount: rows.length }, { merge: true });
     return { ready, total: rows.length };
   };
 
@@ -135,9 +136,9 @@ export const createLessonStages = (rt: Runtime) => {
       beats = fallbackBeats(sentences);
     }
     const timed = normalizeBeats(beats);
-    for (const old of docs.list(segmentsPath(uid, courseId, lessonId))) docs.delete(segmentPath(uid, courseId, lessonId, old.id));
-    timed.forEach((beat, index) => {
-      docs.set(segmentPath(uid, courseId, lessonId, segmentIdFor(index)), {
+    for (const old of (await docs.list(segmentsPath(uid, courseId, lessonId)))) await docs.delete(segmentPath(uid, courseId, lessonId, old.id));
+    for (const [index, beat] of timed.entries()) {
+      await docs.set(segmentPath(uid, courseId, lessonId, segmentIdFor(index)), {
         index,
         title: beat.title,
         visual: beat.visual,
@@ -152,10 +153,10 @@ export const createLessonStages = (rt: Runtime) => {
         error: null,
         errorInfo: null,
       });
-    });
+    }
     const last = timed[timed.length - 1];
     const durationFrames = last ? last.startFrame + last.durationInFrames : 0;
-    docs.set(lessonPath(uid, courseId, lessonId), { durationFrames, segmentCount: timed.length, segmentsReady: 0 }, true);
+    await docs.set(lessonPath(uid, courseId, lessonId), { durationFrames, segmentCount: timed.length, segmentsReady: 0 }, { merge: true });
     log.info(`Planned ${timed.length} segments`, {
       ...fields,
       event: 'lesson.beats',
@@ -165,29 +166,30 @@ export const createLessonStages = (rt: Runtime) => {
     });
   };
 
-  const setSegment = (run: SegmentRun, patch: Record<string, unknown>) =>
-    docs.set(segmentPath(run.uid, run.courseId, run.lessonId, run.segmentId), patch, true);
+  const setSegment = async (run: SegmentRun, patch: Record<string, unknown>) => {
+    await docs.set(segmentPath(run.uid, run.courseId, run.lessonId, run.segmentId), patch, { merge: true });
+  };
 
   /** Records narration for segments that do not already have audio. Uses the lesson priority so a clicked lesson jumps the TTS queue. */
   const voiceSegments = async (uid: string, courseId: string, lessonId: string, priority: Priority) => {
     if (!config.ttsEnabled) return;
-    const rows = docs.list(segmentsPath(uid, courseId, lessonId)).sort((a, b) => Number(a.data.index) - Number(b.data.index));
+    const rows = (await docs.list(segmentsPath(uid, courseId, lessonId))).sort((a, b) => Number(a.data.index) - Number(b.data.index));
     await Promise.all(
       rows.map(async (row) => {
         if (row.data.audio || row.data.status === 'ready') return;
         const path = segmentPath(uid, courseId, lessonId, row.id);
         const narration = String(row.data.narration ?? '');
-        docs.set(path, { voice: 'voicing', statusDetail: 'Recording narration' }, true);
-        rt.emitSegment(uid, courseId, lessonId, row.id, 'segment.voicing', { step: 'voice' });
+        await docs.set(path, { voice: 'voicing', statusDetail: 'Recording narration' }, { merge: true });
+        await rt.emitSegment(uid, courseId, lessonId, row.id, 'segment.voicing', { step: 'voice' });
         try {
           const audio = await rt.tts.voice(uid, narration, priority);
-          docs.set(path, { audio, voice: 'voiced', statusDetail: null }, true);
-          rt.emitSegment(uid, courseId, lessonId, row.id, 'segment.voiced', { step: 'voice' });
+          await docs.set(path, { audio, voice: 'voiced', statusDetail: null }, { merge: true });
+          await rt.emitSegment(uid, courseId, lessonId, row.id, 'segment.voiced', { step: 'voice' });
         } catch (error) {
           if (isCancelled(error)) throw error;
           const failure = rt.failureOf(error, { courseId, lessonId, segmentId: row.id });
-          docs.set(path, { status: 'failed', voice: 'failed', statusDetail: null, error: failure.message, errorInfo: failure }, true);
-          rt.emitSegment(uid, courseId, lessonId, row.id, 'segment.voice_failed', {
+          await docs.set(path, { status: 'failed', voice: 'failed', statusDetail: null, error: failure.message, errorInfo: failure }, { merge: true });
+          await rt.emitSegment(uid, courseId, lessonId, row.id, 'segment.voice_failed', {
             error: failure.message,
             errorInfo: failure,
             step: 'voice',
@@ -198,8 +200,8 @@ export const createLessonStages = (rt: Runtime) => {
   };
 
   /** Sets each segment's duration from its audio (or the silent estimate) and rebuilds startFrame. */
-  const retime = (uid: string, courseId: string, lessonId: string) => {
-    const rows = docs.list(segmentsPath(uid, courseId, lessonId)).sort((a, b) => Number(a.data.index) - Number(b.data.index));
+  const retime = async (uid: string, courseId: string, lessonId: string) => {
+    const rows = (await docs.list(segmentsPath(uid, courseId, lessonId))).sort((a, b) => Number(a.data.index) - Number(b.data.index));
     let start = 0;
     for (const row of rows) {
       const narration = String(row.data.narration ?? '');
@@ -216,10 +218,10 @@ export const createLessonStages = (rt: Runtime) => {
       }
       const stored = row.data.segment;
       const segment = stored && typeof stored === 'object' ? { ...(stored as GeneratedSegment), durationInFrames: duration } : stored;
-      docs.set(segmentPath(uid, courseId, lessonId, row.id), { durationInFrames: duration, startFrame: start, segment }, true);
+      await docs.set(segmentPath(uid, courseId, lessonId, row.id), { durationInFrames: duration, startFrame: start, segment }, { merge: true });
       start += duration;
     }
-    docs.set(lessonPath(uid, courseId, lessonId), { durationFrames: start }, true);
+    await docs.set(lessonPath(uid, courseId, lessonId), { durationFrames: start }, { merge: true });
     if (start / FPS > LESSON_SECONDS.max) {
       (log.warn ?? log.info)(`Lesson is longer than ${LESSON_SECONDS.max} seconds`, {
         courseId,
@@ -234,7 +236,7 @@ export const createLessonStages = (rt: Runtime) => {
   const segmentOnce = async (run: SegmentRun, attempt: number): Promise<GeneratedSegment> => {
     const { uid, courseId, lessonId, segmentId, lesson, priority } = run;
     const fields = { courseId, lessonId, segmentId, attempt };
-    const doc = docs.get(segmentPath(uid, courseId, lessonId, segmentId))?.data as SegmentDoc | undefined;
+    const doc = (await docs.get(segmentPath(uid, courseId, lessonId, segmentId)))?.data as SegmentDoc | undefined;
     if (!doc) throw new Error(`Missing segment ${segmentId}`);
     const { start, end } = pagesFor(lesson, doc);
     const files = [await rt.sources.slice(uid, lesson.sourceId, start, end)];
@@ -255,8 +257,8 @@ export const createLessonStages = (rt: Runtime) => {
         ? retryScenePrompt(input, previous, (doc.errorInfo?.issues ?? []).slice(0, 10))
         : scenePrompt(input);
 
-    setSegment(run, { status: 'drafting', statusDetail: 'Designing the visual' });
-    rt.emitSegment(uid, courseId, lessonId, segmentId, 'segment.check', { step: 'draft' });
+    await setSegment(run, { status: 'drafting', statusDetail: 'Designing the visual' });
+    await rt.emitSegment(uid, courseId, lessonId, segmentId, 'segment.check', { step: 'draft' });
     let current: GeneratedSegment;
     let lastDraft: unknown;
     try {
@@ -277,10 +279,10 @@ export const createLessonStages = (rt: Runtime) => {
       });
       current = assemble(segmentId, doc, result.value);
     } catch (error) {
-      if (lastDraft && !run.learner) setSegment(run, { draft: assemble(segmentId, doc, lastDraft as never) });
+      if (lastDraft && !run.learner) await setSegment(run, { draft: assemble(segmentId, doc, lastDraft as never) });
       throw error;
     }
-    setSegment(run, { status: 'checking', statusDetail: 'Checking the segment', segment: run.learner ? doc.segment : current, draft: null });
+    await setSegment(run, { status: 'checking', statusDetail: 'Checking the segment', segment: run.learner ? doc.segment : current, draft: null });
 
     let best = current;
     let bestScore = -1;
@@ -289,16 +291,18 @@ export const createLessonStages = (rt: Runtime) => {
     for (let round = 1; round <= config.maxReviewRounds; round += 1) {
       if (rt.events.isCancelled(courseId, lessonId, segmentId)) throw new Cancelled();
       try {
-        setSegment(run, { status: 'rendering', statusDetail: 'Rendering keyframes' });
-        rt.emitSegment(uid, courseId, lessonId, segmentId, 'segment.render', { round, step: 'render' });
+        await setSegment(run, { status: 'rendering', statusDetail: 'Rendering keyframes' });
+        await rt.emitSegment(uid, courseId, lessonId, segmentId, 'segment.render', { round, step: 'render' });
         const rendered = await rt.renderer.renderKeyframes(uid, current, priority, fields);
         const detail = `Reviewing, round ${round} of ${config.maxReviewRounds}`;
-        setSegment(run, { status: 'reviewing', statusDetail: detail });
-        const keyframes = rendered.keyframeIds.map((id) => {
-          const blob = blobs.get(uid, id);
+        await setSegment(run, { status: 'reviewing', statusDetail: detail });
+        const keyframes = [];
+        for (const id of rendered.keyframeIds) {
+          const key = mediaKey(id);
+          const blob = key ? await blobs.get(key) : null;
           if (!blob) throw new Error(`Missing keyframe ${id}`);
-          return { data: blob.data, mimeType: 'image/png' };
-        });
+          keyframes.push({ data: blob.data, mimeType: 'image/png' });
+        }
         const review = (
           await rt.modelJson({
             name: 'review',
@@ -326,12 +330,12 @@ export const createLessonStages = (rt: Runtime) => {
           if (next && issues.length === 0) {
             fixed = true;
             current = next;
-            rt.emitSegment(uid, courseId, lessonId, segmentId, 'segment.fixed', { round, fixed: true, step: 'fix' });
+            await rt.emitSegment(uid, courseId, lessonId, segmentId, 'segment.fixed', { round, fixed: true, step: 'fix' });
           } else {
             log.info('Review patch rejected', { ...fields, event: 'segment.fix', round, issues: issues.slice(0, 10) });
           }
         }
-        docs.set(roundPath(uid, courseId, lessonId, segmentId, round), {
+        await docs.set(roundPath(uid, courseId, lessonId, segmentId, round), {
           segment: fixed ? current : best,
           issues: review.issues,
           score: review.score,
@@ -339,7 +343,7 @@ export const createLessonStages = (rt: Runtime) => {
           fixed,
           keyframeIds: rendered.keyframeIds,
         });
-        rt.emitSegment(uid, courseId, lessonId, segmentId, 'segment.review', {
+        await rt.emitSegment(uid, courseId, lessonId, segmentId, 'segment.review', {
           round,
           score: review.score,
           pass: review.pass,
@@ -357,7 +361,7 @@ export const createLessonStages = (rt: Runtime) => {
         break;
       }
     }
-    setSegment(run, {
+    await setSegment(run, {
       title: best.title,
       status: 'ready',
       statusDetail: null,
@@ -380,15 +384,15 @@ export const createLessonStages = (rt: Runtime) => {
       rt.assertLive(run.epoch);
       try {
         await segmentOnce(run, attempt);
-        const counts = countReady(uid, courseId, lessonId);
+        const counts = await countReady(uid, courseId, lessonId);
         log.info('Segment ready', { courseId, lessonId, segmentId, event: 'segment.ready', attempt, duration_ms: Date.now() - startedAt });
-        rt.emitSegment(uid, courseId, lessonId, segmentId, 'segment.ready', { step: 'ready', ...counts });
+        await rt.emitSegment(uid, courseId, lessonId, segmentId, 'segment.ready', { step: 'ready', ...counts });
         return true;
       } catch (error) {
         if (isCancelled(error)) throw error;
         failure = rt.failureOf(error, { courseId, lessonId, segmentId });
         const blocked = classifyStepFailure(error).status === 'blocked' || failure.issues.some((issue) => issue.message === SAFETY_MESSAGE);
-        setSegment(run, { errorInfo: failure, error: failure.message });
+        await setSegment(run, { errorInfo: failure, error: failure.message });
         if (blocked) break;
         if (attempt < attempts) {
           (log.warn ?? log.info)(`Segment attempt ${attempt}/${attempts} failed: ${failure.code} ${failure.message}`, {
@@ -411,8 +415,8 @@ export const createLessonStages = (rt: Runtime) => {
       issues: failure?.issues.slice(0, 10),
       duration_ms: Date.now() - startedAt,
     });
-    setSegment(run, { status: 'failed', statusDetail: null, error: failure?.message ?? 'Segment failed', errorInfo: failure });
-    rt.emitSegment(uid, courseId, lessonId, segmentId, 'segment.failed', { error: failure?.message, errorInfo: failure ?? undefined, step: 'failed' });
+    await setSegment(run, { status: 'failed', statusDetail: null, error: failure?.message ?? 'Segment failed', errorInfo: failure });
+    await rt.emitSegment(uid, courseId, lessonId, segmentId, 'segment.failed', { error: failure?.message, errorInfo: failure ?? undefined, step: 'failed' });
     return false;
   };
 
@@ -424,65 +428,63 @@ export const createLessonStages = (rt: Runtime) => {
     const runId = rt.events.beginRun(courseId);
     const fields = { courseId, lessonId };
     try {
-      const lesson = docs.get(path)?.data as LessonDoc | undefined;
+      const lesson = (await docs.get(path))?.data as LessonDoc | undefined;
       if (!lesson) throw new Error('Lesson not found');
-      docs.set(path, { status: 'rendering', statusDetail: 'Planning the video', error: null, errorInfo: null }, true);
-      rt.emitLesson(uid, courseId, lessonId, 'lesson.rendering', { step: 'plan' });
-      if (docs.list(segmentsPath(uid, courseId, lessonId)).length === 0) await planSegments(uid, courseId, lessonId, lesson, priority, instructions);
+      await docs.set(path, { status: 'rendering', statusDetail: 'Planning the video', error: null, errorInfo: null }, { merge: true });
+      await rt.emitLesson(uid, courseId, lessonId, 'lesson.rendering', { step: 'plan' });
+      if ((await docs.list(segmentsPath(uid, courseId, lessonId))).length === 0) await planSegments(uid, courseId, lessonId, lesson, priority, instructions);
       rt.assertLive(epoch);
       await voiceSegments(uid, courseId, lessonId, priority);
       rt.assertLive(epoch);
-      retime(uid, courseId, lessonId);
-      const pending = docs
-        .list(segmentsPath(uid, courseId, lessonId))
+      await retime(uid, courseId, lessonId);
+      const pending = (await docs.list(segmentsPath(uid, courseId, lessonId)))
         .filter((row) => row.data.status !== 'ready' && row.data.status !== 'failed')
         .sort((a, b) => Number(a.data.index) - Number(b.data.index));
-      const { ready, total } = countReady(uid, courseId, lessonId);
-      docs.set(path, { statusDetail: `Rendering ${ready} of ${total} segments` }, true);
-      rt.emitLesson(uid, courseId, lessonId, 'lesson.rendering', { ready, total, step: 'segments' });
+      const { ready, total } = await countReady(uid, courseId, lessonId);
+      await docs.set(path, { statusDetail: `Rendering ${ready} of ${total} segments` }, { merge: true });
+      await rt.emitLesson(uid, courseId, lessonId, 'lesson.rendering', { ready, total, step: 'segments' });
       await Promise.all(
         pending.map((row) =>
-          runSegment({ uid, courseId, lessonId, segmentId: row.id, lesson, priority, epoch }).then((ok) => {
+          runSegment({ uid, courseId, lessonId, segmentId: row.id, lesson, priority, epoch }).then(async (ok) => {
             if (!ok) return;
-            const counts = countReady(uid, courseId, lessonId);
-            docs.set(path, { statusDetail: `Rendering ${counts.ready} of ${counts.total} segments` }, true);
-            rt.emitLesson(uid, courseId, lessonId, 'lesson.rendering', { ...counts, step: 'segments' });
+            const counts = await countReady(uid, courseId, lessonId);
+            await docs.set(path, { statusDetail: `Rendering ${counts.ready} of ${counts.total} segments` }, { merge: true });
+            await rt.emitLesson(uid, courseId, lessonId, 'lesson.rendering', { ...counts, step: 'segments' });
           }),
         ),
       );
       rt.assertLive(epoch);
-      const counts = countReady(uid, courseId, lessonId);
+      const counts = await countReady(uid, courseId, lessonId);
       if (counts.ready === counts.total && counts.total > 0) {
-        docs.set(path, { status: 'ready', statusDetail: null, error: null, errorInfo: null }, true);
+        await docs.set(path, { status: 'ready', statusDetail: null, error: null, errorInfo: null }, { merge: true });
         log.info('Lesson ready', { ...fields, event: 'lesson.ready', duration_ms: Date.now() - startedAt, segments: counts.total });
-        rt.emitLesson(uid, courseId, lessonId, 'lesson.ready', { ...counts, step: 'ready' });
+        await rt.emitLesson(uid, courseId, lessonId, 'lesson.ready', { ...counts, step: 'ready' });
         return;
       }
       const failed = counts.total - counts.ready;
       const failure: GenerationErrorInfo = {
         code: 'SCHEMA_INVALID',
         message: `${failed} of ${counts.total} segments could not be made.`,
-        issues: docs
-          .list(segmentsPath(uid, courseId, lessonId))
+        issues: (await docs.list(segmentsPath(uid, courseId, lessonId)))
           .filter((row) => row.data.status === 'failed')
           .map((row) => ({ path: `segments.${row.id}`, message: String(row.data.error ?? 'Failed') })),
         attempts: 1 + Math.max(0, config.segmentRetries),
       };
-      docs.set(path, { status: 'failed', statusDetail: null, error: failure.message, errorInfo: failure }, true);
+      await docs.set(path, { status: 'failed', statusDetail: null, error: failure.message, errorInfo: failure }, { merge: true });
       log.error(`Lesson failed: ${failure.message}`, { ...fields, event: 'lesson.failed', duration_ms: Date.now() - startedAt, failed });
-      rt.emitLesson(uid, courseId, lessonId, 'lesson.failed', { ...counts, error: failure.message, errorInfo: failure, step: 'failed' });
+      await rt.emitLesson(uid, courseId, lessonId, 'lesson.failed', { ...counts, error: failure.message, errorInfo: failure, step: 'failed' });
     } catch (error) {
       if (isCancelled(error)) {
         if (rt.currentEpoch() === epoch) {
-          docs.set(path, { status: 'queued', statusDetail: 'Queued' }, true);
-          rt.emitLesson(uid, courseId, lessonId, 'lesson.queued', { step: 'cancelled' });
+          await docs.set(path, { status: 'queued', statusDetail: 'Queued' }, { merge: true });
+          await rt.emitLesson(uid, courseId, lessonId, 'lesson.queued', { step: 'cancelled' });
         }
         return;
       }
       const failure = rt.failureOf(error, fields);
-      docs.set(path, { status: 'failed', statusDetail: null, error: failure.message, errorInfo: failure }, true);
+      await docs.set(path, { status: 'failed', statusDetail: null, error: failure.message, errorInfo: failure }, { merge: true });
       log.error(`Lesson failed: ${failure.code} ${failure.message}`, { ...fields, event: 'lesson.failed', code: failure.code });
-      rt.emitLesson(uid, courseId, lessonId, 'lesson.failed', { error: failure.message, errorInfo: failure, step: 'failed' });
+      await rt.emitLesson(uid, courseId, lessonId, 'lesson.failed', { error: failure.message, errorInfo: failure, step: 'failed' });
     } finally {
       rt.events.endRun(courseId, runId);
     }
@@ -492,23 +494,24 @@ export const createLessonStages = (rt: Runtime) => {
    * Queues a lesson render. Idempotent: a lesson that is ready, still being written, or already rendering is left alone.
    * A failed lesson re-runs only its failed segments.
    */
-  const wipeSegments = (uid: string, courseId: string, lessonId: string) => {
-    for (const row of docs.list(segmentsPath(uid, courseId, lessonId))) {
+  const wipeSegments = async (uid: string, courseId: string, lessonId: string) => {
+    for (const row of (await docs.list(segmentsPath(uid, courseId, lessonId)))) {
       const base = segmentPath(uid, courseId, lessonId, row.id);
-      for (const round of docs.list(`${base}/rounds`)) docs.delete(`${base}/rounds/${round.id}`);
-      docs.delete(base);
+      for (const round of (await docs.list(`${base}/rounds`))) await docs.delete(`${base}/rounds/${round.id}`);
+      await docs.delete(base);
     }
   };
 
   const renderLesson = (uid: string, lessonId: string, options: { userClicked?: boolean; auto?: boolean; force?: boolean; instructions?: string } = {}) => {
-    const found = locateLesson(docs, uid, lessonId);
-    if (!found) throw new Error('Lesson not found');
-    const { courseId, doc } = found;
     const active = running.get(lessonId);
     if (active) return active;
-    if (doc.data.status === 'writing') return Promise.resolve();
-    if (!options.force && doc.data.status === 'ready') return Promise.resolve();
-    if (options.force) wipeSegments(uid, courseId, lessonId);
+    const work = (async () => {
+      const found = await locateLesson(docs, uid, lessonId);
+      if (!found) throw new Error('Lesson not found');
+      const { courseId, doc } = found;
+      if (doc.data.status === 'writing') return;
+      if (!options.force && doc.data.status === 'ready') return;
+      if (options.force) await wipeSegments(uid, courseId, lessonId);
     const stored = doc.data.priority as Priority | undefined;
     const priority: Priority = {
       courseId,
@@ -517,29 +520,32 @@ export const createLessonStages = (rt: Runtime) => {
       enqueuedAt: stored?.enqueuedAt ?? Date.now(),
     };
     if (doc.data.status === 'failed') {
-      for (const row of docs.list(segmentsPath(uid, courseId, lessonId))) {
-        if (row.data.status === 'failed') docs.set(segmentPath(uid, courseId, lessonId, row.id), { status: 'pending', error: null }, true);
+      for (const row of (await docs.list(segmentsPath(uid, courseId, lessonId)))) {
+        if (row.data.status === 'failed') await docs.set(segmentPath(uid, courseId, lessonId, row.id), { status: 'pending', error: null }, { merge: true });
       }
     }
-    docs.set(lessonPath(uid, courseId, lessonId), { status: 'queued', statusDetail: 'Queued', priority, error: null, errorInfo: null }, true);
-    rt.emitLesson(uid, courseId, lessonId, 'lesson.queued', { step: 'queued' });
-    const work = renderNow(uid, courseId, lessonId, priority, options.instructions).finally(() => running.delete(lessonId));
+    await docs.set(lessonPath(uid, courseId, lessonId), { status: 'queued', statusDetail: 'Queued', priority, error: null, errorInfo: null }, { merge: true });
+    await rt.emitLesson(uid, courseId, lessonId, 'lesson.queued', { step: 'queued' });
+      await renderNow(uid, courseId, lessonId, priority, options.instructions);
+    })().finally(() => {
+      if (running.get(lessonId) === work) running.delete(lessonId);
+    });
     running.set(lessonId, work);
     return work;
   };
 
   /** Rebuilds one ready segment: new narration, new audio, then a new picture. The old cut stays if it fails. */
   const regenerateSegment = async (uid: string, lessonId: string, segmentId: string, request?: string) => {
-    const found = locateLesson(docs, uid, lessonId);
+    const found = await locateLesson(docs, uid, lessonId);
     if (!found) throw new Error('Lesson not found');
     const { courseId, doc } = found;
     const path = segmentPath(uid, courseId, lessonId, segmentId);
     const lessonDoc = lessonPath(uid, courseId, lessonId);
-    const prior = docs.get(path)?.data;
+    const prior = (await docs.get(path))?.data;
     if (!prior) throw new Error('Segment not found');
     if (!prior.segment) {
       await renderLesson(uid, lessonId, { userClicked: true });
-      return docs.get(path)?.data.segment as GeneratedSegment | null;
+      return (await docs.get(path))?.data.segment as GeneratedSegment | null;
     }
     const lesson = doc.data as unknown as LessonDoc;
     const title = String(prior.title ?? 'this segment');
@@ -554,8 +560,8 @@ export const createLessonStages = (rt: Runtime) => {
       learner: { request },
       epoch: rt.currentEpoch(),
     };
-    const restore = (failure: GenerationErrorInfo | null) => {
-      docs.set(path, {
+    const restore = async (failure: GenerationErrorInfo | null) => {
+      await docs.set(path, {
         status: prior.status,
         statusDetail: null,
         segment: prior.segment,
@@ -565,17 +571,17 @@ export const createLessonStages = (rt: Runtime) => {
         startFrame: prior.startFrame,
         error: failure?.message ?? null,
         errorInfo: failure,
-      }, true);
-      retime(uid, courseId, lessonId);
-      docs.set(lessonDoc, { status: 'ready', statusDetail: null }, true);
-      rt.emitLesson(uid, courseId, lessonId, 'lesson.ready', { step: 'restored' });
-      if (failure) rt.emitSegment(uid, courseId, lessonId, segmentId, 'segment.failed', { error: failure.message, errorInfo: failure, step: 'regenerate' });
+      }, { merge: true });
+      await retime(uid, courseId, lessonId);
+      await docs.set(lessonDoc, { status: 'ready', statusDetail: null }, { merge: true });
+      await rt.emitLesson(uid, courseId, lessonId, 'lesson.ready', { step: 'restored' });
+      if (failure) await rt.emitSegment(uid, courseId, lessonId, segmentId, 'segment.failed', { error: failure.message, errorInfo: failure, step: 'regenerate' });
     };
     try {
-      docs.set(path, { status: 'drafting', statusDetail: 'Rewriting the narration', audio: null }, true);
-      const counts = countReady(uid, courseId, lessonId);
-      docs.set(lessonDoc, { status: 'rendering', statusDetail: `Regenerating ${title}`, error: null, errorInfo: null }, true);
-      rt.emitLesson(uid, courseId, lessonId, 'lesson.rendering', { ...counts, detail: `Regenerating ${title}`, step: 'regenerate' });
+      await docs.set(path, { status: 'drafting', statusDetail: 'Rewriting the narration', audio: null }, { merge: true });
+      const counts = await countReady(uid, courseId, lessonId);
+      await docs.set(lessonDoc, { status: 'rendering', statusDetail: `Regenerating ${title}`, error: null, errorInfo: null }, { merge: true });
+      await rt.emitLesson(uid, courseId, lessonId, 'lesson.rendering', { ...counts, detail: `Regenerating ${title}`, step: 'regenerate' });
       const rewritten = await rt.modelJson({
         name: 'narration',
         schema: narrationSchema,
@@ -590,21 +596,21 @@ export const createLessonStages = (rt: Runtime) => {
         priority,
         fields: { courseId, lessonId, segmentId },
       });
-      docs.set(path, { narration: rewritten.value.narration, audio: null, statusDetail: 'Recording narration' }, true);
+      await docs.set(path, { narration: rewritten.value.narration, audio: null, statusDetail: 'Recording narration' }, { merge: true });
       if (config.ttsEnabled) {
-        rt.emitSegment(uid, courseId, lessonId, segmentId, 'segment.voicing', { step: 'voice' });
+        await rt.emitSegment(uid, courseId, lessonId, segmentId, 'segment.voicing', { step: 'voice' });
         const audio = await rt.tts.voice(uid, rewritten.value.narration, priority);
-        docs.set(path, { audio, voice: 'voiced', statusDetail: null }, true);
-        rt.emitSegment(uid, courseId, lessonId, segmentId, 'segment.voiced', { step: 'voice' });
+        await docs.set(path, { audio, voice: 'voiced', statusDetail: null }, { merge: true });
+        await rt.emitSegment(uid, courseId, lessonId, segmentId, 'segment.voiced', { step: 'voice' });
       }
-      retime(uid, courseId, lessonId);
+      await retime(uid, courseId, lessonId);
       const next = await segmentOnce(run, 1);
-      docs.set(lessonDoc, { status: 'ready', statusDetail: null, error: null, errorInfo: null }, true);
-      rt.emitSegment(uid, courseId, lessonId, segmentId, 'segment.ready', { step: 'regenerated', ...countReady(uid, courseId, lessonId) });
-      rt.emitLesson(uid, courseId, lessonId, 'lesson.ready', { step: 'regenerated', ...countReady(uid, courseId, lessonId) });
+      await docs.set(lessonDoc, { status: 'ready', statusDetail: null, error: null, errorInfo: null }, { merge: true });
+      await rt.emitSegment(uid, courseId, lessonId, segmentId, 'segment.ready', { step: 'regenerated', ...await countReady(uid, courseId, lessonId) });
+      await rt.emitLesson(uid, courseId, lessonId, 'lesson.ready', { step: 'regenerated', ...await countReady(uid, courseId, lessonId) });
       return next;
     } catch (error) {
-      if (!isCancelled(error)) restore(rt.failureOf(error, { courseId, lessonId, segmentId }));
+      if (!isCancelled(error)) await restore(rt.failureOf(error, { courseId, lessonId, segmentId }));
       throw error;
     }
   };
@@ -612,7 +618,44 @@ export const createLessonStages = (rt: Runtime) => {
   const isRendering = (lessonId: string) => running.has(lessonId);
   const clear = () => running.clear();
 
-  return { renderLesson, regenerateSegment, isRendering, clear };
+  const voiceOne = async (uid: string, courseId: string, lessonId: string, segmentId: string, priority: Priority) => {
+    const path = segmentPath(uid, courseId, lessonId, segmentId);
+    const row = await docs.get(path);
+    if (!row || row.data.audio || row.data.status === 'ready') return;
+    if (!config.ttsEnabled) return;
+    const narration = String(row.data.narration ?? '');
+    await docs.set(path, { voice: 'voicing', statusDetail: 'Recording narration' }, { merge: true });
+    await rt.emitSegment(uid, courseId, lessonId, segmentId, 'segment.voicing', { step: 'voice' });
+    try {
+      const audio = await rt.tts.voice(uid, narration, priority);
+      await docs.set(path, { audio, voice: 'voiced', statusDetail: null }, { merge: true });
+      await rt.emitSegment(uid, courseId, lessonId, segmentId, 'segment.voiced', { step: 'voice' });
+    } catch (error) {
+      if (isCancelled(error)) throw error;
+      const failure = rt.failureOf(error, { courseId, lessonId, segmentId });
+      await docs.set(path, { status: 'failed', voice: 'failed', statusDetail: null, error: failure.message, errorInfo: failure }, { merge: true });
+      await rt.emitSegment(uid, courseId, lessonId, segmentId, 'segment.voice_failed', { error: failure.message, errorInfo: failure, step: 'voice' });
+    }
+  };
+
+  const buildSegment = async (uid: string, courseId: string, lessonId: string, segmentId: string, priority: Priority, epoch: number) => {
+    const lesson = (await docs.get(lessonPath(uid, courseId, lessonId)))?.data as LessonDoc | undefined;
+    if (!lesson) throw new Error('Lesson not found');
+    return runSegment({ uid, courseId, lessonId, segmentId, lesson, priority, epoch });
+  };
+
+  return {
+    renderLesson,
+    regenerateSegment,
+    isRendering,
+    clear,
+    planSegments,
+    voiceSegments,
+    voiceOne,
+    retime,
+    buildSegment,
+    countReady,
+  };
 };
 
 export type LessonStages = ReturnType<typeof createLessonStages>;

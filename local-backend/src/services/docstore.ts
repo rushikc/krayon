@@ -1,10 +1,9 @@
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import Database from 'better-sqlite3';
-import type { DocRecord, DocStore } from '@krayon/shared';
+import { recoverStale } from '@krayon/pipeline';
+import type { BatchOp, DocData, DocRecord, DocStore, DocTx, Where } from '@krayon/shared';
 import { getLogger } from '../logging.js';
-
-export type { DocRecord };
 
 const log = getLogger('krayon.docstore');
 
@@ -16,8 +15,26 @@ const split = (docPath: string) => {
   return { collection: parts.slice(0, -1).join('/'), id: parts[parts.length - 1] ?? '' };
 };
 
+const compare = (left: unknown, op: Where[1], right: unknown) => {
+  if (op === 'in') return Array.isArray(right) && right.includes(left);
+  if (op === '==') return left === right;
+  if (op === '!=') return left !== right;
+  const a = typeof left === 'number' ? left : Number(left);
+  const b = typeof right === 'number' ? right : Number(right);
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return false;
+  if (op === '<') return a < b;
+  if (op === '<=') return a <= b;
+  if (op === '>') return a > b;
+  return a >= b;
+};
+
+const matches = (data: DocData, where: Where[] | undefined) => (where ?? []).every(([field, op, value]) => compare(data[field], op, value));
+
+type Row = { collection: string; id: string; data: string; updated: number };
+
 export class LocalDocStore implements DocStore {
   private readonly db: Database.Database;
+  private tail: Promise<void> = Promise.resolve();
 
   constructor(dbFile: string) {
     mkdirSync(path.dirname(dbFile), { recursive: true });
@@ -27,125 +44,207 @@ export class LocalDocStore implements DocStore {
     );
   }
 
-  get(docPath: string): DocRecord | null {
+  private enqueue<T>(fn: () => Promise<T>): Promise<T> {
+    const run = this.tail.then(fn, fn);
+    this.tail = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  }
+
+  private read(docPath: string): DocRecord | null {
     const { collection, id } = split(docPath);
     const row = this.db.prepare('SELECT data, updated FROM docs WHERE collection=? AND id=?').get(collection, id) as
       | { data: string; updated: number }
       | undefined;
-    log.debug(`get ${docPath}`, { event: 'docstore.get', path: docPath, found: Boolean(row) });
     if (!row) return null;
-    return { id, data: JSON.parse(row.data) as Record<string, unknown>, updatedAt: row.updated };
+    return { id, path: docPath, data: JSON.parse(row.data) as DocData, updatedAt: row.updated };
   }
 
-  set(docPath: string, data: Record<string, unknown>, merge = false): DocRecord {
+  private write(docPath: string, data: DocData, merge = false) {
     const { collection, id } = split(docPath);
-    let next = data;
-    if (merge) {
-      const current = this.get(docPath);
-      if (current) next = { ...current.data, ...data };
-    }
+    const next = merge ? { ...this.read(docPath)?.data, ...data } : data;
     const now = Date.now() / 1000;
-    this.db
-      .prepare('INSERT OR REPLACE INTO docs (collection, id, data, updated) VALUES (?,?,?,?)')
-      .run(collection, id, JSON.stringify(next), now);
-    log.debug(`set ${docPath}`, {
-      event: 'docstore.set',
-      path: docPath,
-      merge,
-      keys: Object.keys(next).slice(0, 20),
+    this.db.prepare('INSERT OR REPLACE INTO docs (collection, id, data, updated) VALUES (?,?,?,?)').run(collection, id, JSON.stringify(next), now);
+  }
+
+  private rows(): Row[] {
+    return this.db.prepare('SELECT collection, id, data, updated FROM docs').all() as Row[];
+  }
+
+  private recordOf(row: Row): DocRecord {
+    return {
+      id: row.id,
+      path: `${row.collection}/${row.id}`,
+      data: JSON.parse(row.data) as DocData,
+      updatedAt: row.updated,
+    };
+  }
+
+  private select(where: Where[] | undefined, collection: string | null, group: string | null, opts?: { limit?: number }) {
+    const found = this.rows()
+      .map((row) => this.recordOf(row))
+      .filter((doc) => {
+        const col = doc.path.slice(0, doc.path.lastIndexOf('/'));
+        if (collection !== null && col !== collection) return false;
+        if (group !== null && col.split('/').at(-1) !== group) return false;
+        return matches(doc.data, where);
+      });
+    return opts?.limit ? found.slice(0, opts.limit) : found;
+  }
+
+  private apply(ops: BatchOp[]) {
+    const run = this.db.transaction(() => {
+      for (const op of ops) {
+        if (op.op === 'delete') {
+          const { collection, id } = split(op.path);
+          this.db.prepare('DELETE FROM docs WHERE collection=? AND id=?').run(collection, id);
+        } else if (op.op === 'update') {
+          if (!this.read(op.path)) throw new Error(`No document at ${op.path}`);
+          this.write(op.path, op.data, true);
+        } else this.write(op.path, op.data, op.merge);
+      }
     });
-    return { id, data: next, updatedAt: now };
+    run();
   }
 
-  delete(docPath: string): boolean {
-    const { collection, id } = split(docPath);
-    const result = this.db.prepare('DELETE FROM docs WHERE collection=? AND id=?').run(collection, id);
-    const deleted = result.changes > 0;
-    log.debug(`delete ${docPath}`, { event: 'docstore.delete', path: docPath, deleted });
-    return deleted;
+  get(docPath: string) {
+    return this.enqueue(async () => {
+      const found = this.read(docPath);
+      log.debug(`get ${docPath}`, { event: 'docstore.get', path: docPath, found: Boolean(found) });
+      return found;
+    });
   }
 
-  clear(): Record<string, number> {
-    const rows = this.db.prepare('SELECT collection, COUNT(*) as n FROM docs GROUP BY collection').all() as Array<{
-      collection: string;
-      n: number;
-    }>;
-    this.db.prepare('DELETE FROM docs').run();
-    const counts: Record<string, number> = {};
-    for (const row of rows) {
-      const top =
-        row.collection.startsWith('users/') && row.collection.split('/').length >= 3
-          ? (row.collection.split('/')[2] ?? row.collection)
-          : (row.collection.split('/')[0] ?? row.collection);
-      counts[top] = (counts[top] ?? 0) + row.n;
-    }
-    log.debug('clear', { event: 'docstore.clear', counts });
-    return counts;
+  set(docPath: string, data: DocData, opts?: { merge?: boolean }) {
+    return this.enqueue(async () => {
+      this.write(docPath, data, opts?.merge);
+      log.debug(`set ${docPath}`, { event: 'docstore.set', path: docPath, merge: Boolean(opts?.merge) });
+    });
+  }
+
+  update(docPath: string, patch: DocData) {
+    return this.enqueue(async () => {
+      if (!this.read(docPath)) throw new Error(`No document at ${docPath}`);
+      this.write(docPath, patch, true);
+    });
+  }
+
+  delete(docPath: string) {
+    return this.enqueue(async () => {
+      const { collection, id } = split(docPath);
+      const result = this.db.prepare('DELETE FROM docs WHERE collection=? AND id=?').run(collection, id);
+      const deleted = result.changes > 0;
+      log.debug(`delete ${docPath}`, { event: 'docstore.delete', path: docPath, deleted });
+      return deleted;
+    });
+  }
+
+  list(collection: string) {
+    return this.enqueue(async () => {
+      const col = collection.replace(/^\/+|\/+$/g, '');
+      const rows = this.db.prepare('SELECT collection, id, data, updated FROM docs WHERE collection=? ORDER BY updated').all(col) as Row[];
+      log.debug(`list ${col}`, { event: 'docstore.list', collection: col, count: rows.length });
+      return rows.map((row) => this.recordOf(row));
+    });
+  }
+
+  query(collection: string, where: Where[], opts?: { limit?: number }) {
+    return this.enqueue(async () => this.select(where, collection.replace(/^\/+|\/+$/g, ''), null, opts));
+  }
+
+  collectionGroup(name: string, where: Where[], opts?: { limit?: number }) {
+    return this.enqueue(async () => this.select(where, null, name, opts));
+  }
+
+  transact<T>(fn: (tx: DocTx) => Promise<T>) {
+    return this.enqueue(async () => {
+      const writes: BatchOp[] = [];
+      const tx: DocTx = {
+        get: async (docPath) => {
+          const pending = [...writes].reverse().find((op) => op.path === docPath);
+          if (!pending) return this.read(docPath);
+          if (pending.op === 'delete') return null;
+          const current = this.read(docPath);
+          if (pending.op === 'set' && !pending.merge) {
+            const { id } = split(docPath);
+            return { id, path: docPath, data: pending.data, updatedAt: Date.now() / 1000 };
+          }
+          if (!current && pending.op === 'update') return null;
+          const { id } = split(docPath);
+          return { id, path: docPath, data: { ...current?.data, ...pending.data }, updatedAt: Date.now() / 1000 };
+        },
+        query: async (collection, where, opts) => this.select(where, collection, null, opts),
+        set: (docPath, data, opts) => writes.push({ op: 'set', path: docPath, data, merge: opts?.merge }),
+        update: (docPath, patch) => writes.push({ op: 'update', path: docPath, data: patch }),
+        delete: (docPath) => writes.push({ op: 'delete', path: docPath }),
+      };
+      const result = await fn(tx);
+      this.apply(writes);
+      return result;
+    });
+  }
+
+  batch(ops: BatchOp[]) {
+    return this.enqueue(async () => this.apply(ops));
+  }
+
+  deleteTree(prefix: string) {
+    return this.enqueue(async () => {
+      const paths = this.rows()
+        .map((row) => `${row.collection}/${row.id}`)
+        .filter((docPath) => docPath === prefix || docPath.startsWith(`${prefix}/`));
+      const run = this.db.transaction(() => {
+        for (const docPath of paths) {
+          const { collection, id } = split(docPath);
+          this.db.prepare('DELETE FROM docs WHERE collection=? AND id=?').run(collection, id);
+        }
+      });
+      run();
+      return paths.length;
+    });
+  }
+
+  /** Local admin reset. Not part of the DocStore port. */
+  clear() {
+    return this.enqueue(async () => {
+      const rows = this.db.prepare('SELECT collection, COUNT(*) as n FROM docs GROUP BY collection').all() as Array<{
+        collection: string;
+        n: number;
+      }>;
+      this.db.prepare('DELETE FROM docs').run();
+      const counts: Record<string, number> = {};
+      for (const row of rows) {
+        const top =
+          row.collection.startsWith('users/') && row.collection.split('/').length >= 3
+            ? (row.collection.split('/')[2] ?? row.collection)
+            : (row.collection.split('/')[0] ?? row.collection);
+        counts[top] = (counts[top] ?? 0) + row.n;
+      }
+      log.debug('clear', { event: 'docstore.clear', counts });
+      return counts;
+    });
   }
 
   /**
    * After a restart: interrupted jobs become errors; a chapter mid-write goes back to pending; a lesson
    * mid-render goes back to queued, and its unfinished segments to pending (ready segments are kept).
-   * Every course with open work is handed to `requeue`, which resumes it from the stored stage.
    */
   recoverInterrupted(requeue?: (uid: string, courseId: string) => void) {
-    const reason = 'interrupted';
-    const rows = this.db.prepare('SELECT collection, id, data FROM docs').all() as Array<{
-      collection: string;
-      id: string;
-      data: string;
-    }>;
-    const open = new Map<string, { uid: string; courseId: string }>();
-    const mark = (collection: string) => {
-      const parts = collection.split('/');
-      const uid = parts[1] ?? '';
-      const courseId = parts[3] ?? '';
-      open.set(`${uid}/${courseId}`, { uid, courseId });
-    };
-    const counts = { jobs: 0, chapters: 0, lessons: 0, segments: 0 };
-    for (const row of rows) {
-      const data = JSON.parse(row.data) as { status?: string; stage?: string; voice?: string };
-      const at = `${row.collection}/${row.id}`;
-      if (row.collection === 'jobs') {
-        if (data.status === 'queued' || data.status === 'running') {
-          this.set(at, { status: 'error', error: reason }, true);
-          counts.jobs += 1;
-        }
-      } else if (/^users\/[^/]+\/courses$/.test(row.collection)) {
-        if (data.status === 'structure' || data.status === 'created' || data.status === 'writing') mark(`${row.collection}/${row.id}`);
-      } else if (row.collection.endsWith('/chapters')) {
-        if (data.status === 'writing') {
-          this.set(at, { status: 'pending', statusDetail: null }, true);
-          counts.chapters += 1;
-        }
-        if (data.status === 'writing' || data.status === 'pending') mark(row.collection);
-      } else if (row.collection.endsWith('/segments')) {
-        const patch: Record<string, unknown> = {};
-        if (data.status && !['pending', 'ready', 'failed'].includes(data.status)) {
-          patch.status = 'pending';
-          patch.statusDetail = null;
-          counts.segments += 1;
-        }
-        if (data.voice === 'voicing') patch.voice = 'pending';
-        if (Object.keys(patch).length > 0) this.set(at, patch, true);
-      } else if (row.collection.endsWith('/lessons')) {
-        if (data.status === 'rendering' || data.status === 'queued') {
-          this.set(at, { status: 'queued', statusDetail: 'Queued' }, true);
-          counts.lessons += 1;
-          mark(row.collection);
-        }
-      }
-    }
-    for (const { uid, courseId } of open.values()) requeue?.(uid, courseId);
-    log.info('Recovered interrupted course work', { event: 'recover', courses: open.size, ...counts });
-  }
-
-  list(collection: string): DocRecord[] {
-    const col = collection.replace(/^\/+|\/+$/g, '');
-    const rows = this.db
-      .prepare('SELECT id, data, updated FROM docs WHERE collection=? ORDER BY updated')
-      .all(col) as Array<{ id: string; data: string; updated: number }>;
-    log.debug(`list ${col}`, { event: 'docstore.list', collection: col, count: rows.length });
-    return rows.map((row) => ({ id: row.id, data: JSON.parse(row.data) as Record<string, unknown>, updatedAt: row.updated }));
+    return recoverStale(
+      this,
+      { now: () => Date.now() },
+      {
+        dispatch: async (task) => {
+          requeue?.(task.payload.uid, task.payload.courseId);
+          return { taskId: task.payload.courseId, deduped: false };
+        },
+      },
+      { leaseExpiredOnly: false },
+    ).then((counts) => {
+      log.info('Recovered interrupted course work', { event: 'recover', ...counts });
+      return counts;
+    });
   }
 }

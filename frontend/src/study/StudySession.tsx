@@ -12,8 +12,9 @@ import {
   retryLesson as postRetryLesson,
 } from '../lib/api.ts';
 import { loadCourse, saveCourse } from '../lib/localDb.ts';
-import { connectCourse } from '../lib/socket.ts';
-import type { CourseSocket } from '../lib/socket.ts';
+import { connectCourse } from '../lib/realtime.ts';
+import type { CourseSocket } from '../lib/realtime.ts';
+import { currentUid } from '../lib/firebase.ts';
 import { StudySessionContext } from './studyState.ts';
 import type { StudySessionValue } from './studyState.ts';
 
@@ -117,7 +118,7 @@ export function StudySessionProvider({ children }: { children: ReactNode }) {
           const created = await createCourse(files);
           const fresh: CourseState = {
             id: created.courseId,
-            owner: 'local-user',
+            owner: currentUid(),
             status: 'created',
             stage: 'structure',
             title: null,

@@ -3,6 +3,7 @@ import { AbsoluteFill, Html5Audio, Series } from 'remotion';
 import type { GeneratedSegment } from '../scene.js';
 import { theme } from '../theme.js';
 import { SegmentFrame } from './SegmentStill.js';
+import { loadLessonFonts } from './fonts.js';
 
 export type GeneratedLessonProps = {
   segments: GeneratedSegment[];
@@ -11,6 +12,7 @@ export type GeneratedLessonProps = {
 };
 
 export const GeneratedLesson: FC<GeneratedLessonProps> = ({ segments, audio }) => {
+  loadLessonFonts();
   return (
     <AbsoluteFill style={{ backgroundColor: theme.paper }}>
       <Series>
