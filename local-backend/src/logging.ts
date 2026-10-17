@@ -17,7 +17,8 @@ export const redact = (value: unknown): unknown => {
   if (value && typeof value === 'object') {
     const out: Record<string, unknown> = {};
     for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
-      out[key] = SECRET_KEY.test(key) ? '[REDACTED]' : redact(item);
+      // Counts such as usage.thinking_tokens are numbers. A secret sent as text, even digits only, is still hidden.
+      out[key] = SECRET_KEY.test(key) && !(typeof item === 'number' && Number.isFinite(item)) ? '[REDACTED]' : redact(item);
     }
     return out;
   }

@@ -105,7 +105,7 @@ it.skipIf(!AI)('upload, chapters, lessons, Ch1 L1 renders on its own, and a pers
   const course = (await (await fetch(`${base}/api/courses/${courseId}`)).json()) as Course;
   const lessons = course.chapters.filter((chapter) => !chapter.skip).flatMap((chapter) => chapter.lessons);
   expect(lessons.length).toBeGreaterThan(0);
-  expect(lessons.every((lesson) => lesson.shortSource || (lesson.wordCount >= 420 && lesson.wordCount <= 660))).toBe(true);
+  expect(lessons.every((lesson) => lesson.shortSource || (lesson.wordCount >= 399 && lesson.wordCount <= 693))).toBe(true);
   expect(lessons.filter((lesson) => lesson.status !== 'outlined').map((lesson) => lesson.id)).toEqual([lessons[0]!.id]);
 
   const lesson = (await (await fetch(`${base}/api/lessons/${lessons[0]!.id}`)).json()) as Lesson;

@@ -410,7 +410,7 @@ export const createLessonStages = (rt: Runtime) => {
   };
 
   /**
-   * Queues a lesson render. Idempotent: a lesson that is ready or already rendering is left alone.
+   * Queues a lesson render. Idempotent: a lesson that is ready, still being written, or already rendering is left alone.
    * A failed lesson re-runs only its failed segments.
    */
   const renderLesson = (uid: string, lessonId: string, options: { userClicked?: boolean; auto?: boolean } = {}) => {
@@ -418,7 +418,7 @@ export const createLessonStages = (rt: Runtime) => {
     if (!found) throw new Error('Lesson not found');
     const { courseId, doc } = found;
     const active = running.get(lessonId);
-    if (active || doc.data.status === 'ready') return active ?? Promise.resolve();
+    if (active || doc.data.status === 'ready' || doc.data.status === 'writing') return active ?? Promise.resolve();
     const stored = doc.data.priority as Priority | undefined;
     const priority: Priority = {
       courseId,

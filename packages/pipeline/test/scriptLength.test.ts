@@ -1,4 +1,4 @@
-import { LESSON_WORDS, wordCount } from '@krayon/shared';
+import { LESSON_WORDS, LESSON_WORDS_ACCEPTED, wordCount } from '@krayon/shared';
 import { describe, expect, it } from 'vitest';
 import { planLessonSizes, splitScript, truncateScript } from '../src/scriptLength.js';
 import type { DraftLesson } from '../src/scriptLength.js';
@@ -22,6 +22,18 @@ describe('planLessonSizes', () => {
   it('keeps lessons already in range', () => {
     const lessons = [draft('a', script(25, 20)), draft('b', script(30, 20))];
     expect(planLessonSizes(lessons).map((lesson) => lesson.title)).toEqual(['a', 'b']);
+  });
+
+  it('keeps a script inside the tolerance band whole', () => {
+    const nearMin = Array.from({ length: 412 }, () => 'word').join(' ');
+    const nearMax = Array.from({ length: 680 }, () => 'word').join(' ');
+    for (const text of [nearMin, nearMax]) {
+      const planned = planLessonSizes([draft('kept', text)]);
+      expect(planned).toHaveLength(1);
+      expect(planned[0]?.script).toBe(text);
+      expect(planned[0]?.needsTighten).toBe(false);
+      expect(planned[0]?.shortSource).toBeFalsy();
+    }
   });
 
   it('merges a short lesson into its smaller neighbour', () => {
@@ -59,9 +71,10 @@ describe('planLessonSizes', () => {
 });
 
 describe('truncateScript', () => {
-  it('keeps whole sentences up to LESSON_WORDS.max', () => {
+  it('keeps whole sentences up to the top of the accepted band', () => {
     const cut = truncateScript(script(40, 20));
-    expect(wordCount(cut)).toBe(660);
+    expect(wordCount(cut)).toBeLessThanOrEqual(LESSON_WORDS_ACCEPTED.max);
+    expect(wordCount(cut)).toBe(680);
     expect(cut.endsWith('end.')).toBe(true);
   });
 });

@@ -40,6 +40,10 @@ describe('limits', () => {
 
   it('reports a script outside the word range with its path', () => {
     expect(scriptWordIssue(words(500))).toBeNull();
+    expect(scriptWordIssue(words(399))).toBeNull();
+    expect(scriptWordIssue(words(693))).toBeNull();
+    expect(scriptWordIssue(words(398))?.message).toMatch(/Has 398 words; write 420 to 660/);
+    expect(scriptWordIssue(words(694))?.message).toMatch(/Has 694 words; shorten it to 420 to 660/);
     expect(scriptWordIssue(words(100))?.path).toBe('explanationSummary');
     expect(scriptWordIssue(words(100))?.message).toMatch(/Has 100 words; write 420 to 660/);
     expect(scriptWordIssue(words(700), 'lessons.0')?.message).toMatch(/shorten/);
@@ -101,6 +105,9 @@ describe('schemas', () => {
   it('stores a lesson only within LESSON_WORDS unless the source is short', () => {
     const base = { title: 'T', studyDoc: 'notes' };
     expect(storedLessonSchema.safeParse({ ...base, explanationSummary: words(500) }).success).toBe(true);
+    expect(storedLessonSchema.safeParse({ ...base, explanationSummary: words(399) }).success).toBe(true);
+    expect(storedLessonSchema.safeParse({ ...base, explanationSummary: words(693) }).success).toBe(true);
+    expect(storedLessonSchema.safeParse({ ...base, explanationSummary: words(398) }).success).toBe(false);
     expect(storedLessonSchema.safeParse({ ...base, explanationSummary: words(200) }).success).toBe(false);
     expect(storedLessonSchema.safeParse({ ...base, explanationSummary: words(200), shortSource: true }).success).toBe(true);
     const long = storedLessonSchema.safeParse({ ...base, explanationSummary: words(700), shortSource: true });

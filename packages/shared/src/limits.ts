@@ -3,8 +3,14 @@
 export const WPM = 140;
 export const FPS = 30;
 
-/** Spoken script per lesson: about 3 to 5 minutes at WPM. */
+/** Spoken script per lesson: about 3 to 5 minutes at WPM. Prompts still ask for this range. */
 export const LESSON_WORDS = { min: 420, max: 660 } as const;
+/** A script inside this band is kept; only scripts outside it are retried. 399 to 693 words. */
+export const LESSON_WORDS_TOLERANCE = 0.05;
+export const LESSON_WORDS_ACCEPTED = {
+  min: Math.floor(LESSON_WORDS.min * (1 - LESSON_WORDS_TOLERANCE)),
+  max: Math.ceil(LESSON_WORDS.max * (1 + LESSON_WORDS_TOLERANCE)),
+} as const;
 export const LESSON_SECONDS = { min: 180, max: 300 } as const;
 
 export const SEGMENT_SECONDS = { min: 6, max: 15 } as const;
@@ -29,13 +35,13 @@ export const framesFor = (words: number) => {
 /** Seconds of speech (no pauses) for a script. */
 export const speechSeconds = (words: number) => (words / WPM) * 60;
 
-/** Path-qualified issue when a lesson script is outside LESSON_WORDS, or null. */
+/** Path-qualified issue when a lesson script is outside the accepted band, or null. The message still asks for LESSON_WORDS. */
 export const scriptWordIssue = (text: string, path = 'explanationSummary') => {
   const words = wordCount(text);
-  if (words < LESSON_WORDS.min) {
+  if (words < LESSON_WORDS_ACCEPTED.min) {
     return { path, message: `Has ${words} words; write ${LESSON_WORDS.min} to ${LESSON_WORDS.max} words.` };
   }
-  if (words > LESSON_WORDS.max) {
+  if (words > LESSON_WORDS_ACCEPTED.max) {
     return { path, message: `Has ${words} words; shorten it to ${LESSON_WORDS.min} to ${LESSON_WORDS.max} words.` };
   }
   return null;

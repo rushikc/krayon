@@ -17,7 +17,7 @@ export type CourseStatus = 'created' | 'structure' | 'writing' | 'ready' | 'fail
 
 export type ChapterStatus = 'pending' | 'writing' | 'ready' | 'failed';
 
-export type LessonStatus = 'outlined' | 'queued' | 'rendering' | 'ready' | 'failed';
+export type LessonStatus = 'writing' | 'outlined' | 'queued' | 'rendering' | 'ready' | 'failed';
 
 export type SegmentStatus = 'pending' | 'drafting' | 'checking' | 'rendering' | 'reviewing' | 'ready' | 'failed';
 

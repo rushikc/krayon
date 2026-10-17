@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { FPS, LESSON_WORDS, SEGMENT_FRAMES, wordCount } from './limits.js';
+import { FPS, LESSON_WORDS, LESSON_WORDS_ACCEPTED, SEGMENT_FRAMES, wordCount } from './limits.js';
 import type { GeneratedSegment, SceneLayout } from './scene.js';
 
 const optionalText = z
@@ -290,7 +290,7 @@ export const storedLessonSchema = z
   })
   .superRefine((value, context) => {
     const words = wordCount(value.explanationSummary);
-    if (words > LESSON_WORDS.max || (!value.shortSource && words < LESSON_WORDS.min)) {
+    if (words > LESSON_WORDS_ACCEPTED.max || (!value.shortSource && words < LESSON_WORDS_ACCEPTED.min)) {
       context.addIssue({
         code: 'custom',
         path: ['explanationSummary'],

@@ -80,8 +80,25 @@ describe('normalizeBeats', () => {
     expect(wordCount(text.join(' '))).toBe(660);
     const timed = normalizeBeats(fallbackBeats(text));
     const last = timed[timed.length - 1]!;
-    expect((last.startFrame + last.durationInFrames) / 30).toBeLessThanOrEqual(LESSON_SECONDS.max + SEGMENT_FRAMES.max / 30);
+    expect(last.startFrame + last.durationInFrames).toBeLessThanOrEqual(LESSON_SECONDS.max * 30);
     expect(timed.length).toBeLessThanOrEqual(SEGMENTS_PER_LESSON.max);
+    expect(timed.every((item) => item.durationInFrames >= SEGMENT_FRAMES.min && item.durationInFrames <= SEGMENT_FRAMES.max)).toBe(true);
+  });
+
+  it('fits a 693-word lesson to the clock, including many very short sentences', () => {
+    const within = (text: string[], input: Beat[]) => {
+      expect(wordCount(text.join(' '))).toBe(693);
+      const timed = normalizeBeats(input);
+      const last = timed[timed.length - 1]!;
+      expect(last.startFrame + last.durationInFrames).toBeLessThanOrEqual(LESSON_SECONDS.max * 30);
+      expect(timed.every((item) => item.durationInFrames >= SEGMENT_FRAMES.min && item.durationInFrames <= SEGMENT_FRAMES.max)).toBe(true);
+      expect(timed.map((item) => item.narration).join(' ')).toBe(text.join(' '));
+    };
+    const normal = sentences(33, 21);
+    within(normal, [beat(normal)]);
+    const tiny = sentences(231, 3);
+    within(tiny, [beat(tiny)]);
+    within(tiny, fallbackBeats(tiny));
   });
 
   it('leaves a short beat that fits nowhere short and stretches it', () => {

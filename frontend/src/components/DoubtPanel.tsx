@@ -9,7 +9,8 @@ import type { LessonMarks } from '../study/localStudy.tsx';
 type DoubtPanelProps = {
   paused: boolean;
   timeLabel: string;
-  answer: string;
+  /** Seed bubble. The generated lesson leaves this out and shows the empty state instead. */
+  answer?: string;
   marks: LessonMarks;
   tool: LessonTool | null;
   prompts: { id: string; text: string }[];
@@ -19,7 +20,7 @@ type DoubtPanelProps = {
   onNote: (text: string) => void;
   onQuizToggle: (id: string) => void;
   onQuiz: () => void;
-  chapterLabel: string;
+  chapterLabel?: string;
   highlightAttached: boolean;
   onClose: () => void;
   topicId?: string;
@@ -107,7 +108,8 @@ export function DoubtPanel({
         <p className="inline-flex max-w-full items-center gap-2 rounded-full border-2 border-ink bg-stone px-1.5 py-1 text-[13px] text-ink">
           {topicId && <TopicArt topicId={topicId} className="h-6 w-9 shrink-0 overflow-hidden rounded-sm bg-chalk" />}
           <span className="truncate">
-            {paused ? 'Paused at' : 'At'} {timeLabel} · {chapterLabel}
+            {paused ? 'Paused at' : 'At'} {timeLabel}
+            {chapterLabel ? ` · ${chapterLabel}` : ''}
             {highlightAttached ? ' · highlight attached' : ''}
           </span>
         </p>
@@ -143,7 +145,7 @@ export function DoubtPanel({
             Thinking…
           </p>
         )}
-        {marks.doubts.length === 0 && (
+        {marks.doubts.length === 0 && answer && (
           <div className="rounded-2xl border-[1.5px] border-ink bg-white px-2.5 py-2">
             <p className="text-[11px] font-semibold tracking-[0.14em] text-crayon-text uppercase">Krayon</p>
             <Markdown className="mt-1 text-[14px] leading-snug">{answer}</Markdown>
@@ -158,6 +160,7 @@ export function DoubtPanel({
             </div>
           </div>
         )}
+        {marks.doubts.length === 0 && !answer && <p className="text-[14px] leading-snug text-muted">Ask anything about this lesson.</p>}
 
         {tool === 'note' && (
           <form onSubmit={saveNote} className="grid gap-2">

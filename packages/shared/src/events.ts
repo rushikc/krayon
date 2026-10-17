@@ -9,6 +9,7 @@ export const pipelineEventTypes = [
   'chapter.writing',
   'chapter.ready',
   'chapter.failed',
+  'lesson.writing',
   'lesson.outlined',
   'lesson.queued',
   'lesson.rendering',

@@ -1,6 +1,7 @@
 import {
   GenerationError,
   LESSON_WORDS,
+  LESSON_WORDS_ACCEPTED,
   chapterTextSchema,
   lessonOutlineSchema,
   lessonScriptSchema,
@@ -40,18 +41,30 @@ import {
   lessonIdFor,
   lessonIndexPath,
   lessonPath,
+  lessonsPath,
 } from './store.js';
 
 /** Pages sent per chapter-text call; halved when the output hits MAX_TOKENS. */
 const CHAPTER_TEXT_PAGES = 30;
-/** Source pages per suggested lesson in the outline prompt. */
-const PAGES_PER_LESSON = 3;
-const MAX_LESSONS = 12;
+/** Midpoint of LESSON_WORDS: chapter text of about this many words is one lesson. */
+const WORDS_PER_LESSON = Math.round((LESSON_WORDS.min + LESSON_WORDS.max) / 2);
+const MAX_LESSONS = 8;
 
-/** Lessons to ask for, and the fewest the outline may return, for a chapter of `pages` pages. */
-export const lessonTarget = (pages: number) => {
-  const suggested = Math.max(1, Math.min(MAX_LESSONS, Math.round(pages / PAGES_PER_LESSON)));
+/** Lessons to ask for. Uses the chapter text when it has words, otherwise about one lesson per six pages. */
+export const lessonTarget = ({ words, pages }: { words?: number; pages: number }) => {
+  const raw = words && words > 0 ? Math.round(words / WORDS_PER_LESSON) : Math.round(pages / 6);
+  const suggested = Math.max(1, Math.min(MAX_LESSONS, raw));
   return { suggested, fewest: Math.max(1, Math.floor(suggested / 2)) };
+};
+
+/** One shorter retry when the doc hits MAX_TOKENS. Any other error is rethrown, including a second MAX_TOKENS. */
+export const withShorterRetry = async <T>(write: (short: boolean) => Promise<T>): Promise<T> => {
+  try {
+    return await write(false);
+  } catch (error) {
+    if (!(error instanceof GenerationError) || error.code !== 'MAX_TOKENS') throw error;
+    return write(true);
+  }
 };
 
 const FINISHED_LINE = /[.!?)\]`*_|"”]\s*$/;
@@ -76,6 +89,9 @@ export const outlineAdvice = (
   const issues: GenerationIssue[] = [];
   const { lessons } = value;
   if (lessons.length < fewest) issues.push({ path: 'lessons', message: `Has ${lessons.length} lessons for ${pages} pages; split it into about ${suggested}.` });
+  if (lessons.length > Math.ceil(suggested * 1.5)) {
+    issues.push({ path: 'lessons', message: `Has ${lessons.length} lessons; about ${suggested} fit, combine related ones.` });
+  }
   if (lessons.length === 0) return issues;
   if (lessons[0].pageStart > 2) issues.push({ path: 'lessons[0].pageStart', message: `Pages 1 to ${lessons[0].pageStart - 1} are not in any lesson.` });
   const last = lessons.length - 1;
@@ -311,8 +327,8 @@ export const createChapterStages = (rt: Runtime) => {
         fields: { courseId, chapterId: chapter.id, lesson: lesson.title },
       });
       const script = result.value.explanationSummary;
-      if (wordCount(script) <= LESSON_WORDS.max && wordCount(script) >= LESSON_WORDS.min) return script;
-      return wordCount(script) > LESSON_WORDS.max ? truncateScript(script) : truncateScript(lesson.script);
+      if (wordCount(script) <= LESSON_WORDS_ACCEPTED.max && wordCount(script) >= LESSON_WORDS_ACCEPTED.min) return script;
+      return wordCount(script) > LESSON_WORDS_ACCEPTED.max ? truncateScript(script) : truncateScript(lesson.script);
     } catch (error) {
       if (isCancelled(error)) throw error;
       return truncateScript(lesson.script);
@@ -320,30 +336,34 @@ export const createChapterStages = (rt: Runtime) => {
   };
 
   const writeStudyDoc = async (uid: string, courseId: string, chapter: ChapterDoc & { id: string }, lesson: DraftLesson) => {
-    const result = await rt.modelJson({
-      name: 'studyDoc',
-      schema: studyDocSchema,
-      responseSchema: modelResponseSchemas.studyDoc,
-      prompt: studyDocPrompt({
-        chapterTitle: chapter.title,
-        title: lesson.title,
-        start: lesson.pageStart,
-        end: lesson.pageEnd,
-        script: lesson.script,
-        notes: chapter.chapterText ?? '',
-      }),
-      files: [await rt.sources.slice(uid, chapter.sourceId, lesson.pageStart, lesson.pageEnd)],
-      check: (value) =>
-        studyDocFinished(value.studyDoc)
-          ? []
-          : [{ path: 'studyDoc', message: 'Stops before the end; finish every section and end with a "Key takeaways" list.' }],
-      acceptBest: true,
-      attempts: 3,
-      long: true,
-      priority: sameChapterPriority(courseId, chapter.index),
-      fields: { courseId, chapterId: chapter.id, lesson: lesson.title },
+    const doc = await withShorterRetry(async (short) => {
+      const result = await rt.modelJson({
+        name: 'studyDoc',
+        schema: studyDocSchema,
+        responseSchema: modelResponseSchemas.studyDoc,
+        prompt: studyDocPrompt({
+          chapterTitle: chapter.title,
+          title: lesson.title,
+          start: lesson.pageStart,
+          end: lesson.pageEnd,
+          script: lesson.script,
+          notes: chapter.chapterText ?? '',
+          short,
+        }),
+        files: [await rt.sources.slice(uid, chapter.sourceId, lesson.pageStart, lesson.pageEnd)],
+        check: (value) =>
+          studyDocFinished(value.studyDoc)
+            ? []
+            : [{ path: 'studyDoc', message: 'Stops before the end; finish every section and end with a "Key takeaways" list.' }],
+        acceptBest: true,
+        attempts: 3,
+        long: true,
+        priority: sameChapterPriority(courseId, chapter.index),
+        fields: { courseId, chapterId: chapter.id, lesson: lesson.title },
+      });
+      return result.value.studyDoc;
     });
-    return trimUnfinished(result.value.studyDoc);
+    return trimUnfinished(doc);
   };
 
   /**
@@ -362,6 +382,53 @@ export const createChapterStages = (rt: Runtime) => {
       docs.set(path, { status: 'writing', statusDetail }, true);
       rt.emitChapter(uid, courseId, chapterId, 'chapter.writing', { detail: statusDetail, step: 'writing' });
     };
+    /** One roadmap row per lesson, as soon as its title is known and again as its script or notes finish. */
+    const publishWriting = (
+      index: number,
+      lesson: { title: string; focus: string; pageStart: number; pageEnd: number },
+      statusDetail: string,
+    ) => {
+      const lessonId = lessonIdFor(chapterId, index);
+      const lessonDoc = lessonPath(uid, courseId, lessonId);
+      const existing = docs.get(lessonDoc);
+      if (existing && existing.data.status !== 'writing') return;
+      const pages: number[] = [];
+      for (let page = lesson.pageStart; page <= lesson.pageEnd; page += 1) pages.push(page + 1);
+      docs.set(
+        lessonDoc,
+        {
+          courseId,
+          chapterId,
+          sourceId: chapter.sourceId,
+          index,
+          title: lesson.title,
+          focus: lesson.focus,
+          pdfPageStart: lesson.pageStart,
+          pdfPageEnd: lesson.pageEnd,
+          sourcePages: pages,
+          status: 'writing',
+          statusDetail,
+          durationFrames: 0,
+          segmentCount: 0,
+          segmentsReady: 0,
+          wordCount: 0,
+          shortSource: false,
+          error: null,
+          errorInfo: null,
+        },
+        true,
+      );
+      docs.set(lessonIndexPath(uid, lessonId), { courseId, chapterId });
+      rt.emitLesson(uid, courseId, lessonId, 'lesson.writing', { step: 'writing' });
+    };
+    const dropExtraWriting = (count: number) => {
+      for (const row of docs.list(lessonsPath(uid, courseId))) {
+        if (row.data.chapterId !== chapterId || row.data.status !== 'writing') continue;
+        if (Number(row.data.index) < count) continue;
+        docs.delete(lessonPath(uid, courseId, row.id));
+        docs.delete(lessonIndexPath(uid, row.id));
+      }
+    };
     docs.set(path, { error: null, errorInfo: null }, true);
     try {
       if (!chapter.chapterText) {
@@ -378,7 +445,7 @@ export const createChapterStages = (rt: Runtime) => {
       if (!chapter.outline) {
         detail('Splitting into lessons');
         const pages = chapter.pdfPageEnd - chapter.pdfPageStart + 1;
-        const { suggested, fewest } = lessonTarget(pages);
+        const { suggested, fewest } = lessonTarget({ words: wordCount(chapter.chapterText ?? ''), pages });
         const result = await rt.modelJson({
           name: 'lessonOutline',
           schema: lessonOutlineSchema,
@@ -405,8 +472,9 @@ export const createChapterStages = (rt: Runtime) => {
       }
 
       if (!chapter.planned) {
-        const outline = chapter.outline;
+        const outline = chapter.outline ?? [];
         const drafts = chapter.drafts?.length === outline.length ? [...chapter.drafts] : outline.map(() => null);
+        outline.forEach((lesson, index) => publishWriting(index, lesson, drafts[index] ? 'Script written' : 'Writing the script'));
         detail(`Writing ${outline.length} lesson script${outline.length === 1 ? '' : 's'}`);
         await Promise.all(
           outline.map(async (lesson, index) => {
@@ -416,6 +484,7 @@ export const createChapterStages = (rt: Runtime) => {
               nextTitle: outline[index + 1]?.title,
             });
             docs.set(path, { drafts }, true);
+            publishWriting(index, lesson, 'Script written');
           }),
         );
         let planned: DraftLesson[] = planLessonSizes(
@@ -439,13 +508,17 @@ export const createChapterStages = (rt: Runtime) => {
         });
       }
 
-      const planned = chapter.planned;
+      const planned = chapter.planned ?? [];
+      dropExtraWriting(planned.length);
+      planned.forEach((lesson, index) => publishWriting(index, lesson, lesson.studyDoc ? 'Study notes written' : 'Writing study notes'));
       detail('Writing study notes');
       await Promise.all(
         planned.map(async (lesson, index) => {
           if (lesson.studyDoc) return;
-          planned[index] = { ...lesson, studyDoc: await writeStudyDoc(uid, courseId, chapter, lesson) };
+          const written = { ...lesson, studyDoc: await writeStudyDoc(uid, courseId, chapter, lesson) };
+          planned[index] = written;
           docs.set(path, { planned }, true);
+          publishWriting(index, written, 'Study notes written');
         }),
       );
 

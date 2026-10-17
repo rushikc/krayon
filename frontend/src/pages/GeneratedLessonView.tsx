@@ -553,10 +553,8 @@ export function GeneratedLessonView({ lessonId }: { lessonId: string }) {
               <DoubtPanel
                 paused={!playing}
                 timeLabel={formatClock(frame, FPS)}
-                chapterLabel={`Part ${activeIndex + 1} of ${segments.length}`}
                 highlightAttached={marks.strokes.length > 0}
                 onClose={closePanel}
-                answer={narration}
                 marks={marks}
                 tool={tool}
                 prompts={prompts}

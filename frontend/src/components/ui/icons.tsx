@@ -27,21 +27,11 @@ function Svg({ className, title, children }: IconProps & { children: ReactNode }
 export function LogoMark({ className = 'h-8 w-8' }: { className?: string }) {
   return (
     <svg viewBox="0 0 32 32" className={className} aria-hidden="true">
-      <path
-        d="M7.2 25.2c2.4-.3 6.4-2.4 8.6-6.4 2.2-4 4.2-9 8-12.2"
-        stroke="var(--color-crayon)"
-        strokeWidth="3.2"
-        fill="none"
-        strokeLinecap="round"
-      />
-      <path d="M22.4 6.1l2.7 1-.9 2.5" fill="var(--color-yellow)" />
-      <path
-        d="M6.4 24.6l2.5 2.3"
-        stroke="var(--color-ink)"
-        strokeWidth="2.2"
-        fill="none"
-        strokeLinecap="round"
-      />
+      <g transform="translate(28.4 28.4) rotate(-45)">
+        <rect x="-4.6" y="-31" width="9.2" height="16" rx="1.6" fill="var(--color-ink)" />
+        <rect x="-4.6" y="-23.5" width="9.2" height="4" fill="var(--color-yellow)" />
+        <path d="M0 0 L-6.5 -17 H6.5 Z" fill="var(--color-crayon)" />
+      </g>
     </svg>
   );
 }

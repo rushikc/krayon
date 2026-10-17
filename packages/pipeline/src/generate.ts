@@ -13,8 +13,8 @@ export type ValidatedRequest<T> = {
   /** Log label: roadmap, lesson, segment, repair, review, api. */
   name: string;
   prompt: string;
-  /** One model call; transport retries (429/5xx/MAX_TOKENS) happen inside it. */
-  generate: (prompt: string) => Promise<string>;
+  /** One model call; transport retries (429/5xx/MAX_TOKENS) happen inside it. `attempt` starts at 1. */
+  generate: (prompt: string, attempt: number) => Promise<string>;
   schema: z.ZodType<T>;
   /** Extra checks after zod, such as validateSegment. Issues trigger another attempt. */
   check?: (value: T, attempt: number, attempts: number) => GenerationIssue[];
@@ -68,7 +68,7 @@ export const generateValidated = async <T>(request: ValidatedRequest<T>): Promis
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     let text: string;
     try {
-      text = await request.generate(prompt);
+      text = await request.generate(prompt, attempt);
     } catch (error) {
       if (error instanceof Error && error.name === 'Cancelled') throw error;
       throw fail(toGenerationError(error, attempt));

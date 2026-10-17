@@ -52,7 +52,7 @@ Location: `local-backend/logs/` (gitignored; rotated). The same lines also go to
 Events (`event` key):
 - `response` (`krayon.http`), one per request: `method`, `path`, `status`, `duration_ms`, redacted headers, truncated bodies. INFO for 2xx/3xx, WARNING for 4xx, ERROR for 5xx.
 - `error`: an unhandled exception, with `exc`. The client gets 500 `{"detail", "requestId"}`.
-- `gemini` (`krayon.gemini`): one per model call: `call_type` (the schema name, or `api`), `model`, `finish_reason`, `usage{prompt,output,total}`, `queue_wait_ms`, `call_ms`, `duration_ms`, `attached_pages`, `full_document`, plus `courseId`/`chapterId`/`lessonId`/`segmentId`.
+- `gemini` (`krayon.gemini`): one per model call: `call_type` (the schema name, `repair` for a scene retry, or `api`), `model`, `finish_reason`, `usage{prompt,output,total,thinking_tokens}`, `queue_wait_ms`, `call_ms`, `duration_ms`, `attached_pages`, `full_document`, plus `courseId`/`chapterId`/`lessonId`/`segmentId`. Thinking budgets: scene 0, beats 0, review 256, repair 256, everything else 1024, overridable with `THINKING_BUDGET_<CALLTYPE>`.
 - Validated generation (`krayon.gemini`, `packages/pipeline/src/generate.ts`); `schema` is the call type:
   - `ai.attempt` (WARNING): one per rejected attempt: `schema`, `attempt`, `max_attempts`, `code`, `issues[]`, `raw` (first 1500 chars of model output).
   - `ai.repaired` (INFO): a later attempt passed.
@@ -79,7 +79,8 @@ jq -c 'select(.event=="ai.attempt") | {ts,schema,attempt,code,lessonId,segmentId
 jq -c 'select(.event=="ai.failed") | {ts,schema,code,attempts,chapterId,lessonId,segmentId,issues}' app.jsonl
 jq -r 'select(.event=="ai.attempt" and .segmentId=="<id>") | .raw' app.jsonl                 # what the model sent
 jq -c 'select(.event|test("failed$")) | {ts,event,chapterId,lessonId,segmentId,code,error}' app.jsonl
-jq -s 'map(select(.event=="gemini")) | group_by(.call_type) | map({call_type:.[0].call_type, calls:length, prompt:(map(.usage.prompt//0)|add), output:(map(.usage.output//0)|add), avg_ms:((map(.call_ms//0)|add)/length|floor)})' app.jsonl   # tokens per call type
+jq -s 'map(select(.event=="gemini")) | group_by(.call_type) | map({call_type:.[0].call_type, calls:length, prompt:(map(.usage.prompt//0)|add), output:(map(.usage.output//0)|add), thinking:(map(.usage.thinking_tokens//0)|add), avg_ms:((map(.call_ms//0)|add)/length|floor)})' app.jsonl   # tokens per call type
+jq -s '{scene:(map(select(.event=="gemini" and .call_type=="scene"))|length), repair:(map(select(.event=="gemini" and .call_type=="repair"))|length), review:(map(select(.event=="gemini" and .call_type=="review"))|length), scene_check_failures:(map(select(.event=="ai.attempt" and .schema=="scene"))|length)}' app.jsonl   # scene vs repair; baseline 68 scene calls, 47 reviews. If repairs rise, set THINKING_BUDGET_SCENE=256
 jq -c 'select(.event=="structure.ranges") | .ranges' app.jsonl                              # chapter page ranges
 jq -r 'select(.exc) | .ts + " " + .request_id + "\n" + .exc' app.jsonl                       # stack traces
 sqlite3 ../data/firestore.sqlite3 "select collection,id,json_extract(data,'$.error') from docs where json_extract(data,'$.status')='failed'"
@@ -90,9 +91,10 @@ In the browser: the Network tab shows `X-Request-ID` on every `/api` response; f
 - `LOG_LEVEL` (`INFO`; `DEBUG` adds docstore, storage and raw Gemini output), `LOG_BODY_MAX` (2000), `LOG_DIR` (`./logs`), `DATA_DIR` (`./data`), `PORT` (8787).
 - `MAX_REPAIR_ROUNDS` (2): a broken scene gets `MAX_REPAIR_ROUNDS + 1` validated calls. 429s are retried with backoff inside each call; `MAX_TOKENS` fails at once.
 - `SEGMENT_RETRIES` (2), `CHAPTER_CONCURRENCY` (3), `GEMINI_MAX_CONCURRENCY` (5), `RENDER_CONCURRENCY` (2), `RENDER_KEYFRAMES_MAX` (8), `GEMINI_REVIEW_MODEL`, `MAX_REVIEW_ROUNDS`, `REVIEW_PASS_SCORE`. Restart the backend after changing them.
+- `THINKING_BUDGET_<CALLTYPE>` overrides the thinking budget for one call type (`THINKING_BUDGET_SCENE`, `THINKING_BUDGET_BEATS`, `THINKING_BUDGET_REVIEW`, `THINKING_BUDGET_REPAIR`, and the same for `structure`, `chapterText`, `lessonOutline`, `lessonScript`, `studyDoc`, `chat`). Unset: scene 0, beats 0, review 256, repair 256, everything else 1024.
 - To test without touching the dev server or its data, run another instance: `PORT=8797 DATA_DIR=/tmp/k/data LOG_DIR=/tmp/k/logs npx tsx src/index.ts` in `local-backend/`.
 
 ## Rules for agents
 - Check `app.jsonl` for the failing request id before guessing; quote the relevant lines (`ai.attempt` → `ai.failed` → `segment.failed` → `lesson.failed`).
-- Never print or log secrets. The logger masks keys matching authorization, cookie, api key, token, secret, password or credential, plus `AIza…`, `ya29.…` and `Bearer …` values. Don't add a field whose key contains "token" if you want it visible (that's why Gemini usage is logged under `usage`).
+- Never print or log secrets. The logger masks keys matching authorization, cookie, api key, token, secret, password or credential, plus `AIza…`, `ya29.…` and `Bearer …` values. A number under such a key is kept (so `usage.thinking_tokens` stays visible); a string is always masked, even a digits-only one.
 - Don't reset data (`/api/admin/reset`) or delete `data/` or `logs/` unless the user asks.

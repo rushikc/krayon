@@ -1,14 +1,10 @@
 import { Link } from 'react-router-dom';
 import { usePalette } from '../../paletteState.ts';
-import { useUpload } from '../../study/uploadState.tsx';
 import { apiFetch } from '../../lib/api.ts';
 import { LogoMark } from './icons.tsx';
 
-const itemClass = 'shrink-0 text-[14px] font-medium text-ink';
-
 export function Header() {
   const { prefix } = usePalette();
-  const { openUpload } = useUpload();
   const home = prefix || '/';
 
   // Local dev: wipe the backend and this browser's copies, so nothing re-seeds the backend.
@@ -34,21 +30,10 @@ export function Header() {
         <LogoMark className="h-6 w-6" />
         Krayon
       </Link>
-      <nav aria-label="Primary" className="flex min-w-0 flex-1 gap-4 overflow-x-auto sm:justify-center">
-        <Link to={home} className={itemClass}>
-          Library
-        </Link>
-        <Link to={{ pathname: home, search: 'filter=progress' }} className={itemClass}>
-          My lessons
-        </Link>
-        <button type="button" onClick={() => openUpload()} className={itemClass}>
-          Sources
-        </button>
-      </nav>
       <button
         type="button"
         onClick={() => void clearResources()}
-        className="ml-auto text-[13px] font-medium text-muted sm:ml-0"
+        className="ml-auto text-[13px] font-medium text-muted"
       >
         Clear resources
       </button>

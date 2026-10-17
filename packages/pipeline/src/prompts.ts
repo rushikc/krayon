@@ -107,10 +107,20 @@ Return it as explanationSummary.
 Script:
 ${script}`;
 
-export const studyDocPrompt = (input: { chapterTitle: string; title: string; start: number; end: number; script: string; notes: string }) => `${attachedPages(input.start, input.end)}
+export const studyDocPrompt = (input: {
+  chapterTitle: string;
+  title: string;
+  start: number;
+  end: number;
+  script: string;
+  notes: string;
+  short?: boolean;
+}) => `${attachedPages(input.start, input.end)}
 Write the study notes for the lesson "${input.title}" in the chapter "${input.chapterTitle}". They are shown below the lesson video.
 
-studyDoc is markdown and more extensive than the spoken script: headings, definitions, worked examples, short code where the source has code, figures described in words, and a "Key takeaways" list at the end.
+studyDoc is markdown and more extensive than the spoken script: headings, definitions, worked examples, short code where the source has code, and figures described in words.
+${input.short ? 'The previous draft was cut off. Write about 400 to 600 words.' : 'Write about 600 to 1,000 words.'}
+End with a "Key takeaways" list as the last section, and put nothing after it.
 Wrap math in single dollar signs, like $O(n \\log n)$.
 Stay inside the attached pages and the notes below.
 

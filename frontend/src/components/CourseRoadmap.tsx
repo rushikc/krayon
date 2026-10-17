@@ -23,8 +23,17 @@ const pageSpan = (chapter: ChapterState) =>
     ? `PDF pages ${chapter.pdfPageStart + 1}–${chapter.pdfPageEnd + 1}`
     : `PDF page ${chapter.pdfPageStart + 1}`;
 
+const lessonPages = (lesson: LessonSummary) => {
+  const pages = lesson.sourcePages;
+  if (pages.length === 0) return '';
+  const first = pages[0] ?? 0;
+  const last = pages[pages.length - 1] ?? first;
+  return first === last ? `PDF page ${first}` : `PDF pages ${first}–${last}`;
+};
+
 function LessonAction({ lesson }: { lesson: LessonSummary }) {
   const session = useStudySession();
+  if (lesson.status === 'writing') return null;
   if (lesson.status === 'ready') {
     const label = progressLabel(lesson);
     return (
@@ -63,6 +72,8 @@ function LessonRow({ lesson, number, next }: { lesson: LessonSummary; number: nu
   const label = progressLabel(lesson);
   const length = lessonLength(lesson);
   const done = lesson.progress?.completed || lesson.progress?.watched;
+  const writing = lesson.status === 'writing';
+  const pages = lessonPages(lesson);
   const state =
     lesson.status === 'ready'
       ? (label ?? 'Ready')
@@ -75,34 +86,47 @@ function LessonRow({ lesson, number, next }: { lesson: LessonSummary; number: nu
     <li
       className={cx(
         'grid grid-cols-[2.25rem_minmax(0,1fr)_auto] items-center gap-3 rounded-2xl border-2 px-3 py-2.5',
-        next ? 'border-ink bg-yellow/40 shadow-[3px_3px_0_var(--color-ink)]' : 'border-ink/15 bg-paper',
+        writing || !next ? 'border-ink/15 bg-paper' : 'border-ink bg-yellow/40 shadow-[3px_3px_0_var(--color-ink)]',
       )}
     >
       <span
         className={cx(
-          'flex h-8 w-8 items-center justify-center rounded-full border-2 border-ink text-[13px] font-medium tabular-nums',
-          done ? 'bg-done-fill text-ink' : 'bg-paper text-ink',
+          'flex h-8 w-8 items-center justify-center rounded-full border-2 text-[13px] font-medium tabular-nums',
+          done ? 'border-ink bg-done-fill text-ink' : writing ? 'border-ink/25 bg-paper text-muted' : 'border-ink bg-paper text-ink',
         )}
         aria-hidden="true"
       >
         {done ? <IconCheck className="h-3.5 w-3.5" /> : number}
       </span>
       <div className="min-w-0">
-        <Link to={`/study/${lesson.id}`} className="block truncate text-[15px] font-medium text-ink hover:underline">
-          {lesson.title}
-        </Link>
+        {writing ? (
+          <span className="block truncate text-[15px] font-medium text-muted">{lesson.title}</span>
+        ) : (
+          <Link to={`/study/${lesson.id}`} className="block truncate text-[15px] font-medium text-ink hover:underline">
+            {lesson.title}
+          </Link>
+        )}
         <p className="mt-0.5 flex min-w-0 items-center gap-2 text-[13px] text-muted">
-          {next && <span className="shrink-0 font-medium text-ink">Up next</span>}
-          {state && (
-            <span className={cx('shrink-0', lesson.status === 'failed' && 'text-crayon-text')}>{state}</span>
+          {writing ? (
+            <>
+              {lesson.statusDetail && <span className="shrink-0">{lesson.statusDetail}</span>}
+              {pages && <span className="shrink-0">{pages}</span>}
+            </>
+          ) : (
+            <>
+              {next && <span className="shrink-0 font-medium text-ink">Up next</span>}
+              {state && (
+                <span className={cx('shrink-0', lesson.status === 'failed' && 'text-crayon-text')}>{state}</span>
+              )}
+              {length && <span className="shrink-0 tabular-nums">{length}</span>}
+              {lesson.status === 'failed' && lesson.error && (
+                <span className="min-w-0 truncate text-crayon-text" title={lesson.error}>
+                  {lesson.error}
+                </span>
+              )}
+              {lesson.shortSource && <span className="shrink-0">Short source</span>}
+            </>
           )}
-          {length && <span className="shrink-0 tabular-nums">{length}</span>}
-          {lesson.status === 'failed' && lesson.error && (
-            <span className="min-w-0 truncate text-crayon-text" title={lesson.error}>
-              {lesson.error}
-            </span>
-          )}
-          {lesson.shortSource && <span className="shrink-0">Short source</span>}
         </p>
       </div>
       <LessonAction lesson={lesson} />
@@ -129,6 +153,7 @@ function ChapterSection({
   const failure = chapterFailure(chapter, () => void session.retryChapter(chapter.id));
   const count = chapter.lessons.length;
   const ready = chapter.lessons.filter((lesson) => lesson.status === 'ready').length;
+  const rendering = chapter.lessons.some((lesson) => lesson.status === 'queued' || lesson.status === 'rendering');
   const status =
     chapter.status === 'ready'
       ? `${count} ${count === 1 ? 'lesson' : 'lessons'}${ready > 0 ? ` · ${ready} ready` : ''}`
@@ -152,7 +177,12 @@ function ChapterSection({
             {status} · {pageSpan(chapter)}
           </span>
         </span>
-        {chapter.status === 'writing' && <span className="h-2.5 w-2.5 shrink-0 animate-pulse rounded-full bg-crayon" aria-hidden="true" />}
+        {rendering && (
+          <span className="flex shrink-0 items-center gap-2 text-[13px] font-medium text-muted">
+            <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-crayon" aria-hidden="true" />
+            Rendering…
+          </span>
+        )}
         <span className={cx('shrink-0 text-[18px] text-ink transition-transform', open && 'rotate-90')} aria-hidden="true">
           ›
         </span>
@@ -167,7 +197,7 @@ function ChapterSection({
               ))}
             </ol>
           ) : (
-            !failure && <p className="text-[14px] text-muted">Lessons appear here once this chapter is written.</p>
+            !failure && <p className="text-[14px] text-muted">Lessons appear here once this chapter is split.</p>
           )}
         </div>
       )}
@@ -186,19 +216,22 @@ function NextCard({ course }: { course: CourseState }) {
       {next ? (
         <>
           <p className="mt-2 font-serif text-[20px] leading-tight text-ink">{next.title}</p>
+          {next.status === 'writing' && next.statusDetail && <p className="mt-1 text-[13px] text-muted">{next.statusDetail}</p>}
           {chapter && <p className="mt-1 text-[13px] text-muted">{chapter.title}</p>}
-          <div className="mt-4">
-            {next.status === 'ready' ? (
+          {next.status === 'ready' ? (
+            <div className="mt-4">
               <Link to={`/study/${next.id}`} className={buttonClass('primary', 'w-full')}>
                 <IconPlay className="h-4 w-4" />
                 {progressLabel(next) ?? 'Play lesson'}
               </Link>
-            ) : (
+            </div>
+          ) : next.status === 'outlined' ? (
+            <div className="mt-4">
               <Link to={`/study/${next.id}`} className={buttonClass('secondary', 'w-full')}>
                 Open lesson
               </Link>
-            )}
-          </div>
+            </div>
+          ) : null}
         </>
       ) : (
         <p className="mt-2 text-[15px] text-ink">{lessons.length > 0 ? 'Every lesson is watched.' : 'Lessons are on the way.'}</p>

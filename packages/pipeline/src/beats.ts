@@ -1,7 +1,9 @@
 import {
   FPS,
   LESSON_SECONDS,
+  SEGMENT_PAUSE_SECONDS,
   SEGMENT_SECONDS,
+  SEGMENT_FRAMES,
   SEGMENTS_PER_LESSON,
   SEGMENT_WORDS,
   WPM,
@@ -205,11 +207,46 @@ export const normalizeBeats = (input: Beat[]): TimedBeat[] => {
     beats = [...beats.slice(0, at), mergeBeats(beats[at]!, beats[at + 1]!), ...beats.slice(at + 2)];
   }
 
+  // The lesson clock is the summed frames, not the word count. Shrink the pause first. If segments
+  // stretched to the 6 s minimum still run past 5 minutes, merge the pair that saves the most time.
+  const limit = LESSON_SECONDS.max * FPS;
+  const framesAt = (words: number, pauseSeconds: number) => {
+    if (pauseSeconds === SEGMENT_PAUSE_SECONDS) return framesFor(words);
+    const frames = Math.ceil((words / WPM) * 60 * FPS) + Math.round(pauseSeconds * FPS);
+    return Math.min(SEGMENT_FRAMES.max, Math.max(SEGMENT_FRAMES.min, frames));
+  };
+  const totalAt = (pauseSeconds: number) => beats.reduce((sum, beat) => sum + framesAt(beatWords(beat), pauseSeconds), 0);
+  let pause = SEGMENT_PAUSE_SECONDS;
+  if (totalAt(pause) > limit) {
+    pause = 0;
+    for (let frames = Math.round(SEGMENT_PAUSE_SECONDS * FPS); frames >= 0; frames -= 1) {
+      if (totalAt(frames / FPS) <= limit) {
+        pause = frames / FPS;
+        break;
+      }
+    }
+  }
+  while (totalAt(pause) > limit) {
+    let best = -1;
+    let bestSaved = 0;
+    for (let index = 0; index < beats.length - 1; index += 1) {
+      const combined = beatWords(beats[index]!) + beatWords(beats[index + 1]!);
+      if (combined > SEGMENT_WORDS.max || !speechFits(combined)) continue;
+      const saved = framesAt(beatWords(beats[index]!), pause) + framesAt(beatWords(beats[index + 1]!), pause) - framesAt(combined, pause);
+      if (saved > bestSaved) {
+        best = index;
+        bestSaved = saved;
+      }
+    }
+    if (best < 0) break;
+    beats = [...beats.slice(0, best), mergeBeats(beats[best]!, beats[best + 1]!), ...beats.slice(best + 2)];
+  }
+
   let startFrame = 0;
   return beats.map((beat) => {
     const narration = beat.sentences.join(' ');
     const words = wordCount(narration);
-    const durationInFrames = framesFor(words);
+    const durationInFrames = framesAt(words, pause);
     const timed: TimedBeat = { ...beat, narration, words, durationInFrames, startFrame };
     startFrame += durationInFrames;
     return timed;

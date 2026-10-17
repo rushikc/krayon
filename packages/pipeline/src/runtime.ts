@@ -7,6 +7,7 @@ import {
   LONG_OUTPUT_TOKENS,
   LONG_TIMEOUT_MS,
   MAX_OUTPUT_TOKENS,
+  callTypeForAttempt,
   geminiQueue,
   runGeminiCall,
   thinkingConfigFor,
@@ -133,7 +134,7 @@ export const createRuntime = (deps: PipelineDeps) => {
             prompt: toParts(prompt, files),
             config: {
               maxOutputTokens: options.long ? LONG_OUTPUT_TOKENS : MAX_OUTPUT_TOKENS,
-              ...thinkingConfigFor(model),
+              ...thinkingConfigFor(model, options.callType),
             },
             output: { jsonSchema: responseSchema },
             abortSignal: controller.signal,
@@ -145,7 +146,12 @@ export const createRuntime = (deps: PipelineDeps) => {
       outcome: (value) => ({
         finishReason: value.finishReason === 'length' ? 'MAX_TOKENS' : value.finishReason,
         usage: value.usage
-          ? { prompt: value.usage.inputTokens, output: value.usage.outputTokens, total: value.usage.totalTokens }
+          ? {
+              prompt: value.usage.inputTokens,
+              output: value.usage.outputTokens,
+              total: value.usage.totalTokens,
+              thinking_tokens: value.usage.thoughtsTokens,
+            }
           : undefined,
       }),
     });
@@ -161,11 +167,11 @@ export const createRuntime = (deps: PipelineDeps) => {
     return generateValidated({
       ...request,
       attempts: request.attempts ?? 2,
-      generate: (prompt) =>
+      generate: (prompt, attempt) =>
         generateText(prompt, files, model, request.responseSchema, {
           long: request.long,
           priority: request.priority,
-          callType: request.name,
+          callType: callTypeForAttempt(request.name, attempt),
           fields: request.fields,
         }),
       log,

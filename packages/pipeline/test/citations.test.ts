@@ -59,4 +59,9 @@ describe('outlineAdvice', () => {
   it('flags too few lessons', () => {
     expect(outlineAdvice(lessons([[1, 22]]), 22, 3, 7)[0].message).toContain('split it into about 7');
   });
+
+  it('asks to combine when there are far more lessons than fit', () => {
+    const many = lessons(Array.from({ length: 19 }, () => [1, 1] as [number, number]));
+    expect(outlineAdvice(many, 22, 2, 5).map((issue) => issue.message).some((message) => message.includes('about 5 fit'))).toBe(true);
+  });
 });

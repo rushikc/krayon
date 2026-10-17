@@ -57,7 +57,9 @@ export const normalizeSchema = (schema: unknown): unknown => {
 };
 
 export const MAX_OUTPUT_TOKENS = 8192;
-export const FLASH_THINKING_BUDGET = 1024;
+/** Scene and beats are small specified jobs. Review and scene repair get a little reasoning. Everything else keeps the default. */
+export const DEFAULT_THINKING_BUDGETS: Record<string, number> = { scene: 0, beats: 0, review: 256, repair: 256 };
+export const DEFAULT_THINKING_BUDGET = 1024;
 export const GENERATE_TIMEOUT_MS = 90_000;
 /** Lesson split, script, beats, and chapter text write long outputs. */
 export const LONG_OUTPUT_TOKENS = 16_384;
@@ -143,8 +145,22 @@ export const withGeminiSlot = <T>(run: () => Promise<T>, priority: Priority = BA
 
 export type GeminiOutcome = {
   finishReason?: string;
-  usage?: { prompt?: number; output?: number; total?: number };
+  usage?: { prompt?: number; output?: number; total?: number; thinking_tokens?: number };
 };
+
+/** Scene retries are repair calls: their own thinking budget and their own log line. */
+export const callTypeForAttempt = (name: string, attempt: number) => (name === 'scene' && attempt > 1 ? 'repair' : name);
+
+/** THINKING_BUDGET_<CALLTYPE> (for example THINKING_BUDGET_SCENE=256) overrides the default. */
+export const thinkingBudgetFor = (callType: string, env: Record<string, string | undefined> = process.env) => {
+  const override = env[`THINKING_BUDGET_${callType.toUpperCase()}`];
+  const parsed = override == null || override.trim() === '' ? Number.NaN : Number(override);
+  if (Number.isFinite(parsed)) return Math.max(0, Math.floor(parsed));
+  return DEFAULT_THINKING_BUDGETS[callType] ?? DEFAULT_THINKING_BUDGET;
+};
+
+export const thinkingConfigFor = (model: string, callType: string, env: Record<string, string | undefined> = process.env) =>
+  model.toLowerCase().includes('flash') ? { thinkingConfig: { thinkingBudget: thinkingBudgetFor(callType, env) } } : {};
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -218,9 +234,6 @@ export const runGeminiCall = async <T>(options: {
   throw last;
 };
 
-export const thinkingConfigFor = (model: string) =>
-  model.toLowerCase().includes('flash') ? { thinkingConfig: { thinkingBudget: FLASH_THINKING_BUDGET } } : {};
-
 export const aiBackendName = (config: GeminiConfig) => {
   if (config.useVertex && config.project) return 'vertex';
   if (config.apiKey) return 'gemini-api-key';
@@ -280,7 +293,7 @@ export const createGemini = (config: GeminiConfig, log: PipelineLogger) => {
               responseSchema: responseSchema ? (normalizeSchema(responseSchema) as never) : undefined,
               maxOutputTokens: MAX_OUTPUT_TOKENS,
               abortSignal: controller.signal,
-              ...thinkingConfigFor(modelName),
+              ...thinkingConfigFor(modelName, 'api'),
             },
           });
         } finally {
@@ -296,6 +309,7 @@ export const createGemini = (config: GeminiConfig, log: PipelineLogger) => {
                 prompt: usage.promptTokenCount,
                 output: usage.candidatesTokenCount,
                 total: usage.totalTokenCount,
+                thinking_tokens: usage.thoughtsTokenCount,
               }
             : undefined,
         };
