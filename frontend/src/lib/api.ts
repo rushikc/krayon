@@ -1,5 +1,7 @@
+import type { CourseState } from '@krayon/shared';
+
 // All backend traffic goes through here. In dev, Vite proxies /api to local-backend.
-// Set VITE_API_BASE_URL to point at a deployed backend (e.g. Cloud Run) instead.
+// Set VITE_API_BASE_URL to call an API other than the Vite proxy.
 const BASE = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '');
 
 export class ApiError extends Error {
@@ -49,3 +51,24 @@ export const uploadFile = (file: File) => {
   }
   return pending;
 };
+
+export const useBackendPipeline = import.meta.env.VITE_USE_BACKEND !== 'false';
+
+export const createCourse = (files: File[]) => {
+  const form = new FormData();
+  for (const file of files) form.append('file', file, file.name);
+  return apiFetch<{ courseId: string; jobId: string }>('/api/courses', { method: 'POST', body: form });
+};
+
+export const renderUrl = (blobId: string) => `${BASE}/api/renders/${blobId}`;
+
+export const listCourses = () => apiFetch<{ courses: CourseState[] }>('/api/courses');
+
+export const getCourse = (courseId: string) => apiFetch<CourseState>(`/api/courses/${courseId}`);
+
+export const regenerateCourseSegment = (courseId: string, topicId: string, segmentId: string, prompt?: string) =>
+  apiJson<{ jobId: string }>(
+    `/api/courses/${courseId}/topics/${topicId}/segments/${segmentId}/regenerate`,
+    'POST',
+    { prompt },
+  );

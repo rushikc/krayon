@@ -8,8 +8,8 @@ export default defineConfig(({ mode }) => {
     plugins: [react(), tailwindcss()],
     server: {
       proxy: {
-        // All API traffic goes to local-backend (FastAPI) in dev.
-        '/api': { target: env.LOCAL_BACKEND_URL || 'http://localhost:8787', changeOrigin: true },
+        '/api': { target: env.LOCAL_BACKEND_URL || 'http://localhost:8787', changeOrigin: true, ws: true },
+        '/ws': { target: env.LOCAL_BACKEND_URL || 'http://localhost:8787', changeOrigin: true, ws: true },
       },
     },
   }

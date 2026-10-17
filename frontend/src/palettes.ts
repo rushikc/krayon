@@ -13,6 +13,7 @@ export type Palette = {
   doneFill: string;
   focus: string;
   chalk: string;
+  trail: string;
   dot: string;
 };
 
@@ -32,6 +33,7 @@ export const previewPalettes: Palette[] = [
     doneFill: '#3c9a55',
     focus: '#3d6fb6',
     chalk: '#1a2420',
+    trail: '#c9c4bb',
     dot: 'rgba(28, 27, 25, 0.12)',
   },
   {
@@ -49,6 +51,7 @@ export const previewPalettes: Palette[] = [
     doneFill: '#2f8f5a',
     focus: '#3d6fb6',
     chalk: '#1a2420',
+    trail: '#b7c3d0',
     dot: 'rgba(26, 29, 35, 0.12)',
   },
   {
@@ -66,6 +69,7 @@ export const previewPalettes: Palette[] = [
     doneFill: '#7dce8a',
     focus: '#8eb6ef',
     chalk: '#0c100e',
+    trail: '#3a4a42',
     dot: 'rgba(243, 239, 230, 0.16)',
   },
 ];

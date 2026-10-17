@@ -21,6 +21,7 @@ export function PaletteScope({ palette, children }: PaletteScopeProps) {
     '--color-done-fill': palette.doneFill,
     '--color-focus': palette.focus,
     '--color-chalk': palette.chalk,
+    '--color-trail': palette.trail,
     '--color-dot': palette.dot,
     backgroundColor: palette.stone,
     backgroundImage: 'radial-gradient(var(--color-dot) 1.15px, transparent 1.15px)',

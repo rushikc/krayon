@@ -1,15 +1,23 @@
 {
   "name": "krayon",
   "private": true,
+  "workspaces": [
+    "frontend",
+    "local-backend",
+    "packages/shared",
+    "packages/pipeline"
+  ],
   "scripts": {
-    "setup": "npm install && npm --prefix frontend install && npm run setup:backend",
-    "setup:backend": "cd local-backend && ([ -d .venv ] || python3 -m venv .venv) && .venv/bin/pip install -q -r requirements.txt && ([ -f .env ] || cp .env.example .env)",
-    "dev": "concurrently -k -n backend,frontend -c magenta,cyan \"npm:dev:backend\" \"npm:dev:frontend\"",
-    "dev:frontend": "npm --prefix frontend run dev",
-    "dev:backend": "cd local-backend && .venv/bin/uvicorn app.main:app --reload --port 8787",
-    "build": "npm --prefix frontend run build",
-    "test:backend": "cd local-backend && .venv/bin/python scripts/smoke_test.py",
-    "test:backend:quick": "cd local-backend && .venv/bin/python scripts/smoke_test.py --no-ai"
+    "setup": "npm install && npm run build -w @krayon/shared && npm run build -w @krayon/pipeline && ([ -f local-backend/.env ] || cp local-backend/.env.example local-backend/.env)",
+    "dev": "npm run build -w @krayon/shared && npm run build -w @krayon/pipeline && concurrently -k -n shared,pipeline,backend,frontend -c yellow,magenta,cyan,green \"npm:dev:shared\" \"npm:dev:pipeline\" \"npm:dev:backend\" \"npm:dev:frontend\"",
+    "dev:shared": "npm run dev -w @krayon/shared",
+    "dev:pipeline": "npm run dev -w @krayon/pipeline",
+    "dev:frontend": "npm run dev -w frontend",
+    "dev:backend": "npm run dev -w local-backend",
+    "genkit": "npm run genkit -w local-backend",
+    "build": "npm run build -w @krayon/shared && npm run build -w @krayon/pipeline && npm run build -w local-backend && npm run build -w frontend",
+    "test:backend": "npm run test -w local-backend",
+    "test:backend:quick": "npm run test:quick -w local-backend"
   },
   "devDependencies": {
     "concurrently": "^9.1.0"

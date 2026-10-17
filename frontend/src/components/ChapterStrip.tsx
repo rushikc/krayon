@@ -7,10 +7,11 @@ type ChapterStripProps = {
   chapters: Chapter[];
   activeIndex: number;
   watchedIds: string[];
+  statuses?: Record<string, string | null>;
   onSeek: (frame: number) => void;
 };
 
-export function ChapterStrip({ chapters, activeIndex, watchedIds, onSeek }: ChapterStripProps) {
+export function ChapterStrip({ chapters, activeIndex, watchedIds, statuses, onSeek }: ChapterStripProps) {
   return (
     <ol className="mt-3 flex gap-2 overflow-x-auto pb-1">
       {chapters.map((chapter, index) => {
@@ -28,8 +29,13 @@ export function ChapterStrip({ chapters, activeIndex, watchedIds, onSeek }: Chap
                 active ? 'bg-[#fff6d4] shadow-[2px_2px_0_var(--color-ink)]' : 'bg-paper',
               )}
             >
-              <span className="min-w-0 truncate font-medium text-ink">
-                {number} · {chapter.title}
+              <span className="min-w-0">
+                <span className="block truncate font-medium text-ink">
+                  {number} · {chapter.title}
+                </span>
+                {statuses?.[chapter.id] && statuses[chapter.id] !== 'ready' && (
+                  <span className="block truncate text-[12px] text-muted">{statuses[chapter.id]}</span>
+                )}
               </span>
               {watched && <IconCheck className="h-3.5 w-3.5 shrink-0 text-done" />}
               {active && !watched && <IconPlay className="h-3.5 w-3.5 shrink-0 text-ink" />}

@@ -3,6 +3,7 @@ import type { DragEvent, KeyboardEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { topics } from '../data/topics.ts';
 import { MAX_INLINE_BYTES } from '../lib/ai.ts';
+import { useBackendPipeline } from '../lib/api.ts';
 import { usePalette } from '../paletteState.ts';
 import { topicKey, useLocalStudy } from '../study/localStudy.tsx';
 import { useStudySession } from '../study/studyState.ts';
@@ -36,7 +37,7 @@ export function AddDocsPopup({ onClose }: AddDocsPopupProps) {
   const { prefix } = usePalette();
   const { topicId } = useUpload();
   const { addSources } = useLocalStudy();
-  const { startFromFile } = useStudySession();
+  const { startFromFile, startFromFiles } = useStudySession();
   const titleId = useId();
   const dialogRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -130,16 +131,16 @@ export function AddDocsPopup({ onClose }: AddDocsPopupProps) {
   };
 
   const createTopic = async () => {
-    const first = accepted[0];
-    if (!first) return;
-    if (first.file.size > MAX_INLINE_BYTES) {
+    if (accepted.length === 0) return;
+    if (accepted.some((file) => file.file.size > MAX_INLINE_BYTES)) {
       setError('That file is over 20MB. Choose a smaller PDF or photo.');
       return;
     }
     setBusy(true);
     setError(null);
     try {
-      await startFromFile(first.file);
+      if (useBackendPipeline) await startFromFiles(accepted.map((file) => file.file));
+      else await startFromFile(accepted[0].file);
       onClose();
       navigate('/study');
     } catch (caught) {
@@ -176,7 +177,9 @@ export function AddDocsPopup({ onClose }: AddDocsPopupProps) {
         </div>
         <div className="min-h-0 overflow-y-auto overscroll-contain">
         <p className="mt-2 text-[15px] leading-relaxed text-muted">
-          PDFs and photos only. Add them to a topic you already have, or let the first file become a new topic.
+          {useBackendPipeline
+            ? 'PDFs and photos only. Add them to a topic you already have, or start a lesson from every file you drop.'
+            : 'PDFs and photos only. Add them to a topic you already have, or let the first file become a new topic.'}
         </p>
 
         <div className="mt-4 flex flex-wrap gap-2" role="group" aria-label="Where the files go">
@@ -228,7 +231,7 @@ export function AddDocsPopup({ onClose }: AddDocsPopupProps) {
           <span className="mt-1 text-[14px] text-muted">or click to browse</span>
         </button>
 
-        {mode === 'new' && accepted.length > 1 && (
+        {mode === 'new' && !useBackendPipeline && accepted.length > 1 && (
           <p className="mt-3 text-[14px] text-muted">Using the first file, {accepted[0]?.name}.</p>
         )}
 

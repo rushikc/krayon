@@ -25,6 +25,7 @@ import { chapterIndexAtFrame, generatedChapters } from '../study/chapters.ts';
 import type { Chapter } from '../study/chapters.ts';
 import { useLocalStudy } from '../study/localStudy.tsx';
 import { formatClock, formatLength } from '../study/time.ts';
+import { renderUrl } from '../lib/api.ts';
 import { useStudySession } from '../study/studyState.ts';
 
 const sampleChapters = (): Chapter[] => {
@@ -47,7 +48,7 @@ export function GeneratedLessonView({ topicId }: { topicId: string }) {
   const { lessonMarks, patchMarks } = useLocalStudy();
   const topic = session.roadmap?.topics.find((item) => item.id === topicId) ?? null;
   const lesson = session.lessons[topicId] ?? null;
-  const failed = session.fallbackTopicId === topicId && !lesson;
+  const failed = !lesson && (session.fallbackTopicId === topicId || session.topics[topicId]?.status === 'failed');
   const loading = !lesson && !failed;
   const playerRef = useRef<PlayerRef>(null);
   const pending = useRef<number | null>(null);
@@ -68,6 +69,11 @@ export function GeneratedLessonView({ topicId }: { topicId: string }) {
   const activeIndex = chapterIndexAtFrame(frame, chapters);
   const active = chapters[activeIndex];
   const segment = lesson?.segments[activeIndex];
+  const topicRuntime = session.topics[topicId];
+  const loadingDetail = topicRuntime?.statusDetail ?? session.statusDetail ?? 'Writing the lesson…';
+  const segmentStatuses = Object.fromEntries(
+    Object.values(topicRuntime?.segments ?? {}).map((item) => [item.id, item.statusDetail ?? item.status]),
+  );
 
   const requested = useRef<string | null>(null);
   useEffect(() => {
@@ -211,9 +217,9 @@ export function GeneratedLessonView({ topicId }: { topicId: string }) {
             </button>
           )}
         </div>
-        {(session.error || (session.regeneratingId && session.statusDetail)) && (
+        {(session.error || session.regeneratingId || topicRuntime?.statusDetail) && (
           <p className={`mt-3 text-[15px] ${session.error ? 'text-crayon-text' : 'text-muted'}`}>
-            {session.error ?? session.statusDetail}
+            {session.error ?? topicRuntime?.segments[session.regeneratingId ?? '']?.statusDetail ?? topicRuntime?.statusDetail ?? session.statusDetail}
           </p>
         )}
 
@@ -221,11 +227,11 @@ export function GeneratedLessonView({ topicId }: { topicId: string }) {
           <div className="min-w-0">
             {loading && (
               <Card className="p-6">
-                <p className="text-[16px] text-ink">{session.statusDetail ?? 'Writing the lesson…'}</p>
+                <p className="text-[16px] text-ink">{loadingDetail}</p>
                 <div
                   role="progressbar"
-                  aria-label={session.statusDetail ?? 'Writing the lesson'}
-                  aria-valuetext={session.statusDetail ?? 'Writing the lesson'}
+                  aria-label={loadingDetail}
+                  aria-valuetext={loadingDetail}
                   className="mt-3 h-3 overflow-hidden rounded-full bg-line"
                 >
                   <div className="crayon-indeterminate h-full w-1/3 rounded-full bg-crayon" />
@@ -305,6 +311,7 @@ export function GeneratedLessonView({ topicId }: { topicId: string }) {
                   chapters={chapters}
                   activeIndex={activeIndex}
                   watchedIds={marks.watchedIds}
+                  statuses={segmentStatuses}
                   onSeek={seekTo}
                 />
                 <LessonDesk
@@ -347,28 +354,60 @@ export function GeneratedLessonView({ topicId }: { topicId: string }) {
               <details className="mt-4 rounded-2xl border border-line bg-paper px-4 py-3">
                 <summary className="cursor-pointer text-[15px] font-medium text-ink">Scene debug</summary>
                 <div className="mt-3 grid gap-4">
-                  {lesson.segments.map((item, index) => (
-                    <div key={item.id}>
-                      <p className="text-[14px] text-ink">
-                        Segment {index + 1}: {item.title}
-                      </p>
-                      <p className="text-[13px] text-muted">
-                        {item.debug?.repairRounds ?? 0} repair rounds · {item.debug?.issues.length ?? 0} issues
-                      </p>
-                      {(item.debug?.issues.length ?? 0) > 0 && (
-                        <ul className="mt-1 grid gap-1">
-                          {item.debug?.issues.map((issue) => (
-                            <li key={`${issue.path}-${issue.message}`} className="text-[13px] text-muted">
-                              {issue.path}: {issue.message}
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-                      <pre className="mt-2 overflow-auto font-sans text-[12px] leading-relaxed whitespace-pre-wrap text-ink">
-                        {JSON.stringify(item.scene.layout, null, 2)}
-                      </pre>
-                    </div>
-                  ))}
+                  {lesson.segments.map((item, index) => {
+                    const rounds = topicRuntime?.segments[item.id]?.rounds ?? [];
+                    return (
+                      <div key={item.id}>
+                        <p className="text-[14px] text-ink">
+                          Segment {index + 1}: {item.title}
+                        </p>
+                        <p className="text-[13px] text-muted">
+                          {item.debug?.repairRounds ?? 0} repair rounds · {item.debug?.issues.length ?? 0} issues
+                        </p>
+                        {(item.debug?.issues.length ?? 0) > 0 && (
+                          <ul className="mt-1 grid gap-1">
+                            {item.debug?.issues.map((issue) => (
+                              <li key={`${issue.path}-${issue.message}`} className="text-[13px] text-muted">
+                                {issue.path}: {issue.message}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                        {rounds.map((round) => (
+                          <div key={round.n} className="mt-3">
+                            <p className="text-[13px] text-ink">
+                              Round {round.n}
+                              {round.score !== null ? ` · score ${round.score}` : ''}
+                              {round.pass === null ? '' : round.pass ? ' · pass' : ' · fail'}
+                            </p>
+                            {round.issues.length > 0 && (
+                              <ul className="mt-1 grid gap-1">
+                                {round.issues.map((issue, issueIndex) => (
+                                  <li key={`${round.n}-${issueIndex}`} className="text-[13px] text-muted">
+                                    {'frame' in issue ? `frame ${issue.frame}: ` : ''}
+                                    {'problem' in issue ? issue.problem : issue.message}
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              {round.keyframeIds.map((blobId) => (
+                                <img
+                                  key={blobId}
+                                  src={renderUrl(blobId)}
+                                  alt={`Round ${round.n} keyframe`}
+                                  className="h-24 w-auto rounded-lg border border-line"
+                                />
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                        <pre className="mt-2 overflow-auto font-sans text-[12px] leading-relaxed whitespace-pre-wrap text-ink">
+                          {JSON.stringify(item, null, 2)}
+                        </pre>
+                      </div>
+                    );
+                  })}
                 </div>
               </details>
             )}

@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { SourceFile } from '../data/topics.ts';
 import type { TrailStatus } from './roadmapTypes.ts';
@@ -29,6 +29,7 @@ export type TrailStep = {
   progress: number;
   timeLeft: string;
   hint?: string;
+  statusText?: string;
   href?: string;
   onOpen?: () => void;
   chapters: TrailChapter[];
@@ -57,6 +58,25 @@ const pointFor = (index: number, layout: { left: number; right: number }) => ({
   x: index % 2 === 0 ? layout.left : layout.right,
   y: index * ROW + ROW / 2,
 });
+
+const trailFraction = (steps: TrailStep[]) => {
+  const count = steps.length;
+  if (count <= 1) return steps[0]?.status === 'done' ? 1 : 0;
+  const segments = count - 1;
+  let lastDone = -1;
+  for (let index = 0; index < count; index += 1) {
+    if (steps[index].status !== 'done') break;
+    lastDone = index;
+  }
+  const current = steps.findIndex((step) => step.status === 'next');
+  const fraction =
+    current >= 0
+      ? (current + Math.min(100, Math.max(0, steps[current].progress)) / 100) / segments
+      : lastDone + 1 >= count
+        ? 1
+        : Math.max(lastDone, 0) / segments;
+  return Math.min(1, Math.max(0, fraction));
+};
 
 const curve = (points: { x: number; y: number }[]) => {
   if (points.length === 0) return '';
@@ -101,7 +121,7 @@ function Node({ status, index }: { status: TrailStatus; index: number }) {
 
 function metaLine(step: TrailStep) {
   const percent = step.status === 'next' && step.progress > 0 && step.progress < 100 ? `${step.progress}%` : '';
-  return [step.duration, statusLabel[step.status], percent].filter(Boolean).join(' · ');
+  return [step.duration, step.statusText ?? statusLabel[step.status], percent].filter(Boolean).join(' · ');
 }
 
 function StepCard({ step, selected }: { step: TrailStep; selected: boolean }) {
@@ -132,7 +152,7 @@ function Legend({ lockedLabel }: { lockedLabel: string }) {
   return (
     <ul className="flex flex-wrap justify-end gap-x-4 gap-y-1 text-[13px] text-muted">
       <li className="inline-flex items-center gap-1.5">
-        <span className="h-2.5 w-2.5 rounded-full bg-crayon" />
+        <span className="h-2.5 w-4 rounded-full bg-crayon" />
         Done
       </li>
       <li className="inline-flex items-center gap-1.5">
@@ -140,7 +160,7 @@ function Legend({ lockedLabel }: { lockedLabel: string }) {
         Up next
       </li>
       <li className="inline-flex items-center gap-1.5">
-        <span className="h-2.5 w-2.5 rounded-full border border-dashed border-ink/50" />
+        <span className="h-2.5 w-4 rounded-full bg-[var(--color-trail)]" />
         {lockedLabel}
       </li>
     </ul>
@@ -159,6 +179,7 @@ export function RoadmapTrail({
   onSelect: (id: string) => void;
 }) {
   const boardRef = useRef<HTMLDivElement>(null);
+  const filterId = `crayon-${useId().replace(/:/g, '')}`;
   const [width, setWidth] = useState(0);
   const [hidden, setHidden] = useState(0);
 
@@ -196,10 +217,8 @@ export function RoadmapTrail({
   const height = steps.length * ROW;
   const layout = snakeLayout(Math.max(width, 1));
   const points = steps.map((_, index) => pointFor(index, layout));
-  const cut = steps.findIndex((step) => step.status === 'next');
-  const solidEnd = cut === -1 ? points.length - 1 : cut;
-  const solid = curve(points.slice(0, solidEnd + 1));
-  const dotted = curve(points.slice(solidEnd));
+  const full = curve(points);
+  const doneLen = Math.round(trailFraction(steps) * 1000);
   const lockedLabel = legend === 'locked' ? 'Locked' : 'Ready';
 
   const scrollMore = () => {
@@ -221,7 +240,7 @@ export function RoadmapTrail({
             <li
               key={step.id}
               data-step
-              className={cx('grid justify-items-start gap-2 border-l-[6px] pl-4', joined ? 'border-crayon' : 'border-dashed border-ink/40')}
+              className={cx('grid justify-items-start gap-2 border-l-[6px] pl-4', joined ? 'border-crayon' : 'border-[var(--color-trail)]')}
             >
               <Node status={step.status} index={index} />
               {step.status === 'next' && (
@@ -251,19 +270,38 @@ export function RoadmapTrail({
             height={height}
             viewBox={`0 0 ${width} ${height}`}
           >
-            {dotted && (
+            <defs>
+              <filter id={filterId} x="-5%" y="-5%" width="110%" height="110%">
+                <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" seed="7" result="noise" />
+                <feDisplacementMap in="SourceGraphic" in2="noise" scale="2.5" xChannelSelector="R" yChannelSelector="G" result="rough" />
+                <feComposite in="rough" in2="noise" operator="arithmetic" k1="0" k2="1" k3="-0.18" k4="0.06" />
+              </filter>
+            </defs>
+            {full && (
               <path
-                d={dotted}
+                d={full}
                 fill="none"
-                stroke="var(--color-ink)"
-                strokeWidth="5"
-                strokeDasharray="1.5 14"
+                stroke="var(--color-trail)"
+                strokeWidth={12}
                 strokeLinecap="round"
-                opacity="0.4"
+                strokeLinejoin="round"
+                filter={`url(#${filterId})`}
               />
             )}
-            {solid && (
-              <path d={solid} fill="none" stroke="var(--color-crayon)" strokeWidth="12" strokeLinecap="round" />
+            {full && doneLen > 0 && (
+              <path
+                className="trail-done"
+                d={full}
+                fill="none"
+                stroke="var(--color-crayon)"
+                strokeWidth={12}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                pathLength={1000}
+                strokeDasharray="1000 1000"
+                strokeDashoffset={1000 - doneLen}
+                filter={`url(#${filterId})`}
+              />
             )}
           </svg>
         )}
@@ -346,7 +384,7 @@ export function StepPanel({
     <aside className={cardClass(false, false, 'min-w-0 overflow-hidden p-4 xl:sticky xl:top-4')}>
       <div className="flex items-start justify-between gap-3">
         <p className="text-[12px] font-semibold tracking-[0.14em] text-muted uppercase">
-          Step {index + 1} · {statusLabel[step.status]}
+          Step {index + 1} · {step.statusText ?? statusLabel[step.status]}
         </p>
         <button
           type="button"

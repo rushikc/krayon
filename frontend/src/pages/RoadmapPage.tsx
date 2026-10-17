@@ -25,7 +25,7 @@ const artCycle = [
   'unit-economics',
 ];
 
-const pill = 'inline-flex items-center gap-2 rounded-full border-2 border-ink px-3.5 py-2 text-[15px] font-medium';
+const pill = 'inline-flex items-center gap-1.5 rounded-full border-2 border-ink px-3 py-1 text-[13px] font-medium';
 
 function chaptersFor(chapters: Chapter[], watchedIds: string[]): { items: TrailChapter[]; progress: number; timeLeft: string } {
   const watched = new Set(watchedIds);
@@ -87,24 +87,24 @@ function RoadmapLayout({
   const selectedIndex = steps.findIndex((step) => step.id === selectedId);
   const selected = selectedIndex >= 0 ? steps[selectedIndex] : undefined;
 
+  const context = eyebrow || summary;
+
   return (
     <Shell>
-      <div className="mt-6 lg:mt-8">
-        <Link to={backTo} className="inline-flex items-center gap-1 text-[15px] font-medium text-ink">
-          <IconBack className="h-4 w-4" />
-          {backLabel}
-        </Link>
-        <div className="mt-5 flex flex-wrap items-end justify-between gap-4">
-          <div className="max-w-xl">
-            {eyebrow && (
-              <p className="text-[12px] font-semibold tracking-[0.16em] text-muted uppercase">{eyebrow}</p>
-            )}
-            <h1 className="mt-2 font-serif text-5xl leading-[1.05] text-ink">
-              <HandUnderline>{title}</HandUnderline>
-            </h1>
-            <p className="mt-3 text-[16px] leading-relaxed text-muted">{summary}</p>
-          </div>
-          {pills}
+      <div>
+        <div className="mt-2 flex h-14 items-center gap-3">
+          <Link
+            to={backTo}
+            aria-label={backLabel}
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-2 border-ink bg-paper"
+          >
+            <IconBack className="h-4 w-4" />
+          </Link>
+          <h1 className="min-w-0 truncate font-serif text-[24px] leading-none text-ink">
+            <HandUnderline>{title}</HandUnderline>
+          </h1>
+          <p className="min-w-0 truncate text-[14px] text-muted">{context}</p>
+          {pills && <div className="ml-auto shrink-0">{pills}</div>}
         </div>
         {notice}
         {steps.length === 0 ? (
@@ -113,8 +113,8 @@ function RoadmapLayout({
           <div
             className={
               panelOpen && selected
-                ? 'mt-8 grid items-start gap-6 min-[1200px]:grid-cols-[minmax(0,1fr)_minmax(420px,36%)]'
-                : 'mt-8'
+                ? 'mt-3 grid items-start gap-6 min-[1200px]:grid-cols-[minmax(0,1fr)_minmax(420px,36%)]'
+                : 'mt-3'
             }
           >
             <RoadmapTrail
@@ -144,14 +144,14 @@ function RoadmapLayout({
 
 function StatPills({ done, total, length, quizReady }: { done: number; total: number; length?: string; quizReady: number }) {
   return (
-    <div className="flex flex-wrap gap-2">
+    <div className="flex items-center gap-2">
       <span className={`${pill} bg-yellow`}>
-        <IconCheck className="h-4 w-4" />
+        <IconCheck className="h-3.5 w-3.5" />
         {done}/{total} steps done
       </span>
       {length && (
         <span className={`${pill} bg-paper`}>
-          <IconClock className="h-4 w-4" />
+          <IconClock className="h-3.5 w-3.5" />
           {length} total
         </span>
       )}
@@ -172,33 +172,80 @@ export function RoadmapPage() {
 
   if (isStudy) {
     const ordered = session.roadmap ? orderTopics(session.roadmap.topics) : [];
+    const waiting = !session.roadmap && (session.buildingRoadmap || session.status === 'roadmap');
+    const placeholders: TrailStep[] = [0, 1, 2, 3].map((index) => ({
+      id: `loading-${index}`,
+      title: 'Reading your notes',
+      detail: 'Building the roadmap',
+      status: 'locked',
+      artId: artCycle[index % artCycle.length],
+      duration: '',
+      progress: 18,
+      timeLeft: '',
+      hint: 'Reading the document…',
+      statusText: 'Reading',
+      chapters: [],
+    }));
     let markedNext = false;
-    const steps: TrailStep[] = ordered.map((item, index) => {
+    const topicSteps: TrailStep[] = ordered.map((item, index) => {
       const lesson = session.lessons[item.id];
+      const runtime = session.topics[item.id];
+      const ready = Boolean(lesson);
       const marks = lessonMarks(`study:${item.id}`);
       const chapters = lesson ? generatedChapters(lesson.segments) : [];
       const built = chaptersFor(chapters, marks.watchedIds);
-      const complete = chapters.length > 0 && chapters.every((chapter) => marks.watchedIds.includes(chapter.id));
-      let status: TrailStep['status'] = 'open';
+      const complete = ready && chapters.length > 0 && chapters.every((chapter) => marks.watchedIds.includes(chapter.id));
+      const phase = runtime?.status;
+      const phaseLabel =
+        phase === 'failed'
+          ? 'Failed'
+          : phase === 'reviewing'
+            ? (runtime?.statusDetail ?? 'Reviewing')
+            : phase === 'checking'
+              ? 'Checking'
+              : phase === 'generating'
+                ? 'Generating'
+                : phase === 'queued'
+                  ? 'Queued'
+                  : ready
+                    ? undefined
+                    : 'Queued';
+      let status: TrailStep['status'] = 'locked';
       if (complete) status = 'done';
-      else if (!markedNext) {
+      else if (ready && !markedNext) {
         status = 'next';
         markedNext = true;
-      }
+      } else if (ready) status = 'open';
       const frames = chapters.reduce((total, chapter) => total + chapter.duration, 0);
+      const progress = complete
+        ? 100
+        : ready
+          ? built.progress
+          : phase === 'failed'
+            ? 0
+            : phase === 'reviewing'
+              ? 78
+              : phase === 'checking'
+                ? 55
+                : phase === 'generating'
+                  ? 32
+                  : 8;
       return {
         id: item.id,
         title: item.title,
-        detail: item.summary,
+        detail: phase === 'failed' && runtime?.error ? runtime.error : item.summary,
         status,
         artId: artCycle[index % artCycle.length],
         duration: frames ? formatClock(frames) : '',
-        progress: status === 'done' ? 100 : built.progress,
+        progress,
         timeLeft: frames ? built.timeLeft : '',
-        href: `/study/${item.id}`,
+        hint: ready ? undefined : (runtime?.statusDetail ?? phaseLabel),
+        statusText: phaseLabel,
+        href: ready ? `/study/${item.id}` : undefined,
         chapters: built.items,
       };
     });
+    const steps = waiting ? placeholders : topicSteps;
     const doneCount = steps.filter((step) => step.status === 'done').length;
     const quizReady = ordered.filter((item) => lessonMarks(`study:${item.id}`).quizReady).length;
     const totalFrames = ordered.reduce((total, item) => {
@@ -217,8 +264,10 @@ export function RoadmapPage() {
         title="Roadmap"
         summary={
           session.roadmap && session.fileName
-            ? `From ${session.fileName}. Open a topic to generate its lesson.`
-            : 'Add a document from the library to build a roadmap.'
+            ? `From ${session.fileName}. A topic opens once its lesson is ready.`
+            : waiting
+              ? 'Reading the document…'
+              : 'Add a document from the library to build a roadmap.'
         }
         pills={
           steps.length > 0 ? (
@@ -238,11 +287,7 @@ export function RoadmapPage() {
         onAdd={() => openUpload()}
         legend="ready"
         empty={
-          session.status === 'roadmap' ? (
-            <p className="text-[16px] text-muted">Reading the document…</p>
-          ) : (
-            <Button onClick={() => openUpload()}>Create a lesson from your notes</Button>
-          )
+          waiting ? undefined : <Button onClick={() => openUpload()}>Create a lesson from your notes</Button>
         }
       />
     );

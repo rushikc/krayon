@@ -122,6 +122,6 @@ Graphics are Remotion components. Still unsettled: does a segment also include s
 
 ## Backend (local-backend)
 
-- Generation moved off the client. `frontend/src/lib/ai.ts` keeps the prompts, zod validation and repair loop, but uploads the source file once (`/api/uploads`) and calls `/api/ai/generate`, which calls Vertex AI (krayon-ai, global, gemini-2.5-flash) with gcloud ADC. Firebase AI Logic is no longer used for generation.
-- Study progress, sources and marks (doubts, pins, notes, highlights) are mirrored to the mock Firestore doc `users/local-user/state/study`. localStorage is still the source of truth; the backend only seeds an empty browser.
-- Next: move the prompts and validation into Python, run ingestion as a job (`/api/jobs`), replace the stub auth with Firebase ID tokens, and add Firestore/GCS implementations for deploying to Cloud Run.
+- Generation runs in `local-backend/`, a TypeScript Fastify server. The browser uploads sources and either calls `/api/ai/generate` (the `VITE_USE_BACKEND=false` path) or `POST /api/courses`, which starts the Genkit pipeline. Vertex AI (`krayon-ai`, global) uses gcloud Application Default Credentials.
+- Study progress, sources and marks (doubts, pins, notes, highlights) stay in localStorage via `localStudy.tsx`. `lib/localDb.ts` caches the latest course snapshot only.
+- The pipeline is roadmap, then one lesson per topic, then a per-segment check, render, review, and fix loop. Progress is pushed over `/ws`. Firestore and Cloud Storage are local stand-ins (SQLite and files). The pipeline lives in `packages/pipeline` and `local-backend` is never deployed.

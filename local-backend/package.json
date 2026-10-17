@@ -1,0 +1,37 @@
+{
+  "name": "local-backend",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "genkit": "genkit start -- tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "lint": "oxlint",
+    "test": "vitest run",
+    "test:quick": "AI=0 vitest run"
+  },
+  "dependencies": {
+    "@fastify/cors": "^11.1.0",
+    "@fastify/multipart": "^9.2.1",
+    "@fastify/websocket": "^11.2.0",
+    "@krayon/pipeline": "*",
+    "@krayon/shared": "*",
+    "better-sqlite3": "^12.4.1",
+    "dotenv": "^17.2.3",
+    "fastify": "^5.6.1",
+    "genkit": "^1.22.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^24.13.3",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.7",
+    "oxlint": "^1.81.0",
+    "tsx": "^4.20.6",
+    "typescript": "~6.0.2",
+    "vitest": "^3.2.4"
+  }
+}
