@@ -1,11 +1,10 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { SourceFile } from '../data/topics.ts';
 import type { TrailStatus } from './roadmapTypes.ts';
 import { buttonClass } from './ui/Button.tsx';
 import { cardClass } from './ui/Card.tsx';
 import { Chip } from './ui/Chip.tsx';
-import { CrayonProgress } from './ui/CrayonProgress.tsx';
 import { IconBack, IconCheck, IconFile, IconImage, IconLock, IconPlay, IconPlus, IconClose } from './ui/icons.tsx';
 import { TopicArt } from './ui/TopicArt.tsx';
 import { cx } from './ui/cx.ts';
@@ -35,60 +34,16 @@ export type TrailStep = {
   chapters: TrailChapter[];
 };
 
-const ROW = 176;
-const NODE_HALF = 36;
-const CARD_GAP = 16;
-
-const snakeLayout = (width: number) => {
-  const cardW = Math.min(220, Math.floor((width - 192) / 2));
-  const snake = cardW >= 132;
-  const left = NODE_HALF + 8;
-  const right = Math.max(left, width - NODE_HALF - 8);
-  return { snake, cardW, left, right };
-};
-
 const statusLabel: Record<TrailStatus, string> = {
   done: 'Done',
   next: 'Up next',
   locked: 'Locked',
   open: 'Ready',
+  rendering: 'Rendering',
+  failed: 'Failed',
 };
 
-const pointFor = (index: number, layout: { left: number; right: number }) => ({
-  x: index % 2 === 0 ? layout.left : layout.right,
-  y: index * ROW + ROW / 2,
-});
-
-const trailFraction = (steps: TrailStep[]) => {
-  const count = steps.length;
-  if (count <= 1) return steps[0]?.status === 'done' ? 1 : 0;
-  const segments = count - 1;
-  let lastDone = -1;
-  for (let index = 0; index < count; index += 1) {
-    if (steps[index].status !== 'done') break;
-    lastDone = index;
-  }
-  const current = steps.findIndex((step) => step.status === 'next');
-  const fraction =
-    current >= 0
-      ? (current + Math.min(100, Math.max(0, steps[current].progress)) / 100) / segments
-      : lastDone + 1 >= count
-        ? 1
-        : Math.max(lastDone, 0) / segments;
-  return Math.min(1, Math.max(0, fraction));
-};
-
-const curve = (points: { x: number; y: number }[]) => {
-  if (points.length === 0) return '';
-  let path = `M ${points[0].x} ${points[0].y}`;
-  for (let index = 1; index < points.length; index += 1) {
-    const prev = points[index - 1];
-    const curr = points[index];
-    const mid = (prev.y + curr.y) / 2;
-    path += ` C ${prev.x} ${mid}, ${curr.x} ${mid}, ${curr.x} ${curr.y}`;
-  }
-  return path;
-};
+const mutedStatus = (status: TrailStatus) => status === 'locked' || status === 'rendering' || status === 'failed';
 
 function Node({ status, index }: { status: TrailStatus; index: number }) {
   if (status === 'done') {
@@ -105,10 +60,10 @@ function Node({ status, index }: { status: TrailStatus; index: number }) {
       </span>
     );
   }
-  if (status === 'locked') {
+  if (mutedStatus(status)) {
     return (
       <span className="flex h-12 w-12 items-center justify-center rounded-full border-2 border-dashed border-ink/40 bg-paper text-muted">
-        <IconLock className="h-5 w-5" />
+        {status === 'locked' ? <IconLock className="h-5 w-5" /> : index + 1}
       </span>
     );
   }
@@ -120,35 +75,103 @@ function Node({ status, index }: { status: TrailStatus; index: number }) {
 }
 
 function metaLine(step: TrailStep) {
-  const percent = step.status === 'next' && step.progress > 0 && step.progress < 100 ? `${step.progress}%` : '';
-  return [step.duration, step.statusText ?? statusLabel[step.status], percent].filter(Boolean).join(' · ');
+  const parts = step.chapters.length > 0 ? `${step.chapters.length}-part lesson` : '';
+  const bits = [parts, step.duration].filter(Boolean);
+  if (step.status === 'rendering' && step.statusText) bits.push(step.statusText);
+  if (step.status === 'failed') bits.push('Failed');
+  return bits.join(' · ');
 }
 
-function StepCard({ step, selected }: { step: TrailStep; selected: boolean }) {
+function eyebrowClass(status: TrailStatus) {
+  if (status === 'next') return 'text-crayon-text';
+  if (status === 'done') return 'text-done';
+  if (status === 'failed') return 'text-crayon-text';
+  return 'text-muted';
+}
+
+function LessonCard({
+  step,
+  selected,
+  onSelect,
+}: {
+  step: TrailStep;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  const muted = mutedStatus(step.status);
+  const label = step.status === 'rendering' ? (step.statusText ?? statusLabel.rendering) : statusLabel[step.status];
+  const resume =
+    step.status === 'done' ? 'Watch again' : step.status === 'open' ? 'Open' : `Resume${step.timeLeft ? ` · ${step.timeLeft} left` : ''}`;
+
   return (
-    <span
+    <div
+      onClick={onSelect}
       className={cardClass(
         false,
-        step.status === 'locked',
-        cx('block px-3 py-2 text-left', step.status === 'locked' && 'opacity-70', selected && 'ring-2 ring-focus ring-offset-2'),
+        muted,
+        cx('flex min-w-0 items-center gap-4 p-3', muted && 'bg-stone/60 opacity-80', selected && 'ring-2 ring-focus ring-offset-2 ring-offset-paper'),
       )}
     >
-      <span className="block text-[15px] leading-snug font-medium text-ink">{step.title}</span>
-      <span
-        className={cx(
-          'mt-0.5 block text-[13px]',
-          step.status === 'done' && 'text-done',
-          step.status === 'next' && 'text-crayon-text',
-          step.status !== 'done' && step.status !== 'next' && 'text-muted',
+      <button type="button" className="flex min-w-0 flex-1 items-center gap-4 text-left">
+        <span className="relative shrink-0">
+          <TopicArt topicId={step.artId} className={cx('h-[92px] w-[148px]', muted && 'opacity-50')} />
+          {step.duration && (
+            <span className="absolute right-1.5 bottom-1.5 rounded-md bg-ink px-1.5 py-0.5 text-[12px] font-medium text-paper">
+              {step.duration}
+            </span>
+          )}
+        </span>
+        <span className="min-w-0">
+          <span className={cx('block text-[12px] font-semibold tracking-[0.14em] uppercase', eyebrowClass(step.status))}>{label}</span>
+          <span className="mt-1 block truncate font-serif text-[22px] leading-tight text-ink">{step.title}</span>
+          {metaLine(step) && <span className="mt-1 block truncate text-[14px] text-muted">{metaLine(step)}</span>}
+          {step.status === 'failed' && step.hint && (
+            <span className="mt-1 block truncate text-[13px] text-crayon-text">{step.hint}</span>
+          )}
+        </span>
+      </button>
+      <span className="shrink-0 pr-1">
+        {step.status === 'rendering' && (
+          <span
+            className="block h-8 w-8 animate-spin rounded-full border-[3px] border-ink/15 border-t-crayon motion-reduce:animate-none"
+            role="status"
+            aria-label={step.statusText ?? 'Rendering'}
+          />
         )}
-      >
-        {metaLine(step)}
+        {step.status === 'locked' && (
+          <button type="button" disabled className={buttonClass('secondary', '!px-4 !py-1.5 !text-[14px]')}>
+            Locked
+          </button>
+        )}
+        {(step.status === 'next' || step.status === 'open' || step.status === 'done') && step.href && (
+          <Link
+            to={step.href}
+            onClick={(event) => event.stopPropagation()}
+            className={buttonClass(step.status === 'next' ? 'primary' : 'secondary', '!px-4 !py-1.5 !text-[14px]')}
+          >
+            {step.status === 'next' && <IconPlay className="h-4 w-4" />}
+            {step.status === 'next' ? 'Resume' : step.status === 'done' ? 'Watch again' : 'Open'}
+          </Link>
+        )}
+        {(step.status === 'next' || step.status === 'open' || step.status === 'done') && !step.href && step.onOpen && (
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              step.onOpen?.();
+            }}
+            className={buttonClass(step.status === 'next' ? 'primary' : 'secondary', '!px-4 !py-1.5 !text-[14px]')}
+          >
+            {step.status === 'next' && <IconPlay className="h-4 w-4" />}
+            {resume}
+          </button>
+        )}
       </span>
-    </span>
+    </div>
   );
 }
 
-function Legend({ lockedLabel }: { lockedLabel: string }) {
+function Legend() {
   return (
     <ul className="flex flex-wrap justify-end gap-x-4 gap-y-1 text-[13px] text-muted">
       <li className="inline-flex items-center gap-1.5">
@@ -160,8 +183,12 @@ function Legend({ lockedLabel }: { lockedLabel: string }) {
         Up next
       </li>
       <li className="inline-flex items-center gap-1.5">
-        <span className="h-2.5 w-4 rounded-full bg-[var(--color-trail)]" />
-        {lockedLabel}
+        <span className="h-2.5 w-2.5 rounded-full border border-ink bg-paper" />
+        Ready
+      </li>
+      <li className="inline-flex items-center gap-1.5">
+        <span className="h-2.5 w-4 rounded-full border border-dashed border-ink/40" />
+        Locked
       </li>
     </ul>
   );
@@ -170,32 +197,20 @@ function Legend({ lockedLabel }: { lockedLabel: string }) {
 export function RoadmapTrail({
   steps,
   selectedId,
-  legend,
   onSelect,
 }: {
   steps: TrailStep[];
   selectedId?: string;
-  legend: 'locked' | 'ready';
   onSelect: (id: string) => void;
 }) {
   const boardRef = useRef<HTMLDivElement>(null);
-  const filterId = `crayon-${useId().replace(/:/g, '')}`;
-  const [width, setWidth] = useState(0);
   const [hidden, setHidden] = useState(0);
-
-  useLayoutEffect(() => {
-    const board = boardRef.current;
-    if (!board) return;
-    const measure = () => {
-      const style = getComputedStyle(board);
-      const pad = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight);
-      setWidth(Math.max(0, board.clientWidth - pad));
-    };
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(board);
-    return () => observer.disconnect();
-  }, []);
+  const overall =
+    steps.length === 0
+      ? 0
+      : Math.round(
+          steps.reduce((sum, step) => sum + (mutedStatus(step.status) ? 0 : step.progress), 0) / steps.length,
+        );
 
   useEffect(() => {
     const measure = () => {
@@ -212,14 +227,7 @@ export function RoadmapTrail({
       window.removeEventListener('scroll', measure);
       window.removeEventListener('resize', measure);
     };
-  }, [steps.length, width]);
-
-  const height = steps.length * ROW;
-  const layout = snakeLayout(Math.max(width, 1));
-  const points = steps.map((_, index) => pointFor(index, layout));
-  const full = curve(points);
-  const doneLen = Math.round(trailFraction(steps) * 1000);
-  const lockedLabel = legend === 'locked' ? 'Locked' : 'Ready';
+  }, [steps.length]);
 
   const scrollMore = () => {
     const board = boardRef.current;
@@ -230,124 +238,46 @@ export function RoadmapTrail({
   };
 
   return (
-    <div ref={boardRef} className="rounded-[28px] border-2 border-dashed border-ink/25 px-3 py-4 sm:px-5">
-      <Legend lockedLabel={lockedLabel} />
-      {!layout.snake && (
-      <ol className="mt-4 grid gap-5">
+    <div ref={boardRef} className="rounded-[28px] border-2 border-ink/15 bg-paper px-4 py-4 min-[1200px]:px-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="inline-flex items-center gap-3 text-[14px] font-medium text-ink">
+          Overall {overall}%
+          <span className="h-2 w-16 overflow-hidden rounded-full bg-line" aria-hidden="true">
+            <span className="block h-full rounded-full bg-crayon" style={{ width: `${overall}%` }} />
+          </span>
+        </p>
+        <Legend />
+      </div>
+      <ol className="mt-4">
         {steps.map((step, index) => {
-          const joined = step.status === 'done' || step.status === 'next';
+          const line =
+            step.status === 'done' || (index > 0 && steps[index - 1]?.status === 'done') ? 'bg-crayon' : 'bg-[var(--color-trail)]';
           return (
-            <li
-              key={step.id}
-              data-step
-              className={cx('grid justify-items-start gap-2 border-l-[6px] pl-4', joined ? 'border-crayon' : 'border-[var(--color-trail)]')}
-            >
-              <Node status={step.status} index={index} />
-              {step.status === 'next' && (
-                <span className="text-[13px] font-medium text-crayon-text">↑ you are here</span>
-              )}
-              <button
-                type="button"
-                className="w-full"
-                aria-pressed={step.id === selectedId}
-                aria-label={`${step.title}. ${metaLine(step)}`}
-                onClick={() => onSelect(step.id)}
-              >
-                <StepCard step={step} selected={step.id === selectedId} />
-              </button>
+            <li key={step.id} data-step className="grid grid-cols-[4.5rem_minmax(0,1fr)]">
+              <div className="relative flex items-center justify-center">
+                {index > 0 && <span className={cx('absolute top-0 left-1/2 h-1/2 w-[7px] -translate-x-1/2', line)} />}
+                {index < steps.length - 1 && (
+                  <span
+                    className={cx(
+                      'absolute bottom-0 left-1/2 h-1/2 w-[7px] -translate-x-1/2',
+                      step.status === 'done' ? 'bg-crayon' : 'bg-[var(--color-trail)]',
+                    )}
+                  />
+                )}
+                {index === 0 && (step.status === 'next' || step.status === 'done') && (
+                  <span className="absolute top-0 left-1/2 h-[calc(50%-2rem)] w-[7px] -translate-x-1/2 rounded-full bg-crayon" />
+                )}
+                <span className="relative z-10">
+                  <Node status={step.status} index={index} />
+                </span>
+              </div>
+              <div className="min-w-0 py-2">
+                <LessonCard step={step} selected={step.id === selectedId} onSelect={() => onSelect(step.id)} />
+              </div>
             </li>
           );
         })}
       </ol>
-      )}
-      {layout.snake && (
-      <div className="relative mt-2" style={{ height }}>
-        {width > 0 && (
-          <svg
-            aria-hidden="true"
-            className="pointer-events-none absolute inset-x-0 top-0"
-            width="100%"
-            height={height}
-            viewBox={`0 0 ${width} ${height}`}
-          >
-            <defs>
-              <filter id={filterId} x="-5%" y="-5%" width="110%" height="110%">
-                <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" seed="7" result="noise" />
-                <feDisplacementMap in="SourceGraphic" in2="noise" scale="2.5" xChannelSelector="R" yChannelSelector="G" result="rough" />
-                <feComposite in="rough" in2="noise" operator="arithmetic" k1="0" k2="1" k3="-0.18" k4="0.06" />
-              </filter>
-            </defs>
-            {full && (
-              <path
-                d={full}
-                fill="none"
-                stroke="var(--color-trail)"
-                strokeWidth={12}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                filter={`url(#${filterId})`}
-              />
-            )}
-            {full && doneLen > 0 && (
-              <path
-                className="trail-done"
-                d={full}
-                fill="none"
-                stroke="var(--color-crayon)"
-                strokeWidth={12}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                pathLength={1000}
-                strokeDasharray="1000 1000"
-                strokeDashoffset={1000 - doneLen}
-                filter={`url(#${filterId})`}
-              />
-            )}
-          </svg>
-        )}
-        {steps.map((step, index) => {
-          const side = index % 2 === 0 ? 'left' : 'right';
-          const nodeX = side === 'left' ? layout.left : layout.right;
-          const cardLeft = side === 'left' ? nodeX + NODE_HALF + CARD_GAP : nodeX - NODE_HALF - CARD_GAP - layout.cardW;
-          return (
-            <div key={step.id} className="absolute inset-x-0" style={{ top: index * ROW, height: ROW }} data-step>
-              <button
-                type="button"
-                tabIndex={-1}
-                aria-hidden="true"
-                onClick={() => onSelect(step.id)}
-                className="absolute top-1/2 z-10 -translate-x-1/2 -translate-y-1/2"
-                style={{ left: nodeX }}
-              >
-                <Node status={step.status} index={index} />
-              </button>
-              {step.status === 'next' && (
-                <span
-                  className="pointer-events-none absolute z-10 text-[13px] font-medium whitespace-nowrap text-crayon-text"
-                  style={
-                    side === 'left'
-                      ? { left: 0, top: 'calc(50% + 2.6rem)' }
-                      : { right: 4, top: 'calc(50% + 2.6rem)' }
-                  }
-                >
-                  ↑ you are here
-                </span>
-              )}
-              <button
-                type="button"
-                aria-pressed={step.id === selectedId}
-                aria-label={`${step.title}. ${metaLine(step)}`}
-                onClick={() => onSelect(step.id)}
-                className="absolute top-1/2 z-10 -translate-y-1/2"
-                style={{ left: cardLeft, width: layout.cardW }}
-              >
-                <StepCard step={step} selected={step.id === selectedId} />
-              </button>
-            </div>
-          );
-        })}
-      </div>
-      )}
       {hidden > 0 && (
         <div className="pointer-events-none sticky bottom-3 z-20 mt-3 flex justify-end">
           <button
@@ -378,10 +308,13 @@ export function StepPanel({
   onAdd?: () => void;
 }) {
   const resume =
-    step.status === 'done' ? 'Watch again' : `Resume${step.timeLeft ? ` · ${step.timeLeft} left` : ''}`;
+    step.status === 'done' ? 'Watch again' : step.status === 'open' ? 'Open' : `Resume${step.timeLeft ? ` · ${step.timeLeft} left` : ''}`;
+  const quiet = step.status === 'rendering' || step.status === 'failed';
+  const watched =
+    step.progress <= 0 ? 'Not started' : step.progress >= 100 ? 'Finished' : `${step.progress}% watched · ${step.timeLeft} left`;
 
   return (
-    <aside className={cardClass(false, false, 'min-w-0 overflow-hidden p-4 xl:sticky xl:top-4')}>
+    <aside className={cardClass(false, false, 'min-w-0 p-4 min-[1200px]:sticky min-[1200px]:top-4')}>
       <div className="flex items-start justify-between gap-3">
         <p className="text-[12px] font-semibold tracking-[0.14em] text-muted uppercase">
           Step {index + 1} · {step.statusText ?? statusLabel[step.status]}
@@ -396,7 +329,7 @@ export function StepPanel({
         </button>
       </div>
       <div className="relative mt-3">
-        <TopicArt topicId={step.artId} className="aspect-[16/9]" />
+        <TopicArt topicId={step.artId} className={cx('aspect-[16/9]', quiet && 'opacity-60')} />
         {step.duration && (
           <span className="absolute right-2 bottom-2 rounded-md bg-ink px-1.5 py-0.5 text-[12px] font-medium text-paper">
             {step.duration}
@@ -405,59 +338,60 @@ export function StepPanel({
       </div>
       <h2 className="mt-3 font-serif text-[1.7rem] leading-tight text-ink">{step.title}</h2>
       <p className="mt-1 text-[15px] leading-relaxed text-muted">{step.detail}</p>
-      <div className="mt-3">
-        <CrayonProgress
-          value={step.progress}
-          label={`${step.title} progress`}
-          tone={step.status === 'done' ? 'done' : 'crayon'}
-          showValue
-        />
-      </div>
-      {step.status === 'locked' || (!step.href && !step.onOpen) ? (
-        <button type="button" disabled className={buttonClass('secondary', 'mt-4 w-full')}>
-          {step.hint ?? 'Locked'}
-        </button>
-      ) : step.href ? (
-        <Link to={step.href} className={buttonClass(step.status === 'done' ? 'secondary' : 'primary', 'mt-4 w-full')}>
-          {step.status !== 'done' && <IconPlay className="h-4 w-4" />}
-          {resume}
-        </Link>
-      ) : (
-        <button type="button" onClick={step.onOpen} className={buttonClass('primary', 'mt-4 w-full')}>
-          <IconPlay className="h-4 w-4" />
-          {resume}
-        </button>
+      {step.status === 'rendering' && (
+        <p className="mt-4 inline-flex items-center gap-3 text-[15px] font-medium text-ink">
+          <span className="block h-8 w-8 animate-spin rounded-full border-[3px] border-ink/15 border-t-crayon motion-reduce:animate-none" />
+          Being rendered
+        </p>
       )}
-      <div className="mt-5">
-        <p className="text-[12px] font-semibold tracking-[0.14em] text-muted uppercase">In this lesson</p>
-        {step.chapters.length === 0 ? (
-          <p className="mt-2 text-[15px] text-muted">The lesson is written when you open it.</p>
-        ) : (
-          <ul className="mt-2 grid w-full min-w-0 gap-1">
-            {step.chapters.map((chapter) => (
-              <li
-                key={chapter.id}
-                className={cx(
-                  'flex min-w-0 items-center gap-2 rounded-xl px-2 py-1.5',
-                  chapter.state === 'resume' && 'bg-[#fff6d4]',
-                )}
-              >
-                {chapter.state === 'watched' ? (
-                  <IconCheck className="h-4 w-4 shrink-0 text-done" />
-                ) : chapter.state === 'resume' ? (
-                  <IconPlay className="h-4 w-4 shrink-0 text-ink" />
-                ) : (
-                  <span className="h-4 w-4 shrink-0 rounded-full border border-ink/30" />
-                )}
-                <span className="min-w-0 flex-1 truncate text-[15px] text-ink" title={chapter.title}>
-                  {chapter.title}
-                </span>
-                <span className="shrink-0 text-[13px] text-muted tabular-nums">{chapter.duration}</span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
+      {step.status === 'failed' && <p className="mt-4 text-[15px] text-crayon-text">{step.hint ?? 'This lesson could not be rendered.'}</p>}
+      {!quiet && (
+        <>
+          <p className="mt-3 text-[15px] text-muted">{watched}</p>
+          {step.status === 'locked' || (!step.href && !step.onOpen) ? (
+            <button type="button" disabled className={buttonClass('secondary', 'mt-4 w-full')}>
+              {step.hint ?? 'Locked'}
+            </button>
+          ) : step.href ? (
+            <Link to={step.href} className={buttonClass(step.status === 'done' || step.status === 'open' ? 'secondary' : 'primary', 'mt-4 w-full')}>
+              {step.status === 'next' && <IconPlay className="h-4 w-4" />}
+              {resume}
+            </Link>
+          ) : (
+            <button type="button" onClick={step.onOpen} className={buttonClass('primary', 'mt-4 w-full')}>
+              <IconPlay className="h-4 w-4" />
+              {resume}
+            </button>
+          )}
+          <div className="mt-5">
+            <p className="text-[12px] font-semibold tracking-[0.14em] text-muted uppercase">In this lesson</p>
+            {step.chapters.length === 0 ? (
+              <p className="mt-2 text-[15px] text-muted">The lesson is written when you open it.</p>
+            ) : (
+              <ul className="mt-2 grid w-full min-w-0 gap-1">
+                {step.chapters.map((chapter) => (
+                  <li
+                    key={chapter.id}
+                    className={cx('flex min-w-0 items-center gap-2 rounded-xl px-2 py-1.5', chapter.state === 'resume' && 'bg-[#fff6d4]')}
+                  >
+                    {chapter.state === 'watched' ? (
+                      <IconCheck className="h-4 w-4 shrink-0 text-done" />
+                    ) : chapter.state === 'resume' ? (
+                      <IconPlay className="h-4 w-4 shrink-0 text-ink" />
+                    ) : (
+                      <span className="h-4 w-4 shrink-0 rounded-full border border-ink/30" />
+                    )}
+                    <span className="min-w-0 flex-1 truncate text-[15px] text-ink" title={chapter.title}>
+                      {chapter.title}
+                    </span>
+                    <span className="shrink-0 text-[13px] text-muted tabular-nums">{chapter.duration}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </>
+      )}
       {sources && (
         <div className="mt-5">
           <p className="text-[12px] font-semibold tracking-[0.14em] text-muted uppercase">Sources</p>

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { ReactNode } from 'react';
 import { Link, Navigate, useMatch, useParams } from 'react-router-dom';
+import { CrayonSketch } from '../components/CrayonSketch.tsx';
 import { RoadmapTrail, StepPanel } from '../components/RoadmapTrail.tsx';
 import type { TrailChapter, TrailStep } from '../components/RoadmapTrail.tsx';
 import { Button } from '../components/ui/Button.tsx';
@@ -64,7 +65,6 @@ function RoadmapLayout({
   steps,
   sources,
   onAdd,
-  legend,
   empty,
 }: {
   backTo: string;
@@ -77,7 +77,6 @@ function RoadmapLayout({
   steps: TrailStep[];
   sources?: SourceFile[];
   onAdd?: () => void;
-  legend: 'locked' | 'ready';
   empty?: ReactNode;
 }) {
   const fallback = steps.find((step) => step.status === 'next')?.id ?? steps[0]?.id ?? null;
@@ -113,27 +112,28 @@ function RoadmapLayout({
           <div
             className={
               panelOpen && selected
-                ? 'mt-3 grid items-start gap-6 min-[1200px]:grid-cols-[minmax(0,1fr)_minmax(420px,36%)]'
+                ? 'mt-3 grid gap-6 min-[1200px]:grid-cols-[minmax(0,1fr)_minmax(420px,36%)]'
                 : 'mt-3'
             }
           >
             <RoadmapTrail
               steps={steps}
               selectedId={panelOpen ? selectedId ?? undefined : undefined}
-              legend={legend}
               onSelect={(id) => {
                 setPicked(id);
                 setPanelOpen(true);
               }}
             />
             {panelOpen && selected && (
-              <StepPanel
-                step={selected}
-                index={selectedIndex}
-                sources={sources}
-                onAdd={onAdd}
-                onClose={() => setPanelOpen(false)}
-              />
+              <div className="min-w-0">
+                <StepPanel
+                  step={selected}
+                  index={selectedIndex}
+                  sources={sources}
+                  onAdd={onAdd}
+                  onClose={() => setPanelOpen(false)}
+                />
+              </div>
             )}
           </div>
         )}
@@ -173,19 +173,6 @@ export function RoadmapPage() {
   if (isStudy) {
     const ordered = session.roadmap ? orderTopics(session.roadmap.topics) : [];
     const waiting = !session.roadmap && (session.buildingRoadmap || session.status === 'roadmap');
-    const placeholders: TrailStep[] = [0, 1, 2, 3].map((index) => ({
-      id: `loading-${index}`,
-      title: 'Reading your notes',
-      detail: 'Building the roadmap',
-      status: 'locked',
-      artId: artCycle[index % artCycle.length],
-      duration: '',
-      progress: 18,
-      timeLeft: '',
-      hint: 'Reading the document…',
-      statusText: 'Reading',
-      chapters: [],
-    }));
     let markedNext = false;
     const topicSteps: TrailStep[] = ordered.map((item, index) => {
       const lesson = session.lessons[item.id];
@@ -210,12 +197,13 @@ export function RoadmapPage() {
                   : ready
                     ? undefined
                     : 'Queued';
-      let status: TrailStep['status'] = 'locked';
+      let status: TrailStep['status'] = 'rendering';
       if (complete) status = 'done';
       else if (ready && !markedNext) {
         status = 'next';
         markedNext = true;
       } else if (ready) status = 'open';
+      else if (phase === 'failed') status = 'failed';
       const frames = chapters.reduce((total, chapter) => total + chapter.duration, 0);
       const progress = complete
         ? 100
@@ -233,19 +221,19 @@ export function RoadmapPage() {
       return {
         id: item.id,
         title: item.title,
-        detail: phase === 'failed' && runtime?.error ? runtime.error : item.summary,
+        detail: item.summary,
         status,
         artId: artCycle[index % artCycle.length],
         duration: frames ? formatClock(frames) : '',
         progress,
         timeLeft: frames ? built.timeLeft : '',
-        hint: ready ? undefined : (runtime?.statusDetail ?? phaseLabel),
+        hint: phase === 'failed' ? (runtime?.error ?? 'This lesson could not be rendered.') : ready ? undefined : (runtime?.statusDetail ?? phaseLabel),
         statusText: phaseLabel,
         href: ready ? `/study/${item.id}` : undefined,
         chapters: built.items,
       };
     });
-    const steps = waiting ? placeholders : topicSteps;
+    const steps = topicSteps;
     const doneCount = steps.filter((step) => step.status === 'done').length;
     const quizReady = ordered.filter((item) => lessonMarks(`study:${item.id}`).quizReady).length;
     const totalFrames = ordered.reduce((total, item) => {
@@ -285,9 +273,8 @@ export function RoadmapPage() {
         steps={steps}
         sources={sources}
         onAdd={() => openUpload()}
-        legend="ready"
         empty={
-          waiting ? undefined : <Button onClick={() => openUpload()}>Create a lesson from your notes</Button>
+          waiting ? <CrayonSketch /> : <Button onClick={() => openUpload()}>Create a lesson from your notes</Button>
         }
       />
     );
@@ -343,7 +330,6 @@ export function RoadmapPage() {
       steps={topic.subtopics.map(stepFrom)}
       sources={sourceList(topicKey(topic.id))}
       onAdd={() => openUpload(topic.id)}
-      legend="locked"
     />
   );
 }
