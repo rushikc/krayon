@@ -1,50 +1,39 @@
 import type { Chapter } from '../study/chapters.ts';
-import { chapterProgress } from '../study/chapters.ts';
 import { formatClock } from '../study/time.ts';
-import { cardClass } from './ui/Card.tsx';
-import { CrayonProgress } from './ui/CrayonProgress.tsx';
-import { IconCheck } from './ui/icons.tsx';
+import { IconCheck, IconPlay } from './ui/icons.tsx';
 import { cx } from './ui/cx.ts';
 
 type ChapterStripProps = {
   chapters: Chapter[];
   activeIndex: number;
   watchedIds: string[];
-  frame: number;
   onSeek: (frame: number) => void;
 };
 
-export function ChapterStrip({ chapters, activeIndex, watchedIds, frame, onSeek }: ChapterStripProps) {
+export function ChapterStrip({ chapters, activeIndex, watchedIds, onSeek }: ChapterStripProps) {
   return (
-    <ol className="mt-4 flex gap-3 overflow-x-auto pb-1">
+    <ol className="mt-3 flex gap-2 overflow-x-auto pb-1">
       {chapters.map((chapter, index) => {
         const watched = watchedIds.includes(chapter.id);
         const active = index === activeIndex;
-        const label = `${String(index + 1).padStart(2, '0')} · ${formatClock(chapter.duration)}`;
+        const number = String(index + 1).padStart(2, '0');
         return (
-          <li key={chapter.id} className="min-w-[180px] flex-1">
+          <li key={chapter.id} className="shrink-0">
             <button
               type="button"
               onClick={() => onSeek(chapter.start)}
-              className={cardClass(active, false, cx('h-full w-full p-3 text-left', active && 'bg-[#fff6d4]'))}
+              aria-current={active ? 'true' : undefined}
+              className={cx(
+                'inline-flex max-w-[16rem] items-center gap-2 rounded-xl border-2 border-ink px-2.5 py-1.5 text-left text-[13px]',
+                active ? 'bg-[#fff6d4] shadow-[2px_2px_0_var(--color-ink)]' : 'bg-paper',
+              )}
             >
-              <span className="flex flex-wrap items-center gap-1 text-[12px] font-semibold tracking-[0.04em] uppercase">
-                <span className="text-muted">{label}</span>
-                {watched && (
-                  <span className="inline-flex items-center gap-0.5 text-done">
-                    · <IconCheck className="h-3.5 w-3.5" /> watched
-                  </span>
-                )}
-                {active && !watched && <span className="text-ink">· playing</span>}
+              <span className="min-w-0 truncate font-medium text-ink">
+                {number} · {chapter.title}
               </span>
-              <span className="mt-1 block text-[15px] leading-snug text-ink">{chapter.title}</span>
-              <div className="mt-3">
-                <CrayonProgress
-                  value={chapterProgress(frame, chapter, watched)}
-                  label={`${chapter.title} progress`}
-                  tone={watched ? 'done' : active ? 'yellow' : 'crayon'}
-                />
-              </div>
+              {watched && <IconCheck className="h-3.5 w-3.5 shrink-0 text-done" />}
+              {active && !watched && <IconPlay className="h-3.5 w-3.5 shrink-0 text-ink" />}
+              <span className="shrink-0 text-muted tabular-nums">{formatClock(chapter.duration)}</span>
             </button>
           </li>
         );

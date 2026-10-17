@@ -1,0 +1,26 @@
+---
+description: Krayon is a desktop app. Layout must work from 1200px wide upward, not on phones.
+alwaysApply: true
+---
+
+# Desktop only
+
+Krayon is built for desktop. Do not design, build, or fix layouts for phones or narrow viewports.
+
+The supported width is **1200px and wider**. Every screen must render properly at 1200px and keep working as the window gets wider. Below 1200px is out of scope.
+
+## When changing UI
+
+- Build the desktop layout as the default, not a phone layout that expands later.
+- At 1200px, columns, side panels, toolbars, and the lesson player must be visible and usable. No clipped text, overlapping controls, or horizontal page scroll.
+- Wider than 1200px, content may grow or stay in a max width. It must not break, overlap, or leave a broken gap.
+- Do not add phone navigation, bottom sheets, hamburger menus, or touch-only targets.
+- Do not spend time on `sm:` / `md:` stacking. Existing small-screen classes can stay; do not add more to chase a phone layout.
+
+```tsx
+// Bad: the real layout only appears above 1280px, so 1200px is still a phone stack
+<main className="grid xl:grid-cols-[260px_1fr]">
+
+// Good: desktop columns are in place by 1200px
+<main className="grid min-[1200px]:grid-cols-[260px_minmax(0,1fr)]">
+```

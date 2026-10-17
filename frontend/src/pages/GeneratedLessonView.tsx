@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ChapterStrip } from '../components/ChapterStrip.tsx';
 import { DoubtPanel } from '../components/DoubtPanel.tsx';
+import { LessonDesk } from '../components/LessonDesk.tsx';
 import { LessonFrame } from '../components/LessonFrame.tsx';
 import type { LessonTool } from '../components/LessonFrame.tsx';
 import { Card } from '../components/ui/Card.tsx';
@@ -23,7 +24,7 @@ import { totalFrames } from '../remotion/timeline.ts';
 import { chapterIndexAtFrame, generatedChapters } from '../study/chapters.ts';
 import type { Chapter } from '../study/chapters.ts';
 import { useLocalStudy } from '../study/localStudy.tsx';
-import { formatClock } from '../study/time.ts';
+import { formatClock, formatLength } from '../study/time.ts';
 import { useStudySession } from '../study/studyState.ts';
 
 const sampleChapters = (): Chapter[] => {
@@ -180,34 +181,32 @@ export function GeneratedLessonView({ topicId }: { topicId: string }) {
 
   return (
     <Shell>
-      <div className="mt-4">
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <div className="flex items-start gap-3">
+      <div className="mt-2">
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-0.5">
             <Link
               to="/study"
               aria-label="Back to roadmap"
-              className="mt-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-full border-[2.5px] border-ink bg-paper shadow-[2px_2px_0_var(--color-ink)]"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border-2 border-ink bg-paper"
             >
-              <IconBack className="h-5 w-5" />
+              <IconBack className="h-4 w-4" />
             </Link>
-            <div>
-              <h1 className="font-serif text-4xl text-ink sm:text-5xl">
-                <HandUnderline>{topic.title}</HandUnderline>
-              </h1>
-              <p className="mt-2 max-w-xl text-[15px] text-muted">
-                {session.fileName ?? 'Your notes'}
-                {ordered.length > 0 ? ` · Step ${stepIndex + 1} of ${ordered.length}` : ''}
-              </p>
-            </div>
+            <h1 className="min-w-0 font-serif text-2xl leading-none text-ink sm:truncate sm:text-3xl">
+              <HandUnderline>{topic.title}</HandUnderline>
+            </h1>
+            <p className="w-full pl-11 text-[13px] text-muted sm:w-auto sm:pl-0 sm:text-[14px]">
+              {session.fileName ?? 'Your notes'}
+              {ordered.length > 0 ? ` · Step ${stepIndex + 1} of ${ordered.length}` : ''}
+            </p>
           </div>
           {nextTopic && lessonDone && (
-            <Link to={`/study/${nextTopic.id}`} className={buttonClass('secondary')}>
+            <Link to={`/study/${nextTopic.id}`} className={buttonClass('secondary', 'shrink-0 !px-3 !py-1 !text-[13px]')}>
               Next step
-              <IconArrow className="h-4 w-4" />
+              <IconArrow className="h-3.5 w-3.5" />
             </Link>
           )}
           {nextTopic && !lessonDone && (
-            <button type="button" disabled className={buttonClass('secondary')}>
+            <button type="button" disabled className={buttonClass('secondary', 'shrink-0 !px-3 !py-1 !text-[13px]')}>
               Next step
             </button>
           )}
@@ -219,7 +218,7 @@ export function GeneratedLessonView({ topicId }: { topicId: string }) {
         )}
 
         <div className={`mt-5 grid items-start gap-4 ${panelOpen ? 'lg:grid-cols-[minmax(0,1fr)_320px]' : ''}`}>
-          <div>
+          <div className="min-w-0">
             {loading && (
               <Card className="p-6">
                 <p className="text-[16px] text-ink">{session.statusDetail ?? 'Writing the lesson…'}</p>
@@ -301,16 +300,43 @@ export function GeneratedLessonView({ topicId }: { topicId: string }) {
               </LessonFrame>
             )}
             {!loading && (
-              <ChapterStrip
-                chapters={chapters}
-                activeIndex={activeIndex}
-                watchedIds={marks.watchedIds}
-                frame={frame}
-                onSeek={seekTo}
-              />
+              <>
+                <ChapterStrip
+                  chapters={chapters}
+                  activeIndex={activeIndex}
+                  watchedIds={marks.watchedIds}
+                  onSeek={seekTo}
+                />
+                <LessonDesk
+                  sentences={(segment?.narration ?? topic.summary)
+                    .split(/(?<=[.!?])\s+/)
+                    .map((item) => item.trim())
+                    .filter(Boolean)}
+                  pins={marks.pins}
+                  onAddNote={() => chooseTool('note')}
+                  onOpenStudyDoc={
+                    lesson?.studyDoc
+                      ? () => document.getElementById('study-doc')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                      : undefined
+                  }
+                  next={
+                    nextTopic
+                      ? {
+                          title: nextTopic.title,
+                          duration: session.lessons[nextTopic.id]
+                            ? formatLength(generatedDuration(session.lessons[nextTopic.id].segments))
+                            : '',
+                          locked: !lessonDone,
+                          href: `/study/${nextTopic.id}`,
+                          artId: nextTopic.id,
+                        }
+                      : null
+                  }
+                />
+              </>
             )}
-            {lesson && (
-              <Card className="mt-4 p-4">
+            {lesson?.studyDoc && (
+              <Card id="study-doc" className="mt-4 p-4">
                 <h2 className="font-serif text-2xl text-ink">Study doc</h2>
                 <pre className="mt-2 font-sans text-[15px] leading-relaxed whitespace-pre-wrap text-ink">
                   {lesson.studyDoc}
@@ -349,7 +375,6 @@ export function GeneratedLessonView({ topicId }: { topicId: string }) {
           </div>
           {!loading && panelOpen && (
             <DoubtPanel
-              topicId={topicId}
               paused={!playing}
               timeLabel={formatClock(frame, FPS)}
               chapterLabel={`Chapter ${String(activeIndex + 1).padStart(2, '0')}`}
@@ -382,6 +407,7 @@ export function GeneratedLessonView({ topicId }: { topicId: string }) {
                   notes: [...current.notes, { id: `${Date.now()}`, timestamp: formatClock(frame, FPS), text }],
                 }));
               }}
+              onQuiz={() => setTool('quiz')}
               onQuizToggle={(id) => {
                 patchMarks(marksKey, (current) => {
                   const quizIds = current.quizIds.includes(id)

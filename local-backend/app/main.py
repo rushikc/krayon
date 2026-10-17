@@ -1,18 +1,26 @@
 import json
+import logging
 
 from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from .config import ai_backend, settings
+from .logging_setup import setup_logging
+from .request_logging import RequestLogMiddleware
 from .services.auth import User, current_user
 from .services.docstore import LocalDocStore
 from .services.gemini import GeminiNotConfigured, generate_json
 from .services.jobs import LocalJobRunner
 from .services.storage import LocalStorage
 
+setup_logging()
+log = logging.getLogger("krayon.app")
+
 app = FastAPI(title="Krayon local backend", version="0.1.0")
-app.add_middleware(CORSMiddleware, allow_origins=settings.cors_origins, allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(CORSMiddleware, allow_origins=settings.cors_origins, allow_methods=["*"], allow_headers=["*"],
+                   expose_headers=["X-Request-ID"])
+app.add_middleware(RequestLogMiddleware)  # added last = outermost, so it sees every request
 
 store = LocalDocStore(settings.data_dir / "firestore.sqlite3")
 storage = LocalStorage(settings.data_dir / "storage")
@@ -25,6 +33,8 @@ def _ingest(payload: dict) -> dict:
 
 
 jobs.register("ingest", _ingest)
+log.info("local-backend ready", extra={"data": {"event": "startup", "ai": ai_backend(), "project": settings.google_cloud_project,
+                                                "location": settings.google_cloud_location, "data_dir": str(settings.data_dir)}})
 
 
 @app.get("/api/health")
@@ -43,6 +53,8 @@ async def me(user: User = Depends(current_user)):
 @app.post("/api/uploads")
 async def upload(file: UploadFile = File(...), user: User = Depends(current_user)):
     data = await file.read()
+    if not data:
+        raise HTTPException(400, "The uploaded file is empty.")
     if len(data) > settings.max_upload_bytes:
         raise HTTPException(413, "File is larger than 20 MB.")
     name = file.filename or "upload"
@@ -76,7 +88,7 @@ async def ai_generate(req: GenerateRequest, user: User = Depends(current_user)):
             lambda: generate_json(req.prompt, req.responseSchema, file_bytes, mime, req.model))
     except GeminiNotConfigured as exc:
         raise HTTPException(503, str(exc))
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001 (already logged with traceback in gemini.py)
         raise HTTPException(502, f"Gemini request failed: {exc}")
     return {"text": text}
 
@@ -114,6 +126,18 @@ async def delete_doc(path: str, user: User = Depends(current_user)):
     return {"deleted": store.delete(_scoped(user, path))}
 
 
+# ---- Local dev only: wipe everything ------------------------------------------
+# DEV TOOL. Deletes every document (lessons, marks, uploads metadata, jobs) and every
+# uploaded file. There is no Cloud equivalent; do not deploy this route.
+@app.post("/api/admin/reset")
+async def admin_reset():
+    docs = store.clear()
+    files = storage.clear()
+    log.warning("Admin reset: wiped local data", extra={"data": {"event": "reset", "documents": sum(docs.values()),
+                                                                  "byCollection": docs, **files}})
+    return {"ok": True, "removed": {"documents": sum(docs.values()), "byCollection": docs, **files}}
+
+
 # ---- Cloud Run / Functions job seam -----------------------------------------
 class JobRequest(BaseModel):
     kind: str
@@ -125,7 +149,7 @@ async def create_job(req: JobRequest, user: User = Depends(current_user)):
     try:
         return {"id": jobs.submit(user.uid, req.kind, req.payload)}
     except KeyError as exc:
-        raise HTTPException(400, str(exc))
+        raise HTTPException(400, exc.args[0] if exc.args else "Unknown job kind")
 
 
 @app.get("/api/jobs/{job_id}")

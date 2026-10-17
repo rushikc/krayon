@@ -1,0 +1,61 @@
+---
+description: Debugging Krayon locally. Use when investigating errors, failed requests, AI generation problems, or backend behaviour; explains the local-backend logs and how to trace a request.
+alwaysApply: false
+---
+
+# Debugging with local-backend logs
+
+## How it fits together
+- `npm run dev` (repo root) starts **local-backend** (FastAPI, http://localhost:8787) and **Vite** (http://localhost:5173). Vite proxies `/api/*` to the backend, so the browser never calls Google directly.
+- The backend mocks Google Cloud locally:
+  - Firestore → SQLite at `local-backend/data/firestore.sqlite3` (table `docs`: collection, id, data JSON, updated)
+  - Cloud Storage → files under `local-backend/data/storage/uploads/<uid>/<id>/`
+  - Auth → stub user `local-user` (override with the `X-User-Id` header)
+  - Jobs → in-process, status in `jobs/{id}` docs
+- Gemini is **real**: Vertex AI, project `krayon-ai`, location `global`, model `gemini-2.5-flash`, using gcloud Application Default Credentials (`GEMINI_API_KEY` is only a fallback). Config lives in `local-backend/.env`.
+- Frontend AI flow: `frontend/src/lib/ai.ts` → `POST /api/uploads` (once per file) → `POST /api/ai/generate {prompt, uploadId, responseSchema, model}` → zod validation in `aiSchemas.ts` and repair via `sceneValidator.ts`, both in the browser.
+- Reset everything: `curl -X POST localhost:8787/api/admin/reset` (local dev only; also the header's "Clear resources" button, which clears `krayon.*` localStorage too).
+- Tests: `npm run test:backend` (full, real Vertex calls, about 30 s) or `npm run test:backend:quick` (no AI). Script: `local-backend/scripts/smoke_test.py` (`--base http://localhost:5173` tests through the Vite proxy).
+
+## Logs
+Location: `local-backend/logs/` (gitignored; rotate at 5 MB × 5). The same lines also go to the console (the `[backend]` prefix in `npm run dev`).
+- `app.log`: human-readable: `2026-10-17 01:10:59,182 ERROR [<request_id>] <logger>: <message> {json extras}`, tracebacks inline.
+- `app.jsonl`: one JSON object per line. Common keys: `ts`, `level`, `logger`, `request_id`, `msg`, `event`, `exc` (traceback).
+
+Events (`event` key):
+- `response` (logger `krayon.http`), one per request: `method`, `path`, `query`, `user`, `status`, `duration_ms`, `request_headers` (auth/cookie redacted), `request_body`, `response_body`. Bodies are truncated to `LOG_BODY_MAX`; uploads log `{filename, content_type, size}`, never bytes. Level: INFO for 2xx/3xx, WARNING for 4xx, ERROR for 5xx.
+- `error`: an unhandled exception, with `exc`. The client gets 500 `{"detail", "requestId"}`.
+- `gemini` (`krayon.gemini`): `backend`, `model`, `prompt_chars`, `file_bytes`, `file_type`, `has_schema`, `latency_ms`, `usage{prompt,output,thoughts,total}`, `finish_reason`, or `error` plus `exc` on failure.
+- `job`: `job_id`, `kind`, `status` (queued, running, done, error), `duration_ms`.
+- `reset`: counts wiped by `/api/admin/reset`.
+- `startup`: AI backend, project, location, data dir.
+- At DEBUG only: `docstore.get|set|delete|list|clear`, `storage.put|get|clear`, `gemini.text` (raw model output).
+- uvicorn's own logs (`uvicorn.error`) land in the same files; access lines are replaced by the `response` events.
+
+Every response carries an `X-Request-ID` header. Send your own `X-Request-ID` to choose the id; the id also propagates to job worker threads.
+
+## Recipes
+```bash
+cd local-backend/logs
+tail -f app.log                                              # live
+grep '<request_id>' app.log                                  # everything for one request
+jq -c 'select(.request_id=="<id>")' app.jsonl                # same, structured
+jq -c 'select(.level=="ERROR" or .level=="WARNING") | {ts,request_id,msg,status,error}' app.jsonl
+jq -r 'select(.exc) | .ts + " " + .request_id + "\n" + .exc' app.jsonl          # tracebacks
+jq -c 'select(.event=="gemini") | {ts,model,latency_ms,usage,file_type,error}' app.jsonl
+jq -c 'select(.event=="response" and .path=="/api/ai/generate") | {request_id,status,duration_ms}' app.jsonl
+jq -c 'select(.event=="response") | select(.duration_ms > 5000) | {path,duration_ms}' app.jsonl
+curl -si localhost:8787/api/health | grep -i x-request-id    # get an id, then grep it
+```
+In the browser: the Network tab shows `X-Request-ID` on every `/api` response. Grep for it.
+
+## Settings (`local-backend/.env`)
+- `LOG_LEVEL`: `INFO` by default; `DEBUG` adds docstore, storage and raw Gemini output.
+- `LOG_BODY_MAX`: maximum characters of each body (default 2000).
+- `LOG_DIR`: default `./logs`.
+Restart the backend after changing them.
+
+## Rules for agents
+- Check `app.jsonl` for the failing request id before guessing; quote the relevant lines.
+- Never print or log secrets. The logger masks keys matching authorization, cookie, api key, token, secret, password or credential, plus `AIza…`, `ya29.…` and `Bearer …` values. Don't add a field whose key contains "token" if you want it visible (that's why Gemini usage is logged under `usage`).
+- Don't reset data (`/api/admin/reset`) or delete `data/` unless the user asks.

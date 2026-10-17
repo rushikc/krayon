@@ -3,6 +3,7 @@
 Paths follow Firestore conventions: collection/doc/collection/doc...
 """
 import json
+import logging
 import sqlite3
 import threading
 import time
@@ -24,9 +25,12 @@ def _split(path: str) -> tuple[str, str]:
     return "/".join(parts[:-1]), parts[-1]
 
 
+log = logging.getLogger("krayon.docstore")
+
+
 class LocalDocStore:
     def __init__(self, db_file: Path):
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()  # one connection shared by request + job threads
         self._db = sqlite3.connect(db_file, check_same_thread=False)
         self._db.execute(
             "CREATE TABLE IF NOT EXISTS docs (collection TEXT, id TEXT, data TEXT, updated REAL, PRIMARY KEY (collection, id))"
@@ -35,7 +39,9 @@ class LocalDocStore:
 
     def get(self, path):
         col, doc_id = _split(path)
-        row = self._db.execute("SELECT data, updated FROM docs WHERE collection=? AND id=?", (col, doc_id)).fetchone()
+        with self._lock:
+            row = self._db.execute("SELECT data, updated FROM docs WHERE collection=? AND id=?", (col, doc_id)).fetchone()
+        log.debug("get %s", path, extra={"data": {"event": "docstore.get", "path": path, "found": bool(row)}})
         return {"id": doc_id, "data": json.loads(row[0]), "updatedAt": row[1]} if row else None
 
     def set(self, path, data, merge=False):
@@ -51,6 +57,7 @@ class LocalDocStore:
                 (col, doc_id, json.dumps(data), now),
             )
             self._db.commit()
+        log.debug("set %s", path, extra={"data": {"event": "docstore.set", "path": path, "merge": merge, "keys": list(data)[:20]}})
         return {"id": doc_id, "data": data, "updatedAt": now}
 
     def delete(self, path):
@@ -58,9 +65,25 @@ class LocalDocStore:
         with self._lock:
             cur = self._db.execute("DELETE FROM docs WHERE collection=? AND id=?", (col, doc_id))
             self._db.commit()
+        log.debug("delete %s", path, extra={"data": {"event": "docstore.delete", "path": path, "deleted": cur.rowcount > 0}})
         return cur.rowcount > 0
+
+    def clear(self) -> dict[str, int]:
+        """Delete every document. Returns counts per top-level collection."""
+        with self._lock:
+            rows = self._db.execute("SELECT collection, COUNT(*) FROM docs GROUP BY collection").fetchall()
+            self._db.execute("DELETE FROM docs")
+            self._db.commit()
+        counts: dict[str, int] = {}
+        for col, n in rows:
+            top = col.split("/")[2] if col.startswith("users/") and col.count("/") >= 2 else col.split("/")[0]
+            counts[top] = counts.get(top, 0) + n
+        log.debug("clear", extra={"data": {"event": "docstore.clear", "counts": counts}})
+        return counts
 
     def list(self, collection):
         col = collection.strip("/")
-        rows = self._db.execute("SELECT id, data, updated FROM docs WHERE collection=? ORDER BY updated", (col,)).fetchall()
+        with self._lock:
+            rows = self._db.execute("SELECT id, data, updated FROM docs WHERE collection=? ORDER BY updated", (col,)).fetchall()
+        log.debug("list %s", col, extra={"data": {"event": "docstore.list", "collection": col, "count": len(rows)}})
         return [{"id": r[0], "data": json.loads(r[1]), "updatedAt": r[2]} for r in rows]

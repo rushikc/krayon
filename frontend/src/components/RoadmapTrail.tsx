@@ -35,6 +35,16 @@ export type TrailStep = {
 };
 
 const ROW = 176;
+const NODE_HALF = 36;
+const CARD_GAP = 16;
+
+const snakeLayout = (width: number) => {
+  const cardW = Math.min(220, Math.floor((width - 192) / 2));
+  const snake = cardW >= 132;
+  const left = NODE_HALF + 8;
+  const right = Math.max(left, width - NODE_HALF - 8);
+  return { snake, cardW, left, right };
+};
 
 const statusLabel: Record<TrailStatus, string> = {
   done: 'Done',
@@ -43,8 +53,8 @@ const statusLabel: Record<TrailStatus, string> = {
   open: 'Ready',
 };
 
-const pointFor = (index: number, width: number) => ({
-  x: width * (index % 2 === 0 ? 0.2 : 0.8),
+const pointFor = (index: number, layout: { left: number; right: number }) => ({
+  x: index % 2 === 0 ? layout.left : layout.right,
   y: index * ROW + ROW / 2,
 });
 
@@ -155,7 +165,11 @@ export function RoadmapTrail({
   useLayoutEffect(() => {
     const board = boardRef.current;
     if (!board) return;
-    const measure = () => setWidth(board.clientWidth);
+    const measure = () => {
+      const style = getComputedStyle(board);
+      const pad = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight);
+      setWidth(Math.max(0, board.clientWidth - pad));
+    };
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(board);
@@ -180,7 +194,8 @@ export function RoadmapTrail({
   }, [steps.length, width]);
 
   const height = steps.length * ROW;
-  const points = steps.map((_, index) => pointFor(index, Math.max(width, 1)));
+  const layout = snakeLayout(Math.max(width, 1));
+  const points = steps.map((_, index) => pointFor(index, layout));
   const cut = steps.findIndex((step) => step.status === 'next');
   const solidEnd = cut === -1 ? points.length - 1 : cut;
   const solid = curve(points.slice(0, solidEnd + 1));
@@ -198,7 +213,8 @@ export function RoadmapTrail({
   return (
     <div ref={boardRef} className="rounded-[28px] border-2 border-dashed border-ink/25 px-3 py-4 sm:px-5">
       <Legend lockedLabel={lockedLabel} />
-      <ol className="mt-4 grid gap-5 lg:hidden">
+      {!layout.snake && (
+      <ol className="mt-4 grid gap-5">
         {steps.map((step, index) => {
           const joined = step.status === 'done' || step.status === 'next';
           return (
@@ -224,7 +240,9 @@ export function RoadmapTrail({
           );
         })}
       </ol>
-      <div className="relative mt-2 hidden lg:block" style={{ height }}>
+      )}
+      {layout.snake && (
+      <div className="relative mt-2" style={{ height }}>
         {width > 0 && (
           <svg
             aria-hidden="true"
@@ -251,6 +269,8 @@ export function RoadmapTrail({
         )}
         {steps.map((step, index) => {
           const side = index % 2 === 0 ? 'left' : 'right';
+          const nodeX = side === 'left' ? layout.left : layout.right;
+          const cardLeft = side === 'left' ? nodeX + NODE_HALF + CARD_GAP : nodeX - NODE_HALF - CARD_GAP - layout.cardW;
           return (
             <div key={step.id} className="absolute inset-x-0" style={{ top: index * ROW, height: ROW }} data-step>
               <button
@@ -259,14 +279,18 @@ export function RoadmapTrail({
                 aria-hidden="true"
                 onClick={() => onSelect(step.id)}
                 className="absolute top-1/2 z-10 -translate-x-1/2 -translate-y-1/2"
-                style={{ left: side === 'left' ? '20%' : '80%' }}
+                style={{ left: nodeX }}
               >
                 <Node status={step.status} index={index} />
               </button>
               {step.status === 'next' && (
                 <span
-                  className="pointer-events-none absolute z-10 -translate-x-1/2 text-[13px] font-medium whitespace-nowrap text-crayon-text"
-                  style={{ left: side === 'left' ? '20%' : '80%', top: 'calc(50% + 3rem)' }}
+                  className="pointer-events-none absolute z-10 text-[13px] font-medium whitespace-nowrap text-crayon-text"
+                  style={
+                    side === 'left'
+                      ? { left: 0, top: 'calc(50% + 2.6rem)' }
+                      : { right: 4, top: 'calc(50% + 2.6rem)' }
+                  }
                 >
                   ↑ you are here
                 </span>
@@ -276,8 +300,8 @@ export function RoadmapTrail({
                 aria-pressed={step.id === selectedId}
                 aria-label={`${step.title}. ${metaLine(step)}`}
                 onClick={() => onSelect(step.id)}
-                className="absolute top-1/2 z-10 w-[min(15rem,36%)] -translate-y-1/2"
-                style={side === 'left' ? { left: 'calc(20% + 3rem)' } : { right: 'calc(20% + 3rem)' }}
+                className="absolute top-1/2 z-10 -translate-y-1/2"
+                style={{ left: cardLeft, width: layout.cardW }}
               >
                 <StepCard step={step} selected={step.id === selectedId} />
               </button>
@@ -285,12 +309,13 @@ export function RoadmapTrail({
           );
         })}
       </div>
+      )}
       {hidden > 0 && (
-        <div className="sticky bottom-3 z-20 mt-3 flex justify-center">
+        <div className="pointer-events-none sticky bottom-3 z-20 mt-3 flex justify-end">
           <button
             type="button"
             onClick={scrollMore}
-            className="inline-flex items-center gap-1.5 rounded-full border-2 border-ink bg-ink px-4 py-2 text-[14px] font-medium text-paper"
+            className="pointer-events-auto inline-flex items-center gap-1.5 rounded-full border-2 border-ink bg-ink px-4 py-2 text-[14px] font-medium text-paper"
           >
             Scroll for {hidden} more {hidden === 1 ? 'step' : 'steps'}
             <IconBack className="h-4 w-4 -rotate-90" />
@@ -318,7 +343,7 @@ export function StepPanel({
     step.status === 'done' ? 'Watch again' : `Resume${step.timeLeft ? ` · ${step.timeLeft} left` : ''}`;
 
   return (
-    <aside className={cardClass(false, false, 'p-4 lg:sticky lg:top-4')}>
+    <aside className={cardClass(false, false, 'min-w-0 overflow-hidden p-4 xl:sticky xl:top-4')}>
       <div className="flex items-start justify-between gap-3">
         <p className="text-[12px] font-semibold tracking-[0.14em] text-muted uppercase">
           Step {index + 1} · {statusLabel[step.status]}
@@ -370,12 +395,12 @@ export function StepPanel({
         {step.chapters.length === 0 ? (
           <p className="mt-2 text-[15px] text-muted">The lesson is written when you open it.</p>
         ) : (
-          <ul className="mt-2 grid gap-1">
+          <ul className="mt-2 grid w-full min-w-0 gap-1">
             {step.chapters.map((chapter) => (
               <li
                 key={chapter.id}
                 className={cx(
-                  'flex items-center gap-2 rounded-xl px-2 py-1.5',
+                  'flex min-w-0 items-center gap-2 rounded-xl px-2 py-1.5',
                   chapter.state === 'resume' && 'bg-[#fff6d4]',
                 )}
               >

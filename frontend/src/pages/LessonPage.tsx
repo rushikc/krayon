@@ -2,7 +2,6 @@ import { Player, type PlayerRef } from '@remotion/player';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, Navigate, useMatch, useNavigate, useParams } from 'react-router-dom';
 import { GeneratedLessonView } from './GeneratedLessonView.tsx';
-import { ChapterStrip } from '../components/ChapterStrip.tsx';
 import { DoubtPanel } from '../components/DoubtPanel.tsx';
 import { LessonFrame } from '../components/LessonFrame.tsx';
 import type { LessonTool } from '../components/LessonFrame.tsx';
@@ -111,7 +110,7 @@ function CuratedLesson() {
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape' || document.querySelector('[role="dialog"]')) return;
+      if (event.key !== 'Escape' || event.defaultPrevented || document.querySelector('[role="dialog"]')) return;
       if (topic) navigate(`${base}/topics/${topic.id}`);
     };
     window.addEventListener('keydown', onKey);
@@ -172,42 +171,43 @@ function CuratedLesson() {
   };
 
   return (
-    <Shell>
-      <div className="mt-4">
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <div className="flex items-start gap-3">
-            <Link
-              to={`${base}/topics/${topic.id}`}
-              aria-label={`Back to ${topic.title}`}
-              className="mt-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-full border-[2.5px] border-ink bg-paper shadow-[2px_2px_0_var(--color-ink)]"
-            >
-              <IconBack className="h-5 w-5" />
-            </Link>
-            <div>
-              <h1 className="font-serif text-4xl leading-tight text-ink sm:text-5xl">
-                <HandUnderline>{subtopic.title}</HandUnderline>
-              </h1>
-              <p className="mt-2 text-[15px] text-muted">
-                {topic.title} · Step {index + 1} of {topic.subtopics.length}
-              </p>
-            </div>
-          </div>
+    <Shell fill>
+      <div className="flex h-full min-h-0 flex-col">
+        <div className="flex h-14 shrink-0 items-center gap-3">
+          <Link
+            to={`${base}/topics/${topic.id}`}
+            aria-label={`Back to ${topic.title}`}
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-2 border-ink bg-paper"
+          >
+            <IconBack className="h-4 w-4" />
+          </Link>
+          <h1 className="min-w-0 truncate font-serif text-[24px] leading-none text-ink">
+            <HandUnderline>{subtopic.title}</HandUnderline>
+          </h1>
+          <p className="shrink-0 text-[14px] text-muted">
+            {topic.title} · Step {index + 1} of {topic.subtopics.length}
+          </p>
           {next && !nextLocked && (
-            <Link to={`${base}/topics/${topic.id}/${next.id}`} className={buttonClass('secondary')}>
+            <Link to={`${base}/topics/${topic.id}/${next.id}`} className={buttonClass('secondary', 'ml-auto shrink-0 !px-3 !py-1 !text-[13px]')}>
               Next step
-              <IconArrow className="h-4 w-4" />
+              <IconArrow className="h-3.5 w-3.5" />
             </Link>
           )}
           {next && nextLocked && (
-            <button type="button" disabled className={buttonClass('secondary')}>
+            <button type="button" disabled className={buttonClass('secondary', 'ml-auto shrink-0 !px-3 !py-1 !text-[13px]')}>
               Next step
             </button>
           )}
         </div>
 
-        <div className={`mt-5 grid items-start gap-4 ${panelOpen ? 'lg:grid-cols-[minmax(0,1fr)_320px]' : ''}`}>
-          <div>
+        <div
+          className={`grid min-h-0 flex-1 items-stretch gap-5 ${
+            panelOpen ? 'min-[1024px]:grid-cols-[minmax(0,1fr)_380px] min-[1280px]:grid-cols-[minmax(0,1fr)_440px]' : ''
+          }`}
+        >
+          <div className="h-full min-h-0 min-w-0 [container-type:size]">
             <LessonFrame
+              fill
               chapters={chapters}
               frame={frame}
               duration={duration}
@@ -215,6 +215,9 @@ function CuratedLesson() {
               activeTool={tool}
               drawing={tool === 'highlight'}
               strokes={marks.strokes}
+              pins={marks.pins}
+              watchedIds={marks.watchedIds}
+              artId={topic.id}
               explaining={false}
               onToggle={() => {
                 const player = playerRef.current;
@@ -257,23 +260,16 @@ function CuratedLesson() {
                 fps={FPS}
                 controls={false}
                 acknowledgeRemotionLicense
-                style={{ width: '100%' }}
+                style={{ width: '100%', height: '100%' }}
               />
             </LessonFrame>
-            <ChapterStrip
-              chapters={chapters}
-              activeIndex={activeIndex}
-              watchedIds={marks.watchedIds}
-              frame={frame}
-              onSeek={seekTo}
-            />
           </div>
           {panelOpen && (
           <DoubtPanel
             topicId={topic.id}
             paused={!playing}
             timeLabel={formatClock(frame, FPS)}
-            chapterLabel={`Chapter ${String(activeIndex + 1).padStart(2, '0')}`}
+            chapterLabel={`Ch ${String(activeIndex + 1).padStart(2, '0')}`}
             highlightAttached={marks.strokes.length > 0}
             onClose={closePanel}
             answer={answer}
@@ -309,6 +305,7 @@ function CuratedLesson() {
                 notes: [...current.notes, { id: `${Date.now()}`, timestamp: formatClock(frame, FPS), text }],
               }));
             }}
+            onQuiz={() => setTool('quiz')}
             onQuizToggle={(id) => {
               patchMarks(lessonKey(topic.id, subtopic.id), (current) => {
                 const quizIds = current.quizIds.includes(id)

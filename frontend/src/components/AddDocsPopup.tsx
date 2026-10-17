@@ -150,14 +150,17 @@ export function AddDocsPopup({ onClose }: AddDocsPopupProps) {
   };
 
   return (
-    <div className="fixed inset-0 z-40 flex items-end justify-center p-4 sm:items-center">
+    <div className="fixed inset-0 z-40 flex items-end justify-center p-3 sm:items-center sm:p-4">
       <button type="button" aria-label="Close add documentation" className="absolute inset-0 bg-ink/40" onClick={onClose} />
       <div
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="relative z-10 w-full max-w-lg rounded-[20px] border-[2.5px] border-ink bg-paper p-5 shadow-[6px_6px_0_var(--color-ink)]"
+        className={cx(
+          'relative z-10 grid max-h-[calc(100dvh-1.5rem)] w-full grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden rounded-[20px] border-[2.5px] border-ink bg-paper p-4 shadow-[6px_6px_0_var(--color-ink)] sm:p-5',
+          files.length > 0 ? 'max-w-3xl' : 'max-w-lg',
+        )}
         onKeyDown={(event: KeyboardEvent) => event.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-4">
@@ -171,6 +174,7 @@ export function AddDocsPopup({ onClose }: AddDocsPopupProps) {
             <IconClose className="h-5 w-5" />
           </button>
         </div>
+        <div className="min-h-0 overflow-y-auto overscroll-contain">
         <p className="mt-2 text-[15px] leading-relaxed text-muted">
           PDFs and photos only. Add them to a topic you already have, or let the first file become a new topic.
         </p>
@@ -215,7 +219,8 @@ export function AddDocsPopup({ onClose }: AddDocsPopupProps) {
           onDragLeave={() => setOver(false)}
           onDrop={onDrop}
           className={cx(
-            'mt-4 flex w-full flex-col items-center rounded-2xl border-[2.5px] border-dashed px-4 py-8 text-center',
+            'mt-4 flex w-full shrink-0 flex-col items-center rounded-2xl border-[2.5px] border-dashed px-4 text-center',
+            files.length > 0 ? 'py-3' : 'py-8',
             over ? 'border-crayon bg-yellow/40' : 'border-ink/40 bg-stone/60',
           )}
         >
@@ -228,38 +233,42 @@ export function AddDocsPopup({ onClose }: AddDocsPopupProps) {
         )}
 
         {files.length > 0 && (
-          <ul className="mt-4 grid gap-2">
+          <ul className="mt-3 grid grid-cols-2 content-start gap-2">
             {files.map((file, index) => (
               <li
                 key={`${file.name}-${index}`}
-                className="flex items-center gap-3 rounded-xl border-2 border-ink/20 bg-stone/50 px-2 py-2"
+                className="flex min-w-0 items-center gap-2 rounded-lg border-2 border-ink/20 bg-stone/50 px-1.5 py-1"
               >
                 {file.kind === 'image' && file.preview ? (
-                  <img src={file.preview} alt="" className="h-12 w-12 rounded-lg border-2 border-ink object-cover" />
+                  <img src={file.preview} alt="" className="h-8 w-8 shrink-0 rounded-md border-2 border-ink object-cover" />
                 ) : file.kind === 'pdf' ? (
-                  <IconFile className="h-6 w-6 text-crayon-text" />
+                  <IconFile className="h-4 w-4 shrink-0 text-crayon-text" />
                 ) : (
-                  <IconImage className="h-6 w-6 text-muted" />
+                  <IconImage className="h-4 w-4 shrink-0 text-muted" />
                 )}
-                <span className="min-w-0 flex-1 truncate text-[15px] text-ink">{file.name}</span>
-                <span className="text-[12px] font-semibold tracking-[0.12em] text-muted uppercase">
-                  {file.kind === 'rejected' ? 'Not added' : file.kind}
+                <span className="min-w-0 flex-1 truncate text-[13px] text-ink" title={file.name}>
+                  {file.name}
+                </span>
+                <span className="shrink-0 text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">
+                  {file.kind === 'rejected' ? 'Skip' : file.kind}
                 </span>
                 <button
                   type="button"
                   aria-label={`Remove ${file.name}`}
                   onClick={() => removeAt(index)}
-                  className="rounded-full p-1 text-ink"
+                  className="shrink-0 rounded-full p-0.5 text-ink"
                 >
-                  <IconClose className="h-4 w-4" />
+                  <IconClose className="h-3.5 w-3.5" />
                 </button>
               </li>
             ))}
           </ul>
         )}
+        </div>
 
+        <div>
         {busy && (
-          <div className="mt-4">
+          <div className="mt-3 shrink-0">
             <p className="text-[15px] text-ink">Creating your topic…</p>
             <div
               role="progressbar"
@@ -275,14 +284,15 @@ export function AddDocsPopup({ onClose }: AddDocsPopupProps) {
         {error && <p className="mt-4 text-[15px] text-crayon-text">{error}</p>}
 
         {mode === 'existing' ? (
-          <Button className="mt-5 w-full" disabled={accepted.length === 0 || busy} onClick={addToTopic}>
+          <Button className="mt-4 w-full shrink-0" disabled={accepted.length === 0 || busy} onClick={addToTopic}>
             Add to {selectedTopic.title}
           </Button>
         ) : (
-          <Button className="mt-5 w-full" disabled={accepted.length === 0 || busy} onClick={() => void createTopic()}>
+          <Button className="mt-4 w-full shrink-0" disabled={accepted.length === 0 || busy} onClick={() => void createTopic()}>
             {busy ? 'Creating your topic…' : 'Create new topic'}
           </Button>
         )}
+        </div>
       </div>
     </div>
   );

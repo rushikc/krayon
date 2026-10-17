@@ -1,0 +1,17 @@
+{
+  "name": "krayon",
+  "private": true,
+  "scripts": {
+    "setup": "npm install && npm --prefix frontend install && npm run setup:backend",
+    "setup:backend": "cd local-backend && ([ -d .venv ] || python3 -m venv .venv) && .venv/bin/pip install -q -r requirements.txt && ([ -f .env ] || cp .env.example .env)",
+    "dev": "concurrently -k -n backend,frontend -c magenta,cyan \"npm:dev:backend\" \"npm:dev:frontend\"",
+    "dev:frontend": "npm --prefix frontend run dev",
+    "dev:backend": "cd local-backend && .venv/bin/uvicorn app.main:app --reload --port 8787",
+    "build": "npm --prefix frontend run build",
+    "test:backend": "cd local-backend && .venv/bin/python scripts/smoke_test.py",
+    "test:backend:quick": "cd local-backend && .venv/bin/python scripts/smoke_test.py --no-ai"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
+  }
+}

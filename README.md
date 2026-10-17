@@ -60,3 +60,14 @@ Live app: [https://krayon-ai.web.app](https://krayon-ai.web.app)
 ## Local backend
 
 All API traffic now goes through `local-backend/`, a Python (FastAPI) server that mimics Google Cloud locally. It makes real Gemini calls server-side, and mocks Firestore (SQLite), Cloud Storage (local files), Auth (stub user) and background jobs. Start it with `local-backend/run.sh` (Vertex AI on `krayon-ai` via gcloud Application Default Credentials), then run `npm run dev` in `frontend/`. Vite proxies `/api` to it. See `local-backend/README.md`.
+
+## Run everything
+
+From the repo root:
+
+```bash
+npm run setup   # once: root + frontend deps, backend venv, local-backend/.env
+npm run dev     # backend on :8787 + Vite on :5173, prefixed colored logs; Ctrl+C stops both
+```
+
+You can also start them one at a time with `npm run dev:backend` and `npm run dev:frontend`. `npm run build` builds the frontend.

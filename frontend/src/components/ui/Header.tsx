@@ -1,25 +1,40 @@
 import { Link } from 'react-router-dom';
 import { usePalette } from '../../paletteState.ts';
 import { useUpload } from '../../study/uploadState.tsx';
+import { apiFetch } from '../../lib/api.ts';
 import { LogoMark } from './icons.tsx';
 
-const itemClass = 'shrink-0 text-[15px] font-medium text-ink';
+const itemClass = 'shrink-0 text-[14px] font-medium text-ink';
 
 export function Header() {
   const { prefix } = usePalette();
   const { openUpload } = useUpload();
   const home = prefix || '/';
 
+  // Local dev: wipe the backend and this browser's copies, so nothing re-seeds the backend.
+  const clearResources = async () => {
+    if (!window.confirm('Clear all lessons, uploads, notes and progress? This cannot be undone.')) return;
+    try {
+      await apiFetch('/api/admin/reset', { method: 'POST' });
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Could not clear resources.');
+      return;
+    }
+    for (const store of [localStorage, sessionStorage]) {
+      Object.keys(store)
+        .filter((key) => key.startsWith('krayon.'))
+        .forEach((key) => store.removeItem(key));
+    }
+    window.location.reload();
+  };
+
   return (
-    <header className="flex flex-wrap items-center gap-x-6 gap-y-3 py-2">
-      <Link to={home} className="flex items-center gap-2 font-serif text-[1.65rem] leading-none text-ink">
-        <LogoMark />
+    <header className="flex items-center gap-x-3 py-1">
+      <Link to={home} className="flex shrink-0 items-center gap-1.5 font-serif text-[1.35rem] leading-none text-ink">
+        <LogoMark className="h-6 w-6" />
         Krayon
       </Link>
-      <nav
-        aria-label="Primary"
-        className="order-3 flex w-full gap-5 overflow-x-auto sm:order-none sm:w-auto sm:flex-1 sm:justify-center"
-      >
+      <nav aria-label="Primary" className="flex min-w-0 flex-1 gap-4 overflow-x-auto sm:justify-center">
         <Link to={home} className={itemClass}>
           Library
         </Link>
@@ -30,9 +45,16 @@ export function Header() {
           Sources
         </button>
       </nav>
+      <button
+        type="button"
+        onClick={() => void clearResources()}
+        className="ml-auto text-[13px] font-medium text-muted sm:ml-0"
+      >
+        Clear resources
+      </button>
       <span
         aria-hidden="true"
-        className="ml-auto flex h-10 w-10 items-center justify-center rounded-full border-[2.5px] border-ink bg-yellow text-[15px] font-semibold text-ink shadow-[2px_2px_0_var(--color-ink)] sm:ml-0"
+        className="flex h-8 w-8 items-center justify-center rounded-full border-2 border-ink bg-yellow text-[13px] font-semibold text-ink"
       >
         R
       </span>

@@ -113,7 +113,7 @@ function RoadmapLayout({
           <div
             className={
               panelOpen && selected
-                ? 'mt-8 grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_320px]'
+                ? 'mt-8 grid items-start gap-6 min-[1200px]:grid-cols-[minmax(0,1fr)_minmax(420px,36%)]'
                 : 'mt-8'
             }
           >

@@ -43,7 +43,6 @@ body {
 
 @utility page-wrap {
   width: 100%;
-  max-width: 1120px;
   margin-inline: auto;
 }
 

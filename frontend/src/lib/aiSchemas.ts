@@ -40,7 +40,11 @@ const bulletsLayout = z.object({
 const flowLayout = z.object({
   type: z.literal('flow'),
   heading: optionalText,
-  direction: z.enum(['horizontal', 'vertical']),
+  // The Gemini schema flattens every layout, so direction is optional there; default it here.
+  direction: z
+    .enum(['horizontal', 'vertical'])
+    .nullish()
+    .transform((value) => value ?? 'horizontal'),
   nodes: z.array(titledNode).min(2).max(6),
   edges: z
     .array(

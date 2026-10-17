@@ -3,13 +3,16 @@
 Locally, jobs run in-process on a thread pool and their status is stored as a
 document in the `jobs` collection, the same way a Firestore-triggered function would report it.
 """
-import traceback
+import logging
+import contextvars
+import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable
 
 from .docstore import DocStore
 
+log = logging.getLogger("krayon.jobs")
 Handler = Callable[[dict[str, Any]], dict[str, Any]]
 
 
@@ -28,15 +31,21 @@ class LocalJobRunner:
         job_id = uuid.uuid4().hex
         path = f"jobs/{job_id}"
         self.store.set(path, {"owner": owner, "kind": kind, "status": "queued", "payload": payload})
+        log.info("Job queued %s", kind, extra={"data": {"event": "job", "job_id": job_id, "kind": kind, "status": "queued", "owner": owner}})
+        ctx = contextvars.copy_context()  # keep the request id in the worker thread's logs
 
         def run():
+            start = time.perf_counter()
             self.store.set(path, {"status": "running"}, merge=True)
+            log.info("Job running %s", kind, extra={"data": {"event": "job", "job_id": job_id, "kind": kind, "status": "running"}})
             try:
                 result = self.handlers[kind](payload)
                 self.store.set(path, {"status": "done", "result": result}, merge=True)
+                log.info("Job done %s", kind, extra={"data": {"event": "job", "job_id": job_id, "kind": kind, "status": "done",
+                                                               "duration_ms": round((time.perf_counter() - start) * 1000, 1)}})
             except Exception as exc:  # noqa: BLE001
-                traceback.print_exc()
+                log.exception("Job failed %s", kind, extra={"data": {"event": "job", "job_id": job_id, "kind": kind, "status": "error"}})
                 self.store.set(path, {"status": "error", "error": str(exc)}, merge=True)
 
-        self.pool.submit(run)
+        self.pool.submit(ctx.run, run)
         return job_id
