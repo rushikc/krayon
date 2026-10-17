@@ -60,7 +60,7 @@ beforeAll(async () => {
   base = `http://127.0.0.1:${port}`;
   proc = spawn(path.resolve(ROOT, '../node_modules/.bin/tsx'), ['src/index.ts'], {
     cwd: ROOT,
-    env: { ...process.env, DATA_DIR: tmp, PORT: String(port), LOG_LEVEL: 'WARNING' },
+    env: { ...process.env, DATA_DIR: tmp, LOG_DIR: tmp, PORT: String(port), LOG_LEVEL: 'WARNING' },
     stdio: 'pipe',
   });
   const deadline = Date.now() + 20_000;

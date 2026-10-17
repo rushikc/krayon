@@ -15,6 +15,8 @@ export const pipelineEventTypes = [
   'segment.ready',
   'topic.ready',
   'topic.failed',
+  'segment.failed',
+  'course.failed',
   'course.done',
 ] as const;
 

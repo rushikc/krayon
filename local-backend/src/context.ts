@@ -8,6 +8,7 @@ import { LocalDocStore } from './services/docstore.js';
 import { LocalStorage } from './services/storage.js';
 
 export const store = new LocalDocStore(path.join(settings.dataDir, 'firestore.sqlite3'));
+store.recoverInterrupted();
 export const storage = new LocalStorage(path.join(settings.dataDir, 'storage'));
 export const jobs = new LocalJobRunner(store);
 export const events = new LocalEventBus();
@@ -37,4 +38,8 @@ export const pipeline = createPipeline({
     renderKeyframesMax: settings.renderKeyframesMax,
     remotionEntry: path.resolve(rootDir, '../packages/shared/dist/remotion/entry.js'),
   },
+});
+
+void pipeline.warmup().catch((error: unknown) => {
+  geminiLog.error('Remotion bundle failed', { event: 'render.warmup' }, error);
 });

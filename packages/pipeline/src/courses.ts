@@ -45,7 +45,7 @@ export const reviewResponseSchema: Record<string, unknown> = {
         required: ['frame', 'problem', 'severity'],
       },
     },
-    patchedSegment: { type: 'object' },
+    patchedSegment: responseSchemas.segment,
   },
   required: ['pass', 'score', 'issues'],
 };
@@ -76,25 +76,33 @@ export const assembleCourse = (docs: DocStore, uid: string, courseId: string): C
   const course = docs.get(coursePath(uid, courseId));
   if (!course) return null;
   const data = course.data;
-  const topics = docs.list(`${coursePath(uid, courseId)}/topics`).map((topic): TopicState => {
-    const segments = docs
-      .list(`${topicPath(uid, courseId, topic.id)}/segments`)
-      .map((segment) => segmentState(docs, uid, courseId, topic.id, segment));
-    const lessonSegments = segments.map((segment) => segment.segment).filter((segment): segment is GeneratedSegment => Boolean(segment));
-    const studyDoc = String(topic.data.studyDoc ?? '');
-    return {
-      id: topic.id,
-      title: String(topic.data.title ?? ''),
-      summary: String(topic.data.summary ?? ''),
-      prerequisites: (topic.data.prerequisites as string[]) ?? [],
-      sourcePages: (topic.data.sourcePages as number[]) ?? [],
-      status: (topic.data.status as TopicState['status']) ?? 'queued',
-      statusDetail: (topic.data.statusDetail as string | null) ?? null,
-      error: (topic.data.error as string | null) ?? null,
-      lesson: lessonSegments.length ? { studyDoc, segments: lessonSegments } : null,
-      segments,
-    };
-  });
+  const orderOf = (data: Record<string, unknown>) => (typeof data.order === 'number' ? data.order : Number.MAX_SAFE_INTEGER);
+  const topics = docs
+    .list(`${coursePath(uid, courseId)}/topics`)
+    .sort((a, b) => orderOf(a.data) - orderOf(b.data) || a.id.localeCompare(b.id))
+    .map((topic): TopicState => {
+      const status = (topic.data.status as TopicState['status']) ?? 'queued';
+      const segments = docs
+        .list(`${topicPath(uid, courseId, topic.id)}/segments`)
+        .sort((a, b) => orderOf(a.data) - orderOf(b.data) || a.id.localeCompare(b.id))
+        .map((segment) => segmentState(docs, uid, courseId, topic.id, segment));
+      const lessonSegments = segments
+        .map((segment) => segment.segment)
+        .filter((segment): segment is GeneratedSegment => Boolean(segment));
+      const studyDoc = String(topic.data.studyDoc ?? '');
+      return {
+        id: topic.id,
+        title: String(topic.data.title ?? ''),
+        summary: String(topic.data.summary ?? ''),
+        prerequisites: (topic.data.prerequisites as string[]) ?? [],
+        sourcePages: (topic.data.sourcePages as number[]) ?? [],
+        status,
+        statusDetail: (topic.data.statusDetail as string | null) ?? null,
+        error: (topic.data.error as string | null) ?? null,
+        lesson: status === 'ready' && lessonSegments.length ? { studyDoc, segments: lessonSegments } : null,
+        segments,
+      };
+    });
   return {
     id: courseId,
     owner: uid,
@@ -112,14 +120,15 @@ export const listCourses = (docs: DocStore, uid: string): CourseState[] =>
 
 export const saveLesson = (docs: DocStore, uid: string, courseId: string, topicId: string, lesson: GeneratedLesson) => {
   docs.set(topicPath(uid, courseId, topicId), { studyDoc: lesson.studyDoc, status: 'ready', statusDetail: null, error: null }, true);
-  for (const segment of lesson.segments) {
+  lesson.segments.forEach((segment, order) => {
     docs.set(segmentPath(uid, courseId, topicId, segment.id), {
       title: segment.title,
       status: 'ready',
       statusDetail: null,
       segment,
+      order,
     });
-  }
+  });
 };
 
 export const readSources = (blobs: BlobStorage, uid: string, course: CourseState) =>

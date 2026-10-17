@@ -49,6 +49,8 @@ export type PipelineEmit = Omit<PipelineEvent, 'seq' | 'ts'> & {
 export interface EventBus {
   emit(event: PipelineEmit): PipelineEvent;
   subscribe(courseId: string, listener: (event: PipelineEvent) => void): () => void;
+  beginRun(courseId: string): string;
+  endRun(courseId: string, runId: string): void;
   requestCancel(courseId: string, topicId?: string, segmentId?: string): void;
   isCancelled(courseId: string, topicId?: string, segmentId?: string): boolean;
 }

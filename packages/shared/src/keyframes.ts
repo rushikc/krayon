@@ -11,13 +11,15 @@ const visit = (value: unknown, frames: number[]) => {
   for (const child of Object.values(record)) visit(child, frames);
 };
 
-/** Frames a reviewer should see: each item's appearAt + 10, plus the frame just before the end. */
+/** Frames a reviewer should see: each item's appearAt + 10, and always the last frame. */
 export const collectKeyframeFrames = (segment: GeneratedSegment, max: number): number[] => {
+  const last = Math.max(0, segment.durationInFrames - 1);
+  if (max <= 0) return [];
   const raw: number[] = [];
   visit(segment.scene?.layout, raw);
   raw.push(segment.durationInFrames - 5);
-  const last = Math.max(0, segment.durationInFrames - 1);
-  const unique = [...new Set(raw.map((frame) => Math.max(0, Math.min(last, Math.round(frame)))))];
-  unique.sort((a, b) => a - b);
-  return unique.slice(0, Math.max(0, max));
+  const unique = [...new Set(raw.map((frame) => Math.max(0, Math.min(last, Math.round(frame)))))]
+    .filter((frame) => frame !== last)
+    .sort((a, b) => a - b);
+  return [...unique.slice(0, max - 1), last];
 };

@@ -45,7 +45,7 @@ export type TopicState = {
 export type CourseState = {
   id: string;
   owner: string;
-  status: 'created' | 'roadmap' | 'lessons' | 'done';
+  status: 'created' | 'roadmap' | 'lessons' | 'done' | 'failed';
   fileNames: string[];
   sources: CourseSource[];
   roadmap: Roadmap | null;

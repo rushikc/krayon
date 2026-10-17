@@ -83,6 +83,31 @@ export class LocalDocStore implements DocStore {
     return counts;
   }
 
+  recoverInterrupted() {
+    const reason = 'interrupted by restart';
+    const jobs = this.db.prepare(`SELECT id, data FROM docs WHERE collection = 'jobs'`).all() as Array<{
+      id: string;
+      data: string;
+    }>;
+    for (const row of jobs) {
+      const data = JSON.parse(row.data) as { status?: string };
+      if (data.status === 'queued' || data.status === 'running') {
+        this.set(`jobs/${row.id}`, { status: 'error', error: reason }, true);
+      }
+    }
+    const topics = this.db.prepare(`SELECT collection, id, data FROM docs WHERE collection LIKE '%/topics'`).all() as Array<{
+      collection: string;
+      id: string;
+      data: string;
+    }>;
+    for (const row of topics) {
+      const data = JSON.parse(row.data) as { status?: string };
+      if (data.status === 'generating' || data.status === 'checking' || data.status === 'reviewing') {
+        this.set(`${row.collection}/${row.id}`, { status: 'failed', statusDetail: null, error: reason }, true);
+      }
+    }
+  }
+
   list(collection: string): DocRecord[] {
     const col = collection.replace(/^\/+|\/+$/g, '');
     const rows = this.db

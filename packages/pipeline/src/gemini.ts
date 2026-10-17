@@ -53,11 +53,24 @@ export const normalizeSchema = (schema: unknown): unknown => {
   return out;
 };
 
+export const MAX_OUTPUT_TOKENS = 8192;
+export const FLASH_THINKING_BUDGET = 1024;
+export const GENERATE_TIMEOUT_MS = 90_000;
+
 const transient = (error: unknown) => {
   const status = (error as { status?: number }).status;
   const message = error instanceof Error ? error.message : String(error);
   return status === 429 || status === 503 || /UNAVAILABLE|RESOURCE_EXHAUSTED|ECONNRESET|ETIMEDOUT|fetch failed/i.test(message);
 };
+
+export const isRetryableGenerateError = (error: unknown) => {
+  if (transient(error)) return true;
+  if (!(error instanceof Error)) return false;
+  return error.name === 'AbortError' || /aborted|MAX_TOKENS/i.test(`${error.name} ${error.message}`);
+};
+
+export const thinkingConfigFor = (model: string) =>
+  model.toLowerCase().includes('flash') ? { thinkingConfig: { thinkingBudget: FLASH_THINKING_BUDGET } } : {};
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -114,22 +127,33 @@ export const createGemini = (config: GeminiConfig, log: PipelineLogger) => {
     const start = performance.now();
     let result: Awaited<ReturnType<GoogleGenAI['models']['generateContent']>> | undefined;
     let lastError: unknown;
+    const modelName = String(info.model);
     for (let attempt = 0; attempt < 3; attempt += 1) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), GENERATE_TIMEOUT_MS);
       try {
-        result = await genai.models.generateContent({
-          model: String(info.model),
+        const next = await genai.models.generateContent({
+          model: modelName,
           contents: [{ role: 'user', parts }],
           config: {
             responseMimeType: 'application/json',
             responseSchema: responseSchema ? (normalizeSchema(responseSchema) as never) : undefined,
+            maxOutputTokens: MAX_OUTPUT_TOKENS,
+            abortSignal: controller.signal,
+            ...thinkingConfigFor(modelName),
           },
         });
+        const finish = String(next.candidates?.[0]?.finishReason ?? '');
+        if (finish === 'MAX_TOKENS') throw new Error('MAX_TOKENS');
+        result = next;
         lastError = undefined;
         break;
       } catch (error) {
         lastError = error;
-        if (!transient(error) || attempt === 2) break;
+        if (!isRetryableGenerateError(error) || attempt === 2) break;
         await sleep(400 * 2 ** attempt);
+      } finally {
+        clearTimeout(timer);
       }
     }
     info.latency_ms = Math.round((performance.now() - start) * 10) / 10;

@@ -103,7 +103,36 @@ export function StudySessionProvider({ children }: { children: ReactNode }) {
       setFallbackTopicId(event.topicId);
       setError(event.error ?? 'Topic failed');
     }
-    if (event.topicId && event.segmentId && event.type.startsWith('segment.')) {
+    if (event.type === 'segment.failed' && event.topicId) {
+      const topicId = event.topicId;
+      const segmentId = event.segmentId;
+      setRegeneratingId((current) => (segmentId && current === segmentId ? null : current));
+      setError(event.error ?? 'Segment failed');
+      setTopics((current) => {
+        const topic = current[topicId];
+        if (!topic) return current;
+        const rewriting = topic.statusDetail === 'Rewriting the segment';
+        return {
+          ...current,
+          [topicId]: {
+            ...topic,
+            status: rewriting ? 'ready' : topic.status,
+            statusDetail: null,
+            segments: segmentId
+              ? {
+                  ...topic.segments,
+                  [segmentId]: {
+                    ...(topic.segments[segmentId] ?? { id: segmentId, title: segmentId, status: 'failed', statusDetail: null, rounds: [] }),
+                    status: 'failed',
+                    statusDetail: null,
+                  },
+                }
+              : topic.segments,
+          },
+        };
+      });
+    }
+    if (event.topicId && event.segmentId && event.type.startsWith('segment.') && event.type !== 'segment.failed') {
       const segmentId = event.segmentId;
       const topicId = event.topicId;
       const statusName = event.type.replace('segment.', '');
@@ -135,16 +164,19 @@ export function StudySessionProvider({ children }: { children: ReactNode }) {
         setRegeneratingId((current) => (current === segmentId ? null : current));
       }
     }
-    if (event.type === 'course.done') {
+    if (event.type === 'course.done' || event.type === 'course.failed') {
       setBuildingRoadmap(false);
       setStatus('idle');
       setStatusDetail(null);
     }
+    if (event.type === 'course.failed') setError(event.error ?? 'Course failed');
     if (
       event.type === 'roadmap.ready' ||
       event.type === 'segment.review' ||
       event.type === 'segment.ready' ||
+      event.type === 'segment.failed' ||
       event.type === 'topic.ready' ||
+      event.type === 'course.failed' ||
       event.type === 'course.done'
     ) {
       void getCourse(event.courseId).then(adopt).catch(() => undefined);
