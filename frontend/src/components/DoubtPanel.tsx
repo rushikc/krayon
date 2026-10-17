@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import type { FormEvent, KeyboardEvent } from 'react';
 import type { LessonTool } from './LessonFrame.tsx';
 import { IconArrow, IconClose, IconPin } from './ui/icons.tsx';
+import { Markdown } from './ui/Markdown.tsx';
 import { TopicArt } from './ui/TopicArt.tsx';
 import type { LessonMarks } from '../study/localStudy.tsx';
 
@@ -121,7 +122,7 @@ export function DoubtPanel({
           ) : (
             <div key={`${turn.role}-${index}`} className="rounded-2xl border-[1.5px] border-ink bg-white px-2.5 py-2">
               <p className="text-[11px] font-semibold tracking-[0.14em] text-crayon-text uppercase">Krayon</p>
-              <p className="mt-1 text-[14px] leading-snug text-ink">{turn.text}</p>
+              <Markdown className="mt-1 text-[14px] leading-snug">{turn.text}</Markdown>
               <div className="mt-2 flex flex-wrap gap-1.5">
                 <button type="button" onClick={onExplain} className={miniClass}>
                   Explain longer
@@ -137,7 +138,7 @@ export function DoubtPanel({
         {marks.doubts.length === 0 && (
           <div className="rounded-2xl border-[1.5px] border-ink bg-white px-2.5 py-2">
             <p className="text-[11px] font-semibold tracking-[0.14em] text-crayon-text uppercase">Krayon</p>
-            <p className="mt-1 text-[14px] leading-snug text-ink">{answer}</p>
+            <Markdown className="mt-1 text-[14px] leading-snug">{answer}</Markdown>
             <div className="mt-2 flex flex-wrap gap-1.5">
               <button type="button" onClick={onExplain} className={miniClass}>
                 Explain longer

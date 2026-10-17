@@ -64,11 +64,11 @@ export const topicKey = (id: string) => `topic:${id}`;
 
 export const lessonKey = (topicId: string, subtopicId: string) => `topic:${topicId}:${subtopicId}`;
 
-export const stepStatus = (doneIds: string[], ids: string[], id: string): 'done' | 'next' | 'locked' => {
+export const stepStatus = (doneIds: string[], ids: string[], id: string): 'done' | 'next' | 'open' => {
   if (doneIds.includes(id)) return 'done';
   const firstOpen = ids.find((item) => !doneIds.includes(item));
   if (!firstOpen || firstOpen === id) return 'next';
-  return 'locked';
+  return 'open';
 };
 
 export const nextSubtopic = (topic: Topic, doneIds: string[]) =>

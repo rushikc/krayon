@@ -1,14 +1,7 @@
-import type { Schema } from 'firebase/ai';
 import type { z } from 'zod';
-import { ApiError, apiJson, uploadFile } from './api.ts';
-import {
-  lessonResponseSchema,
-  lessonSchema,
-  roadmapResponseSchema,
-  roadmapSchema,
-  segmentResponseSchemaOnly,
-  segmentSchema,
-} from './aiSchemas.ts';
+import { apiJson, uploadFile } from './api.ts';
+import { lessonModelSchema, roadmapSchema, segmentModelSchema } from './aiSchemas.ts';
+import type { ModelSchemaName } from './aiSchemas.ts';
 import type { GeneratedSegment, RoadmapTopic, SceneIssue } from '../remotion/scene.ts';
 import { validateSegment } from './sceneValidator.ts';
 
@@ -25,41 +18,33 @@ const readJson = (text: string): unknown => {
 const issueText = (error: z.ZodError) =>
   error.issues.map((issue) => `${issue.path.join('.') || 'root'}: ${issue.message}`).join('; ');
 
+/**
+ * Asks the backend for JSON matching a named schema. The server owns the response schema (generated
+ * from the shared zod schemas), validates the result and retries with path-qualified feedback; it
+ * answers 422 (SCHEMA_INVALID / NOT_JSON) or 502 (UPSTREAM / TIMEOUT / MAX_TOKENS) with details.
+ */
 const generateValidated = async <T>(
-  responseSchema: Schema,
+  schema: Exclude<ModelSchemaName, 'review'>,
   validator: z.ZodType<T>,
   prompt: string,
   file: File,
 ): Promise<T> => {
   const upload = await uploadFile(file);
-  const schemaJson = (responseSchema as Schema & { toJSON?: () => unknown }).toJSON?.() ?? responseSchema;
-
-  const attempt = async (hint?: string) => {
-    const result = await apiJson<{ text: string }>('/api/ai/generate', 'POST', {
-      model: MODEL,
-      uploadId: upload.id,
-      responseSchema: schemaJson,
-      prompt: hint ? `${prompt}\n\nThe previous JSON failed validation: ${hint}` : prompt,
-    });
-    let parsed: unknown;
-    try {
-      parsed = readJson(result.text);
-    } catch {
-      throw new Error('The model did not return JSON.');
-    }
-    const checked = validator.safeParse(parsed);
-    if (!checked.success) throw new Error(issueText(checked.error));
-    return checked.data;
-  };
-
+  const result = await apiJson<{ text: string }>('/api/ai/generate', 'POST', {
+    model: MODEL,
+    uploadId: upload.id,
+    schema,
+    prompt,
+  });
+  let parsed: unknown;
   try {
-    return await attempt();
-  } catch (error) {
-    // Backend or network errors are not fixed by re-prompting.
-    if (error instanceof ApiError) throw error;
-    const hint = error instanceof Error ? error.message : 'Invalid JSON';
-    return await attempt(hint);
+    parsed = readJson(result.text);
+  } catch {
+    throw new Error('The model did not return JSON.');
   }
+  const checked = validator.safeParse(parsed);
+  if (!checked.success) throw new Error(issueText(checked.error));
+  return checked.data;
 };
 
 const roadmapPrompt = `Read the attached document and split it into a study roadmap of smaller topics.
@@ -70,7 +55,7 @@ sourcePages lists 1-based page numbers that support the topic. For a photo, use 
 Stay inside what the document actually says.`;
 
 export const generateRoadmap = (file: File) =>
-  generateValidated(roadmapResponseSchema, roadmapSchema, roadmapPrompt, file);
+  generateValidated('roadmap', roadmapSchema, roadmapPrompt, file);
 
 const templateGuide = `Each segment uses exactly one scene.layout. Fill its slots. Do not send coordinates.
 Optional appearAt is a frame number inside the segment. Omit it to let items appear in order.
@@ -174,8 +159,8 @@ const repairSegments = async (
       pending.map(async (candidate) => {
         try {
           const next = await generateValidated(
-            segmentResponseSchemaOnly,
-            segmentSchema,
+            'segment',
+            segmentModelSchema,
             repairPrompt(candidate.segment, candidate.issues),
             file,
           );
@@ -202,7 +187,7 @@ export const generateLesson = async (
   onProgress?: (progress: LessonProgress) => void,
 ) => {
   onProgress?.({ phase: 'writing', detail: 'Writing the lesson…' });
-  const lesson = await generateValidated(lessonResponseSchema, lessonSchema, lessonPrompt(topic), file);
+  const lesson = await generateValidated('lesson', lessonModelSchema, lessonPrompt(topic), file);
   const segments = await repairSegments(lesson.segments, file, onProgress);
   return { ...lesson, segments };
 };
@@ -215,8 +200,8 @@ export const regenerateSegment = async (
 ) => {
   onProgress?.({ phase: 'writing', detail: 'Writing the lesson…' });
   const next = await generateValidated(
-    segmentResponseSchemaOnly,
-    segmentSchema,
+    'segment',
+    segmentModelSchema,
     segmentPrompt(topic, segment),
     file,
   );

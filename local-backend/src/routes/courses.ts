@@ -4,6 +4,8 @@ import { assembleCourse, coursePath, listCourses } from '@krayon/pipeline';
 import { z } from 'zod';
 import { settings } from '../config.js';
 import { events, jobs, pipeline, storage, store } from '../context.js';
+import { adcFailure } from '../health.js';
+import { acquireJob, jobConflict, lockKey, releaseJob } from '../locks.js';
 import { httpError } from '../requestLogging.js';
 import { auth } from '../services/auth.js';
 
@@ -22,18 +24,47 @@ export const registerCourseRoutes = (app: FastifyInstance) => {
     return { courseId: payload.courseId };
   });
 
+  const locked = (key: string, run: () => Promise<unknown>) => async () => {
+    try {
+      return await run();
+    } finally {
+      releaseJob(key);
+    }
+  };
+
   jobs.register('regenerate', async (payload) => {
-    await pipeline.runRegenerate(
-      String(payload.uid),
-      String(payload.courseId),
-      String(payload.topicId),
-      String(payload.segmentId),
-      typeof payload.prompt === 'string' ? payload.prompt : undefined,
-    );
-    return { courseId: payload.courseId, segmentId: payload.segmentId };
+    const key = String(payload.lockKey ?? '');
+    return locked(key, () =>
+      pipeline.runRegenerate(
+        String(payload.uid),
+        String(payload.courseId),
+        String(payload.topicId),
+        String(payload.segmentId),
+        typeof payload.prompt === 'string' ? payload.prompt : undefined,
+      ),
+    )();
   });
 
-  app.post('/api/courses', async (request) => {
+  jobs.register('retrySegment', async (payload) => {
+    const key = String(payload.lockKey ?? '');
+    return locked(key, () => pipeline.runRetry(String(payload.uid), String(payload.courseId), String(payload.topicId), String(payload.segmentId)))();
+  });
+
+  jobs.register('retryTopic', async (payload) => {
+    const key = String(payload.lockKey ?? '');
+    return locked(key, () => pipeline.runTopicRetry(String(payload.uid), String(payload.courseId), String(payload.topicId)))();
+  });
+
+  jobs.register('resumeCourse', async (payload) => {
+    await pipeline.resumeCourse(String(payload.uid), String(payload.courseId));
+  });
+
+  jobs.register('renderTopic', async (payload) => {
+    const key = String(payload.lockKey ?? '');
+    return locked(key, () => pipeline.runTopic(String(payload.uid), String(payload.courseId), String(payload.topicId)))();
+  });
+
+  app.post('/api/courses', async (request, reply) => {
     const user = auth.currentUser(request.headers['x-user-id']);
     const files: Array<{ name: string; type: string; data: Buffer }> = [];
     for await (const part of request.files()) {
@@ -47,6 +78,11 @@ export const registerCourseRoutes = (app: FastifyInstance) => {
       files.push({ name, type, data });
     }
     if (files.length === 0) throw httpError(422, 'file is required');
+    const adcError = await adcFailure();
+    if (adcError) {
+      reply.code(503).send({ detail: adcError });
+      return;
+    }
     (request as { uploadLog?: unknown }).uploadLog = {
       files: files.map((file) => ({ field: 'file', filename: file.name, content_type: file.type, size: file.data.length })),
     };
@@ -82,23 +118,88 @@ export const registerCourseRoutes = (app: FastifyInstance) => {
     return course;
   });
 
-  app.post('/api/courses/:id/topics/:topicId/segments/:segmentId/regenerate', async (request) => {
+  const beginJob = (
+    reply: { code: (status: number) => { send: (body: unknown) => unknown } },
+    topicStatus: string,
+    key: string,
+    topicWide: boolean,
+    submit: () => string,
+  ) => {
+    const conflict = jobConflict(topicStatus, key, topicWide);
+    if (conflict) return reply.code(409).send(conflict);
+    acquireJob(key);
+    try {
+      return { jobId: submit() };
+    } catch (error) {
+      releaseJob(key);
+      throw error;
+    }
+  };
+
+  app.post('/api/courses/:id/topics/:topicId/segments/:segmentId/regenerate', async (request, reply) => {
     const user = auth.currentUser(request.headers['x-user-id']);
     const params = request.params as { id: string; topicId: string; segmentId: string };
     const courseId = safeId(params.id, 'course');
     const topicId = safeId(params.topicId, 'topic');
     const segmentId = safeId(params.segmentId, 'segment');
-    if (!assembleCourse(store, user.uid, courseId)) throw httpError(404, 'Not found');
+    const course = assembleCourse(store, user.uid, courseId);
+    const topic = course?.topics.find((item) => item.id === topicId);
+    const index = topic?.segments.findIndex((item) => item.id === segmentId) ?? -1;
+    if (!topic || index < 0) throw httpError(404, 'Not found');
     const body = regenerateBody.safeParse(request.body ?? {});
     if (!body.success) throw httpError(422, 'Invalid regenerate request');
-    const jobId = jobs.submit(user.uid, 'regenerate', {
-      uid: user.uid,
-      courseId,
-      topicId,
-      segmentId,
-      prompt: body.data.prompt,
-    });
-    return { jobId };
+    const key = lockKey(courseId, topicId, index);
+    return beginJob(reply, topic.status, key, false, () =>
+      jobs.submit(user.uid, 'regenerate', { uid: user.uid, courseId, topicId, segmentId, prompt: body.data.prompt, lockKey: key }),
+    );
+  });
+
+  // Retry a failed segment (no usable segment yet) from its stored draft and errors.
+  app.post('/api/courses/:id/topics/:topicId/segments/:segmentId/retry', async (request, reply) => {
+    const user = auth.currentUser(request.headers['x-user-id']);
+    const params = request.params as { id: string; topicId: string; segmentId: string };
+    const courseId = safeId(params.id, 'course');
+    const topicId = safeId(params.topicId, 'topic');
+    const segmentId = safeId(params.segmentId, 'segment');
+    const course = assembleCourse(store, user.uid, courseId);
+    const topic = course?.topics.find((item) => item.id === topicId);
+    const index = topic?.segments.findIndex((item) => item.id === segmentId) ?? -1;
+    if (!topic || index < 0) throw httpError(404, 'Not found');
+    const key = lockKey(courseId, topicId, index);
+    return beginJob(reply, topic.status, key, false, () =>
+      jobs.submit(user.uid, 'retrySegment', { uid: user.uid, courseId, topicId, segmentId, lockKey: key }),
+    );
+  });
+
+  // Queue an idle lesson. It renders after the one already running.
+  app.post('/api/courses/:id/topics/:topicId/render', async (request, reply) => {
+    const user = auth.currentUser(request.headers['x-user-id']);
+    const params = request.params as { id: string; topicId: string };
+    const courseId = safeId(params.id, 'course');
+    const topicId = safeId(params.topicId, 'topic');
+    const course = assembleCourse(store, user.uid, courseId);
+    const topic = course?.topics.find((item) => item.id === topicId);
+    if (!topic) throw httpError(404, 'Not found');
+    if (topic.status !== 'idle') throw httpError(409, 'This lesson is already in the pipeline.');
+    const key = lockKey(courseId, topicId, -1);
+    return beginJob(reply, topic.status, key, true, () =>
+      jobs.submit(user.uid, 'renderTopic', { uid: user.uid, courseId, topicId, lockKey: key }),
+    );
+  });
+
+  // Retry a whole topic (for example when its lesson draft failed).
+  app.post('/api/courses/:id/topics/:topicId/retry', async (request, reply) => {
+    const user = auth.currentUser(request.headers['x-user-id']);
+    const params = request.params as { id: string; topicId: string };
+    const courseId = safeId(params.id, 'course');
+    const topicId = safeId(params.topicId, 'topic');
+    const course = assembleCourse(store, user.uid, courseId);
+    const topic = course?.topics.find((item) => item.id === topicId);
+    if (!topic) throw httpError(404, 'Not found');
+    const key = lockKey(courseId, topicId, -1);
+    return beginJob(reply, topic.status, key, true, () =>
+      jobs.submit(user.uid, 'retryTopic', { uid: user.uid, courseId, topicId, lockKey: key }),
+    );
   });
 
   app.get('/api/renders/:blobId', async (request, reply) => {

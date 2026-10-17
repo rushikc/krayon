@@ -1,4 +1,7 @@
-import type { GeneratedSegment, RoadmapTopic, SceneIssue } from '@krayon/shared';
+import type { GeneratedSegment, GenerationIssue, RoadmapTopic } from '@krayon/shared';
+
+/** A parsed segment or a raw model record that failed validation. */
+export type SegmentLike = GeneratedSegment | Record<string, unknown>;
 
 export const templateGuide = `Each segment uses exactly one scene.layout. Fill its slots. Do not send coordinates.
 Optional appearAt is a frame number inside the segment. Omit it to let items appear in order.
@@ -14,15 +17,22 @@ callout: one statement. Fields: kind definition or example or keyPoint, title, b
 
 Wrap math in single dollar signs, like $P = Q$.`;
 
-const publicSegment = (segment: GeneratedSegment) => ({
-  id: segment.id,
-  title: segment.title,
-  durationInFrames: segment.durationInFrames,
-  narration: segment.narration,
-  scene: segment.scene,
-});
+const publicSegment = (raw: SegmentLike) => {
+  const segment = raw as Partial<GeneratedSegment>;
+  return {
+    id: segment.id,
+    title: segment.title,
+    durationInFrames: segment.durationInFrames,
+    narration: segment.narration,
+    scene: segment.scene,
+  };
+};
+
+const problems = (issues: GenerationIssue[]) => issues.map((item) => `- ${item.path}: ${item.message}`).join('\n');
 
 export const roadmapPrompt = `Read the attached document and split it into a study roadmap of smaller topics.
+Return a title: a short proper name for the whole subject, not a file name.
+Return a category: exactly one word in title case for a library filter, such as Economy, Business, or Software. Use one of those when it fits.
 Return 3 to 7 topics.
 Each id is unique kebab-case.
 prerequisites lists ids of other topics in this same list, or is empty.
@@ -56,17 +66,37 @@ ${templateGuide}
 Current segment:
 ${JSON.stringify(publicSegment(segment))}`;
 
-export const repairPrompt = (segment: GeneratedSegment, issues: SceneIssue[]) => `Fix only these problems. Return the corrected segment, not a full lesson.
-Keep the segment id exactly "${segment.id}".
+export const repairPrompt = (segment: SegmentLike, issues: GenerationIssue[]) => `Fix only these problems. Return the corrected segment, not a full lesson.
+Keep the segment id exactly "${String(segment.id)}".
 Do not add coordinates. Use the same template unless a problem says the template itself is invalid.
+Every required field of the chosen template must be present and non-empty.
 
 Problems:
-${issues.map((item) => `- ${item.path}: ${item.message}`).join('\n')}
+${problems(issues)}
 
 ${templateGuide}
 
 Current segment:
 ${JSON.stringify(publicSegment(segment))}`;
+
+export const retrySegmentPrompt = (
+  topic: RoadmapTopic,
+  segmentId: string,
+  title: string,
+  previous: SegmentLike | null,
+  issues: GenerationIssue[],
+) => `Write one lesson segment for this topic, grounded only in the attached document.
+Topic: ${topic.title}
+Summary: ${topic.summary}
+Segment title: ${title}
+Keep the segment id exactly "${segmentId}".
+durationInFrames is between 90 and 240 at 30 fps.
+narration is one or two sentences for the caption.
+Return one segment, not a full lesson. Use exactly one template and fill every required field of that template.
+Node labels are about 6 words. Bullets are about 12 words.
+${issues.length ? `\nThe previous attempt failed validation:\n${problems(issues)}\n` : ''}
+${templateGuide}
+${previous ? `\nPrevious attempt:\n${JSON.stringify(publicSegment(previous))}` : ''}`;
 
 export const reviewPrompt = (segment: GeneratedSegment, frames: number[]) => `You are reviewing still frames of one lesson segment.
 Frames are attached after the source material, in this order: ${frames.join(', ')}.

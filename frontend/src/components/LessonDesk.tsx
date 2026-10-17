@@ -6,7 +6,6 @@ import { TopicArt } from './ui/TopicArt.tsx';
 type NextStep = {
   title: string;
   duration: string;
-  locked: boolean;
   href?: string;
   artId: string;
 };
@@ -68,10 +67,8 @@ export function LessonDesk({ sentences, pins, onAddNote, onOpenStudyDoc, next }:
             <TopicArt topicId={next.artId} className="h-14 w-20 shrink-0" />
             <div className="min-w-0">
               <p className="truncate text-[15px] font-medium text-ink">{next.title}</p>
-              <p className="text-[13px] text-muted">
-                {[next.duration, next.locked ? 'unlocks after this step' : ''].filter(Boolean).join(' · ')}
-              </p>
-              {next.href && !next.locked ? (
+              <p className="text-[13px] text-muted">{next.duration}</p>
+              {next.href ? (
                 <Link to={next.href} className="mt-1 inline-block text-[14px] font-medium text-crayon-text">
                   Open
                 </Link>

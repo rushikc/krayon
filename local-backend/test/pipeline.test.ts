@@ -40,6 +40,7 @@ beforeAll(async () => {
     env: {
       ...process.env,
       DATA_DIR: tmp,
+      LOG_DIR: path.join(tmp, 'logs'),
       PORT: String(port),
       LOG_LEVEL: 'INFO',
       MAX_REVIEW_ROUNDS: '1',

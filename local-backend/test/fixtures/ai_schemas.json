@@ -1,1 +1,1572 @@
-{"roadmap":{"type":"object","properties":{"topics":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string","description":"Unique kebab-case id.","nullable":false},"title":{"type":"string","nullable":false},"summary":{"type":"string","nullable":false},"prerequisites":{"type":"array","items":{"type":"string","description":"Id of another topic in this roadmap.","nullable":false},"nullable":false},"sourcePages":{"type":"array","items":{"type":"integer","description":"1-based page number. Use 1 for a photo.","nullable":false},"nullable":false}},"nullable":false,"required":["id","title","summary","prerequisites","sourcePages"]},"nullable":false}},"nullable":false,"required":["topics"]},"lesson":{"type":"object","properties":{"studyDoc":{"type":"string","description":"Markdown notes for this topic.","nullable":false},"segments":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string","nullable":false},"title":{"type":"string","nullable":false},"durationInFrames":{"type":"integer","description":"Length at 30 fps, between 90 and 450.","nullable":false},"narration":{"type":"string","description":"One or two sentences shown as the caption.","nullable":false},"scene":{"type":"object","properties":{"layout":{"type":"object","description":"One template. Fill only the fields for the chosen type.","properties":{"type":{"type":"string","enum":["titleCard","bullets","flow","compare","hubSpoke","chart","timeline","callout"],"description":"titleCard, bullets, flow, compare, hubSpoke, chart, timeline, or callout.","nullable":false},"title":{"type":"string","nullable":false},"subtitle":{"type":"string","nullable":false},"heading":{"type":"string","nullable":false},"body":{"type":"string","nullable":false},"direction":{"type":"string","enum":["horizontal","vertical"],"nullable":false},"kind":{"type":"string","enum":["definition","example","keyPoint"],"description":"Callout kind only.","nullable":false},"items":{"type":"array","items":{"type":"object","properties":{"text":{"type":"string","nullable":false},"appearAt":{"type":"integer","description":"Optional frame when this item appears.","nullable":false}},"nullable":false,"required":["text"]},"nullable":false},"nodes":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string","nullable":false},"label":{"type":"string","description":"About 6 words.","nullable":false},"sublabel":{"type":"string","nullable":false},"appearAt":{"type":"integer","nullable":false}},"nullable":false,"required":["id","label"]},"nullable":false},"edges":{"type":"array","items":{"type":"object","properties":{"from":{"type":"string","nullable":false},"to":{"type":"string","nullable":false},"label":{"type":"string","nullable":false}},"nullable":false,"required":["from","to"]},"nullable":false},"left":{"type":"object","properties":{"title":{"type":"string","nullable":false},"points":{"type":"array","items":{"type":"object","properties":{"text":{"type":"string","nullable":false},"appearAt":{"type":"integer","description":"Optional frame when this item appears.","nullable":false}},"nullable":false,"required":["text"]},"nullable":false}},"nullable":false,"required":["title","points"]},"right":{"type":"object","properties":{"title":{"type":"string","nullable":false},"points":{"type":"array","items":{"type":"object","properties":{"text":{"type":"string","nullable":false},"appearAt":{"type":"integer","description":"Optional frame when this item appears.","nullable":false}},"nullable":false,"required":["text"]},"nullable":false}},"nullable":false,"required":["title","points"]},"center":{"type":"object","properties":{"id":{"type":"string","nullable":false},"label":{"type":"string","nullable":false}},"nullable":false,"required":["id","label"]},"spokes":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string","nullable":false},"label":{"type":"string","description":"About 6 words.","nullable":false},"sublabel":{"type":"string","nullable":false},"appearAt":{"type":"integer","nullable":false}},"nullable":false,"required":["id","label"]},"nullable":false},"xLabel":{"type":"string","nullable":false},"yLabel":{"type":"string","nullable":false},"curves":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string","nullable":false},"label":{"type":"string","nullable":false},"kind":{"type":"string","enum":["upward","downward","flat"],"nullable":false},"shift":{"type":"string","enum":["left","right"],"nullable":false},"appearAt":{"type":"integer","nullable":false}},"nullable":false,"required":["id","label","kind"]},"nullable":false},"markers":{"type":"array","items":{"type":"object","properties":{"type":{"type":"string","enum":["intersection","point"],"nullable":false},"curveIds":{"type":"array","items":{"type":"string","nullable":false},"nullable":false},"label":{"type":"string","nullable":false},"appearAt":{"type":"integer","nullable":false}},"nullable":false,"required":["type","label"]},"nullable":false},"steps":{"type":"array","items":{"type":"object","properties":{"label":{"type":"string","nullable":false},"detail":{"type":"string","nullable":false},"appearAt":{"type":"integer","nullable":false}},"nullable":false,"required":["label"]},"nullable":false}},"nullable":false,"required":["type"]}},"nullable":false,"required":["layout"]}},"nullable":false,"required":["id","title","durationInFrames","narration","scene"]},"nullable":false}},"nullable":false,"required":["studyDoc","segments"]},"segment":{"type":"object","properties":{"id":{"type":"string","nullable":false},"title":{"type":"string","nullable":false},"durationInFrames":{"type":"integer","description":"Length at 30 fps, between 90 and 450.","nullable":false},"narration":{"type":"string","description":"One or two sentences shown as the caption.","nullable":false},"scene":{"type":"object","properties":{"layout":{"type":"object","description":"One template. Fill only the fields for the chosen type.","properties":{"type":{"type":"string","enum":["titleCard","bullets","flow","compare","hubSpoke","chart","timeline","callout"],"description":"titleCard, bullets, flow, compare, hubSpoke, chart, timeline, or callout.","nullable":false},"title":{"type":"string","nullable":false},"subtitle":{"type":"string","nullable":false},"heading":{"type":"string","nullable":false},"body":{"type":"string","nullable":false},"direction":{"type":"string","enum":["horizontal","vertical"],"nullable":false},"kind":{"type":"string","enum":["definition","example","keyPoint"],"description":"Callout kind only.","nullable":false},"items":{"type":"array","items":{"type":"object","properties":{"text":{"type":"string","nullable":false},"appearAt":{"type":"integer","description":"Optional frame when this item appears.","nullable":false}},"nullable":false,"required":["text"]},"nullable":false},"nodes":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string","nullable":false},"label":{"type":"string","description":"About 6 words.","nullable":false},"sublabel":{"type":"string","nullable":false},"appearAt":{"type":"integer","nullable":false}},"nullable":false,"required":["id","label"]},"nullable":false},"edges":{"type":"array","items":{"type":"object","properties":{"from":{"type":"string","nullable":false},"to":{"type":"string","nullable":false},"label":{"type":"string","nullable":false}},"nullable":false,"required":["from","to"]},"nullable":false},"left":{"type":"object","properties":{"title":{"type":"string","nullable":false},"points":{"type":"array","items":{"type":"object","properties":{"text":{"type":"string","nullable":false},"appearAt":{"type":"integer","description":"Optional frame when this item appears.","nullable":false}},"nullable":false,"required":["text"]},"nullable":false}},"nullable":false,"required":["title","points"]},"right":{"type":"object","properties":{"title":{"type":"string","nullable":false},"points":{"type":"array","items":{"type":"object","properties":{"text":{"type":"string","nullable":false},"appearAt":{"type":"integer","description":"Optional frame when this item appears.","nullable":false}},"nullable":false,"required":["text"]},"nullable":false}},"nullable":false,"required":["title","points"]},"center":{"type":"object","properties":{"id":{"type":"string","nullable":false},"label":{"type":"string","nullable":false}},"nullable":false,"required":["id","label"]},"spokes":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string","nullable":false},"label":{"type":"string","description":"About 6 words.","nullable":false},"sublabel":{"type":"string","nullable":false},"appearAt":{"type":"integer","nullable":false}},"nullable":false,"required":["id","label"]},"nullable":false},"xLabel":{"type":"string","nullable":false},"yLabel":{"type":"string","nullable":false},"curves":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string","nullable":false},"label":{"type":"string","nullable":false},"kind":{"type":"string","enum":["upward","downward","flat"],"nullable":false},"shift":{"type":"string","enum":["left","right"],"nullable":false},"appearAt":{"type":"integer","nullable":false}},"nullable":false,"required":["id","label","kind"]},"nullable":false},"markers":{"type":"array","items":{"type":"object","properties":{"type":{"type":"string","enum":["intersection","point"],"nullable":false},"curveIds":{"type":"array","items":{"type":"string","nullable":false},"nullable":false},"label":{"type":"string","nullable":false},"appearAt":{"type":"integer","nullable":false}},"nullable":false,"required":["type","label"]},"nullable":false},"steps":{"type":"array","items":{"type":"object","properties":{"label":{"type":"string","nullable":false},"detail":{"type":"string","nullable":false},"appearAt":{"type":"integer","nullable":false}},"nullable":false,"required":["label"]},"nullable":false}},"nullable":false,"required":["type"]}},"nullable":false,"required":["layout"]}},"nullable":false,"required":["id","title","durationInFrames","narration","scene"]}}
+{
+  "roadmap": {
+    "type": "object",
+    "properties": {
+      "title": {
+        "type": "string",
+        "description": "Short name for the whole subject, used as the library title."
+      },
+      "category": {
+        "type": "string",
+        "description": "One word, title case, such as Economy, Business, or Software."
+      },
+      "topics": {
+        "minItems": 1,
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "description": "Unique kebab-case id."
+            },
+            "title": {
+              "type": "string"
+            },
+            "summary": {
+              "type": "string"
+            },
+            "prerequisites": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "description": "Id of another topic in this roadmap."
+              }
+            },
+            "sourcePages": {
+              "type": "array",
+              "items": {
+                "type": "number",
+                "description": "1-based page number. Use 1 for a photo."
+              }
+            }
+          },
+          "required": [
+            "id",
+            "title"
+          ]
+        }
+      }
+    },
+    "required": [
+      "title",
+      "category",
+      "topics"
+    ]
+  },
+  "lesson": {
+    "type": "object",
+    "properties": {
+      "studyDoc": {
+        "description": "Markdown notes for this topic.",
+        "type": "string"
+      },
+      "segments": {
+        "minItems": 1,
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "description": "Unique kebab-case id."
+            },
+            "title": {
+              "type": "string"
+            },
+            "durationInFrames": {
+              "type": "number",
+              "description": "Length at 30 fps, between 90 and 450."
+            },
+            "narration": {
+              "description": "One or two sentences shown as the caption.",
+              "type": "string"
+            },
+            "scene": {
+              "type": "object",
+              "properties": {
+                "layout": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "type": "string",
+                          "enum": [
+                            "titleCard"
+                          ]
+                        },
+                        "title": {
+                          "type": "string"
+                        },
+                        "subtitle": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "type": "string",
+                          "enum": [
+                            "bullets"
+                          ]
+                        },
+                        "heading": {
+                          "type": "string"
+                        },
+                        "items": {
+                          "minItems": 1,
+                          "maxItems": 5,
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "text": {
+                                "type": "string"
+                              },
+                              "appearAt": {
+                                "description": "Optional frame when this item appears.",
+                                "type": "number"
+                              }
+                            },
+                            "required": [
+                              "text"
+                            ]
+                          }
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "heading",
+                        "items"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "type": "string",
+                          "enum": [
+                            "flow"
+                          ]
+                        },
+                        "heading": {
+                          "type": "string"
+                        },
+                        "direction": {
+                          "type": "string",
+                          "enum": [
+                            "horizontal",
+                            "vertical"
+                          ]
+                        },
+                        "nodes": {
+                          "minItems": 2,
+                          "maxItems": 6,
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string"
+                              },
+                              "label": {
+                                "type": "string",
+                                "description": "About 6 words."
+                              },
+                              "sublabel": {
+                                "type": "string"
+                              },
+                              "appearAt": {
+                                "description": "Optional frame when this item appears.",
+                                "type": "number"
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "label"
+                            ]
+                          }
+                        },
+                        "edges": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "from": {
+                                "type": "string"
+                              },
+                              "to": {
+                                "type": "string"
+                              },
+                              "label": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "from",
+                              "to"
+                            ]
+                          }
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "nodes"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "type": "string",
+                          "enum": [
+                            "compare"
+                          ]
+                        },
+                        "heading": {
+                          "type": "string"
+                        },
+                        "left": {
+                          "type": "object",
+                          "properties": {
+                            "title": {
+                              "type": "string"
+                            },
+                            "points": {
+                              "minItems": 1,
+                              "maxItems": 5,
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "text": {
+                                    "type": "string"
+                                  },
+                                  "appearAt": {
+                                    "description": "Optional frame when this item appears.",
+                                    "type": "number"
+                                  }
+                                },
+                                "required": [
+                                  "text"
+                                ]
+                              }
+                            }
+                          },
+                          "required": [
+                            "title",
+                            "points"
+                          ]
+                        },
+                        "right": {
+                          "type": "object",
+                          "properties": {
+                            "title": {
+                              "type": "string"
+                            },
+                            "points": {
+                              "minItems": 1,
+                              "maxItems": 5,
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "text": {
+                                    "type": "string"
+                                  },
+                                  "appearAt": {
+                                    "description": "Optional frame when this item appears.",
+                                    "type": "number"
+                                  }
+                                },
+                                "required": [
+                                  "text"
+                                ]
+                              }
+                            }
+                          },
+                          "required": [
+                            "title",
+                            "points"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "left",
+                        "right"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "type": "string",
+                          "enum": [
+                            "hubSpoke"
+                          ]
+                        },
+                        "center": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string"
+                            },
+                            "label": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "label"
+                          ]
+                        },
+                        "spokes": {
+                          "minItems": 3,
+                          "maxItems": 6,
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string"
+                              },
+                              "label": {
+                                "type": "string",
+                                "description": "About 6 words."
+                              },
+                              "sublabel": {
+                                "type": "string"
+                              },
+                              "appearAt": {
+                                "description": "Optional frame when this item appears.",
+                                "type": "number"
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "label"
+                            ]
+                          }
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "center",
+                        "spokes"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "type": "string",
+                          "enum": [
+                            "chart"
+                          ]
+                        },
+                        "heading": {
+                          "type": "string"
+                        },
+                        "xLabel": {
+                          "type": "string"
+                        },
+                        "yLabel": {
+                          "type": "string"
+                        },
+                        "curves": {
+                          "minItems": 1,
+                          "maxItems": 4,
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string"
+                              },
+                              "label": {
+                                "type": "string"
+                              },
+                              "kind": {
+                                "type": "string",
+                                "enum": [
+                                  "upward",
+                                  "downward",
+                                  "flat"
+                                ]
+                              },
+                              "shift": {
+                                "type": "string",
+                                "enum": [
+                                  "left",
+                                  "right"
+                                ]
+                              },
+                              "appearAt": {
+                                "description": "Optional frame when this item appears.",
+                                "type": "number"
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "label",
+                              "kind"
+                            ]
+                          }
+                        },
+                        "markers": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "type": {
+                                "type": "string",
+                                "enum": [
+                                  "intersection",
+                                  "point"
+                                ]
+                              },
+                              "curveIds": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              },
+                              "label": {
+                                "type": "string"
+                              },
+                              "appearAt": {
+                                "description": "Optional frame when this item appears.",
+                                "type": "number"
+                              }
+                            },
+                            "required": [
+                              "type",
+                              "label"
+                            ]
+                          }
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "xLabel",
+                        "yLabel",
+                        "curves"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "type": "string",
+                          "enum": [
+                            "timeline"
+                          ]
+                        },
+                        "heading": {
+                          "type": "string"
+                        },
+                        "steps": {
+                          "minItems": 2,
+                          "maxItems": 6,
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "label": {
+                                "type": "string"
+                              },
+                              "detail": {
+                                "type": "string"
+                              },
+                              "appearAt": {
+                                "description": "Optional frame when this item appears.",
+                                "type": "number"
+                              }
+                            },
+                            "required": [
+                              "label"
+                            ]
+                          }
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "steps"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "type": "string",
+                          "enum": [
+                            "callout"
+                          ]
+                        },
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "definition",
+                            "example",
+                            "keyPoint"
+                          ]
+                        },
+                        "title": {
+                          "type": "string"
+                        },
+                        "body": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "kind",
+                        "title",
+                        "body"
+                      ]
+                    }
+                  ],
+                  "description": "Exactly one template. Fill every required field of the chosen type."
+                }
+              },
+              "required": [
+                "layout"
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "title",
+            "durationInFrames",
+            "scene"
+          ]
+        }
+      }
+    },
+    "required": [
+      "segments"
+    ]
+  },
+  "segment": {
+    "type": "object",
+    "properties": {
+      "id": {
+        "type": "string",
+        "description": "Unique kebab-case id."
+      },
+      "title": {
+        "type": "string"
+      },
+      "durationInFrames": {
+        "type": "number",
+        "description": "Length at 30 fps, between 90 and 450."
+      },
+      "narration": {
+        "description": "One or two sentences shown as the caption.",
+        "type": "string"
+      },
+      "scene": {
+        "type": "object",
+        "properties": {
+          "layout": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "titleCard"
+                    ]
+                  },
+                  "title": {
+                    "type": "string"
+                  },
+                  "subtitle": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type",
+                  "title"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "bullets"
+                    ]
+                  },
+                  "heading": {
+                    "type": "string"
+                  },
+                  "items": {
+                    "minItems": 1,
+                    "maxItems": 5,
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "text": {
+                          "type": "string"
+                        },
+                        "appearAt": {
+                          "description": "Optional frame when this item appears.",
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "text"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "type",
+                  "heading",
+                  "items"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "flow"
+                    ]
+                  },
+                  "heading": {
+                    "type": "string"
+                  },
+                  "direction": {
+                    "type": "string",
+                    "enum": [
+                      "horizontal",
+                      "vertical"
+                    ]
+                  },
+                  "nodes": {
+                    "minItems": 2,
+                    "maxItems": 6,
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "label": {
+                          "type": "string",
+                          "description": "About 6 words."
+                        },
+                        "sublabel": {
+                          "type": "string"
+                        },
+                        "appearAt": {
+                          "description": "Optional frame when this item appears.",
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "label"
+                      ]
+                    }
+                  },
+                  "edges": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "from": {
+                          "type": "string"
+                        },
+                        "to": {
+                          "type": "string"
+                        },
+                        "label": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "from",
+                        "to"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "type",
+                  "nodes"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "compare"
+                    ]
+                  },
+                  "heading": {
+                    "type": "string"
+                  },
+                  "left": {
+                    "type": "object",
+                    "properties": {
+                      "title": {
+                        "type": "string"
+                      },
+                      "points": {
+                        "minItems": 1,
+                        "maxItems": 5,
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "text": {
+                              "type": "string"
+                            },
+                            "appearAt": {
+                              "description": "Optional frame when this item appears.",
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "text"
+                          ]
+                        }
+                      }
+                    },
+                    "required": [
+                      "title",
+                      "points"
+                    ]
+                  },
+                  "right": {
+                    "type": "object",
+                    "properties": {
+                      "title": {
+                        "type": "string"
+                      },
+                      "points": {
+                        "minItems": 1,
+                        "maxItems": 5,
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "text": {
+                              "type": "string"
+                            },
+                            "appearAt": {
+                              "description": "Optional frame when this item appears.",
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "text"
+                          ]
+                        }
+                      }
+                    },
+                    "required": [
+                      "title",
+                      "points"
+                    ]
+                  }
+                },
+                "required": [
+                  "type",
+                  "left",
+                  "right"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "hubSpoke"
+                    ]
+                  },
+                  "center": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "label": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "label"
+                    ]
+                  },
+                  "spokes": {
+                    "minItems": 3,
+                    "maxItems": 6,
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "label": {
+                          "type": "string",
+                          "description": "About 6 words."
+                        },
+                        "sublabel": {
+                          "type": "string"
+                        },
+                        "appearAt": {
+                          "description": "Optional frame when this item appears.",
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "label"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "type",
+                  "center",
+                  "spokes"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "chart"
+                    ]
+                  },
+                  "heading": {
+                    "type": "string"
+                  },
+                  "xLabel": {
+                    "type": "string"
+                  },
+                  "yLabel": {
+                    "type": "string"
+                  },
+                  "curves": {
+                    "minItems": 1,
+                    "maxItems": 4,
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "label": {
+                          "type": "string"
+                        },
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "upward",
+                            "downward",
+                            "flat"
+                          ]
+                        },
+                        "shift": {
+                          "type": "string",
+                          "enum": [
+                            "left",
+                            "right"
+                          ]
+                        },
+                        "appearAt": {
+                          "description": "Optional frame when this item appears.",
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "label",
+                        "kind"
+                      ]
+                    }
+                  },
+                  "markers": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "type": "string",
+                          "enum": [
+                            "intersection",
+                            "point"
+                          ]
+                        },
+                        "curveIds": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "label": {
+                          "type": "string"
+                        },
+                        "appearAt": {
+                          "description": "Optional frame when this item appears.",
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "label"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "type",
+                  "xLabel",
+                  "yLabel",
+                  "curves"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "timeline"
+                    ]
+                  },
+                  "heading": {
+                    "type": "string"
+                  },
+                  "steps": {
+                    "minItems": 2,
+                    "maxItems": 6,
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "label": {
+                          "type": "string"
+                        },
+                        "detail": {
+                          "type": "string"
+                        },
+                        "appearAt": {
+                          "description": "Optional frame when this item appears.",
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "label"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "type",
+                  "steps"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "callout"
+                    ]
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "definition",
+                      "example",
+                      "keyPoint"
+                    ]
+                  },
+                  "title": {
+                    "type": "string"
+                  },
+                  "body": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type",
+                  "kind",
+                  "title",
+                  "body"
+                ]
+              }
+            ],
+            "description": "Exactly one template. Fill every required field of the chosen type."
+          }
+        },
+        "required": [
+          "layout"
+        ]
+      }
+    },
+    "required": [
+      "id",
+      "title",
+      "durationInFrames",
+      "scene"
+    ]
+  },
+  "review": {
+    "type": "object",
+    "properties": {
+      "pass": {
+        "type": "boolean"
+      },
+      "score": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 10
+      },
+      "issues": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "frame": {
+              "type": "number"
+            },
+            "problem": {
+              "type": "string"
+            },
+            "severity": {
+              "type": "string",
+              "enum": [
+                "low",
+                "medium",
+                "high"
+              ]
+            }
+          },
+          "required": [
+            "frame",
+            "problem",
+            "severity"
+          ]
+        }
+      },
+      "patchedSegment": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Unique kebab-case id."
+          },
+          "title": {
+            "type": "string"
+          },
+          "durationInFrames": {
+            "type": "number",
+            "description": "Length at 30 fps, between 90 and 450."
+          },
+          "narration": {
+            "description": "One or two sentences shown as the caption.",
+            "type": "string"
+          },
+          "scene": {
+            "type": "object",
+            "properties": {
+              "layout": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "titleCard"
+                        ]
+                      },
+                      "title": {
+                        "type": "string"
+                      },
+                      "subtitle": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "title"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "bullets"
+                        ]
+                      },
+                      "heading": {
+                        "type": "string"
+                      },
+                      "items": {
+                        "minItems": 1,
+                        "maxItems": 5,
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "text": {
+                              "type": "string"
+                            },
+                            "appearAt": {
+                              "description": "Optional frame when this item appears.",
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "text"
+                          ]
+                        }
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "heading",
+                      "items"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "flow"
+                        ]
+                      },
+                      "heading": {
+                        "type": "string"
+                      },
+                      "direction": {
+                        "type": "string",
+                        "enum": [
+                          "horizontal",
+                          "vertical"
+                        ]
+                      },
+                      "nodes": {
+                        "minItems": 2,
+                        "maxItems": 6,
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string"
+                            },
+                            "label": {
+                              "type": "string",
+                              "description": "About 6 words."
+                            },
+                            "sublabel": {
+                              "type": "string"
+                            },
+                            "appearAt": {
+                              "description": "Optional frame when this item appears.",
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "label"
+                          ]
+                        }
+                      },
+                      "edges": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "from": {
+                              "type": "string"
+                            },
+                            "to": {
+                              "type": "string"
+                            },
+                            "label": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "from",
+                            "to"
+                          ]
+                        }
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "nodes"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "compare"
+                        ]
+                      },
+                      "heading": {
+                        "type": "string"
+                      },
+                      "left": {
+                        "type": "object",
+                        "properties": {
+                          "title": {
+                            "type": "string"
+                          },
+                          "points": {
+                            "minItems": 1,
+                            "maxItems": 5,
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "text": {
+                                  "type": "string"
+                                },
+                                "appearAt": {
+                                  "description": "Optional frame when this item appears.",
+                                  "type": "number"
+                                }
+                              },
+                              "required": [
+                                "text"
+                              ]
+                            }
+                          }
+                        },
+                        "required": [
+                          "title",
+                          "points"
+                        ]
+                      },
+                      "right": {
+                        "type": "object",
+                        "properties": {
+                          "title": {
+                            "type": "string"
+                          },
+                          "points": {
+                            "minItems": 1,
+                            "maxItems": 5,
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "text": {
+                                  "type": "string"
+                                },
+                                "appearAt": {
+                                  "description": "Optional frame when this item appears.",
+                                  "type": "number"
+                                }
+                              },
+                              "required": [
+                                "text"
+                              ]
+                            }
+                          }
+                        },
+                        "required": [
+                          "title",
+                          "points"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "left",
+                      "right"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "hubSpoke"
+                        ]
+                      },
+                      "center": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "label": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "label"
+                        ]
+                      },
+                      "spokes": {
+                        "minItems": 3,
+                        "maxItems": 6,
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string"
+                            },
+                            "label": {
+                              "type": "string",
+                              "description": "About 6 words."
+                            },
+                            "sublabel": {
+                              "type": "string"
+                            },
+                            "appearAt": {
+                              "description": "Optional frame when this item appears.",
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "label"
+                          ]
+                        }
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "center",
+                      "spokes"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "chart"
+                        ]
+                      },
+                      "heading": {
+                        "type": "string"
+                      },
+                      "xLabel": {
+                        "type": "string"
+                      },
+                      "yLabel": {
+                        "type": "string"
+                      },
+                      "curves": {
+                        "minItems": 1,
+                        "maxItems": 4,
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string"
+                            },
+                            "label": {
+                              "type": "string"
+                            },
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "upward",
+                                "downward",
+                                "flat"
+                              ]
+                            },
+                            "shift": {
+                              "type": "string",
+                              "enum": [
+                                "left",
+                                "right"
+                              ]
+                            },
+                            "appearAt": {
+                              "description": "Optional frame when this item appears.",
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "label",
+                            "kind"
+                          ]
+                        }
+                      },
+                      "markers": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "type": {
+                              "type": "string",
+                              "enum": [
+                                "intersection",
+                                "point"
+                              ]
+                            },
+                            "curveIds": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            },
+                            "label": {
+                              "type": "string"
+                            },
+                            "appearAt": {
+                              "description": "Optional frame when this item appears.",
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "type",
+                            "label"
+                          ]
+                        }
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "xLabel",
+                      "yLabel",
+                      "curves"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "timeline"
+                        ]
+                      },
+                      "heading": {
+                        "type": "string"
+                      },
+                      "steps": {
+                        "minItems": 2,
+                        "maxItems": 6,
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "label": {
+                              "type": "string"
+                            },
+                            "detail": {
+                              "type": "string"
+                            },
+                            "appearAt": {
+                              "description": "Optional frame when this item appears.",
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "label"
+                          ]
+                        }
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "steps"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "callout"
+                        ]
+                      },
+                      "kind": {
+                        "type": "string",
+                        "enum": [
+                          "definition",
+                          "example",
+                          "keyPoint"
+                        ]
+                      },
+                      "title": {
+                        "type": "string"
+                      },
+                      "body": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "kind",
+                      "title",
+                      "body"
+                    ]
+                  }
+                ],
+                "description": "Exactly one template. Fill every required field of the chosen type."
+              }
+            },
+            "required": [
+              "layout"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "durationInFrames",
+          "scene"
+        ]
+      }
+    },
+    "required": [
+      "pass",
+      "score"
+    ]
+  }
+}

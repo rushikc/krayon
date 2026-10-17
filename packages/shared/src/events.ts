@@ -1,4 +1,5 @@
 import type { CourseState } from './course.js';
+import type { GenerationErrorInfo } from './generation.js';
 import type { GeneratedLesson, Roadmap } from './scene.js';
 
 export const pipelineEventTypes = [
@@ -31,9 +32,15 @@ export type PipelineEvent = {
   ts: string;
   lesson?: GeneratedLesson;
   error?: string;
+  /** Structured failure on segment.failed / topic.failed / course.failed. */
+  errorInfo?: GenerationErrorInfo;
   round?: number;
   score?: number;
   pass?: boolean;
+  /** Whether this review round accepted a fix. */
+  fixed?: boolean;
+  /** Topics that failed when the course finishes with course.done. */
+  failedTopics?: number;
   roadmap?: Roadmap;
   detail?: string;
 };

@@ -1,11 +1,12 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import type { SourceFile } from '../data/topics.ts';
 import type { TrailStatus } from './roadmapTypes.ts';
 import { buttonClass } from './ui/Button.tsx';
 import { cardClass } from './ui/Card.tsx';
 import { Chip } from './ui/Chip.tsx';
-import { IconBack, IconCheck, IconFile, IconImage, IconLock, IconPlay, IconPlus, IconClose } from './ui/icons.tsx';
+import { IconBack, IconCheck, IconFile, IconImage, IconPlay, IconPlus, IconClose } from './ui/icons.tsx';
 import { TopicArt } from './ui/TopicArt.tsx';
 import { cx } from './ui/cx.ts';
 
@@ -31,44 +32,137 @@ export type TrailStep = {
   statusText?: string;
   href?: string;
   onOpen?: () => void;
+  /** Queues an idle lesson. */
+  onRender?: () => void;
+  /** Backend stages while this lesson is queued or rendering. */
+  tasks?: { label: string; state: 'done' | 'active' | 'pending' }[];
   chapters: TrailChapter[];
+  /** Inline content under the details, such as failed parts with Retry. */
+  note?: ReactNode;
 };
 
 const statusLabel: Record<TrailStatus, string> = {
   done: 'Done',
   next: 'Up next',
-  locked: 'Locked',
   open: 'Ready',
   rendering: 'Rendering',
+  idle: 'Not started',
   failed: 'Failed',
 };
 
-const mutedStatus = (status: TrailStatus) => status === 'locked' || status === 'rendering' || status === 'failed';
+const mutedStatus = (status: TrailStatus) => status === 'rendering' || status === 'idle' || status === 'failed';
+
+const SPINE_X = 24;
+const SPINE_BEND = 14;
+
+/** One gentle bend between steps, passing through each node center. */
+function spinePoints(centers: number[], height: number): [number, number][] {
+  const points: [number, number][] = [[SPINE_X, 2]];
+  centers.forEach((center, index) => {
+    const prev = index === 0 ? 2 : centers[index - 1];
+    const side = index % 2 === 0 ? 1 : -1;
+    points.push([SPINE_X + side * SPINE_BEND, (prev + center) / 2]);
+    points.push([SPINE_X, center]);
+  });
+  const last = centers[centers.length - 1] ?? 2;
+  if (height - 2 > last + 12) {
+    const side = centers.length % 2 === 0 ? 1 : -1;
+    points.push([SPINE_X + side * SPINE_BEND, (last + height - 2) / 2]);
+    points.push([SPINE_X, height - 2]);
+  }
+  return points;
+}
+
+function curveThrough(points: [number, number][]) {
+  if (points.length < 2) return '';
+  const fmt = (n: number) => n.toFixed(1);
+  let d = `M ${fmt(points[0][0])} ${fmt(points[0][1])}`;
+  for (let i = 0; i < points.length - 1; i++) {
+    const p0 = points[i - 1] ?? points[i];
+    const p1 = points[i];
+    const p2 = points[i + 1];
+    const p3 = points[i + 2] ?? p2;
+    const c1x = p1[0] + (p2[0] - p0[0]) / 6;
+    const c1y = p1[1] + (p2[1] - p0[1]) / 6;
+    const c2x = p2[0] - (p3[0] - p1[0]) / 6;
+    const c2y = p2[1] - (p3[1] - p1[1]) / 6;
+    d += ` C ${fmt(c1x)} ${fmt(c1y)} ${fmt(c2x)} ${fmt(c2y)} ${fmt(p2[0])} ${fmt(p2[1])}`;
+  }
+  return d;
+}
+
+function CrayonSpine({ height, centers, orangeAt }: { height: number; centers: number[]; orangeAt: number }) {
+  if (height < 8 || centers.length === 0) return null;
+  const points = spinePoints(centers, height);
+  const split = orangeAt < 0 ? points.length : 2 * (orangeAt + 1) + 1;
+  const orange = curveThrough(points.slice(0, split));
+  const rest = orangeAt < 0 ? '' : curveThrough(points.slice(split - 1));
+
+  return (
+    <svg
+      aria-hidden="true"
+      className="pointer-events-none absolute top-0 left-0 h-full w-12 overflow-visible"
+      viewBox={`0 0 48 ${height}`}
+      preserveAspectRatio="none"
+    >
+      {rest && (
+        <path
+          d={rest}
+          fill="none"
+          stroke="var(--color-ink)"
+          strokeOpacity="0.4"
+          strokeWidth="5"
+          strokeLinecap="round"
+          strokeDasharray="0.8 9"
+        />
+      )}
+      <path d={orange} fill="none" stroke="var(--color-crayon)" strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
 
 function Node({ status, index }: { status: TrailStatus; index: number }) {
   if (status === 'done') {
     return (
-      <span className="flex h-12 w-12 items-center justify-center rounded-full border-[2.5px] border-ink bg-crayon text-white shadow-[2px_2px_0_var(--color-ink)]">
-        <IconCheck className="h-5 w-5" />
+      <span className="flex h-9 w-9 items-center justify-center rounded-full border-2 border-ink bg-crayon text-white shadow-[2px_2px_0_var(--color-ink)]">
+        <IconCheck className="h-4 w-4" />
       </span>
     );
   }
   if (status === 'next') {
     return (
-      <span className="flex h-16 w-16 items-center justify-center rounded-full border-[2.5px] border-ink bg-yellow font-serif text-2xl text-ink shadow-[0_0_0_4px_var(--color-stone),0_0_0_7px_var(--color-focus)]">
+      <span className="flex h-9 w-9 items-center justify-center rounded-full border-2 border-ink bg-yellow font-serif text-[15px] text-ink shadow-[0_0_0_3px_var(--color-stone),0_0_0_5px_var(--color-focus)]">
         {index + 1}
       </span>
     );
   }
-  if (mutedStatus(status)) {
+  if (status === 'rendering') {
     return (
-      <span className="flex h-12 w-12 items-center justify-center rounded-full border-2 border-dashed border-ink/40 bg-paper text-muted">
-        {status === 'locked' ? <IconLock className="h-5 w-5" /> : index + 1}
+      <span className="flex h-8 w-8 items-center justify-center rounded-full border-2 border-dashed border-ink/40 bg-paper">
+        <span
+          className="block h-3.5 w-3.5 animate-spin rounded-full border-2 border-ink/20 border-t-crayon motion-reduce:animate-none"
+          role="status"
+          aria-label="Rendering"
+        />
+      </span>
+    );
+  }
+  if (status === 'idle') {
+    return (
+      <span className="flex h-8 w-8 items-center justify-center rounded-full border-2 border-dashed border-ink/30 bg-stone text-[13px] font-semibold text-muted">
+        {index + 1}
+      </span>
+    );
+  }
+  if (status === 'failed') {
+    return (
+      <span className="flex h-8 w-8 items-center justify-center rounded-full border-2 border-dashed border-ink/40 bg-paper text-[13px] font-semibold text-muted">
+        {index + 1}
       </span>
     );
   }
   return (
-    <span className="flex h-12 w-12 items-center justify-center rounded-full border-[2.5px] border-ink bg-paper text-[15px] font-semibold text-ink">
+    <span className="flex h-9 w-9 items-center justify-center rounded-full border-2 border-ink bg-paper text-[13px] font-semibold text-ink">
       {index + 1}
     </span>
   );
@@ -131,17 +225,27 @@ function LessonCard({
         </span>
       </button>
       <span className="shrink-0 pr-1">
-        {step.status === 'rendering' && (
+        {step.status === 'idle' && step.onRender && (
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              step.onRender?.();
+            }}
+            className={buttonClass('primary', '!px-4 !py-1.5 !text-[14px]')}
+          >
+            Render
+          </button>
+        )}
+        {step.status === 'rendering' && step.statusText === 'Queued' && (
+          <span className="text-[14px] font-medium text-muted">Queued</span>
+        )}
+        {step.status === 'rendering' && step.statusText !== 'Queued' && (
           <span
             className="block h-8 w-8 animate-spin rounded-full border-[3px] border-ink/15 border-t-crayon motion-reduce:animate-none"
             role="status"
             aria-label={step.statusText ?? 'Rendering'}
           />
-        )}
-        {step.status === 'locked' && (
-          <button type="button" disabled className={buttonClass('secondary', '!px-4 !py-1.5 !text-[14px]')}>
-            Locked
-          </button>
         )}
         {(step.status === 'next' || step.status === 'open' || step.status === 'done') && step.href && (
           <Link
@@ -186,10 +290,6 @@ function Legend() {
         <span className="h-2.5 w-2.5 rounded-full border border-ink bg-paper" />
         Ready
       </li>
-      <li className="inline-flex items-center gap-1.5">
-        <span className="h-2.5 w-4 rounded-full border border-dashed border-ink/40" />
-        Locked
-      </li>
     </ul>
   );
 }
@@ -204,6 +304,8 @@ export function RoadmapTrail({
   onSelect: (id: string) => void;
 }) {
   const boardRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLOListElement>(null);
+  const [spine, setSpine] = useState({ height: 0, orangeAt: -1, centers: [] as number[] });
   const [hidden, setHidden] = useState(0);
   const overall =
     steps.length === 0
@@ -211,6 +313,32 @@ export function RoadmapTrail({
       : Math.round(
           steps.reduce((sum, step) => sum + (mutedStatus(step.status) ? 0 : step.progress), 0) / steps.length,
         );
+
+  useLayoutEffect(() => {
+    const list = listRef.current;
+    if (!list) return;
+    const measure = () => {
+      const items = [...list.querySelectorAll<HTMLElement>(':scope > [data-step]')];
+      const rows = items.map((item) => item.offsetHeight);
+      const height = rows.reduce((sum, row) => sum + row, 0);
+      let y = 0;
+      const centers = rows.map((row) => {
+        const center = y + row / 2;
+        y += row;
+        return center;
+      });
+      const firstOpen = steps.findIndex((step) => step.status !== 'done');
+      setSpine((current) => {
+        const sameCenters = current.centers.length === centers.length && current.centers.every((center, index) => center === centers[index]);
+        if (current.height === height && current.orangeAt === firstOpen && sameCenters) return current;
+        return { height, orangeAt: firstOpen, centers };
+      });
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(list);
+    return () => observer.disconnect();
+  }, [steps]);
 
   useEffect(() => {
     const measure = () => {
@@ -248,25 +376,12 @@ export function RoadmapTrail({
         </p>
         <Legend />
       </div>
-      <ol className="mt-4">
+      <ol ref={listRef} className="relative mt-4">
+        <CrayonSpine height={spine.height} centers={spine.centers} orangeAt={spine.orangeAt} />
         {steps.map((step, index) => {
-          const line =
-            step.status === 'done' || (index > 0 && steps[index - 1]?.status === 'done') ? 'bg-crayon' : 'bg-[var(--color-trail)]';
           return (
-            <li key={step.id} data-step className="grid grid-cols-[4.5rem_minmax(0,1fr)]">
+            <li key={step.id} data-step className="grid grid-cols-[3rem_minmax(0,1fr)]">
               <div className="relative flex items-center justify-center">
-                {index > 0 && <span className={cx('absolute top-0 left-1/2 h-1/2 w-[7px] -translate-x-1/2', line)} />}
-                {index < steps.length - 1 && (
-                  <span
-                    className={cx(
-                      'absolute bottom-0 left-1/2 h-1/2 w-[7px] -translate-x-1/2',
-                      step.status === 'done' ? 'bg-crayon' : 'bg-[var(--color-trail)]',
-                    )}
-                  />
-                )}
-                {index === 0 && (step.status === 'next' || step.status === 'done') && (
-                  <span className="absolute top-0 left-1/2 h-[calc(50%-2rem)] w-[7px] -translate-x-1/2 rounded-full bg-crayon" />
-                )}
                 <span className="relative z-10">
                   <Node status={step.status} index={index} />
                 </span>
@@ -309,7 +424,7 @@ export function StepPanel({
 }) {
   const resume =
     step.status === 'done' ? 'Watch again' : step.status === 'open' ? 'Open' : `Resume${step.timeLeft ? ` · ${step.timeLeft} left` : ''}`;
-  const quiet = step.status === 'rendering' || step.status === 'failed';
+  const quiet = step.status === 'rendering' || step.status === 'failed' || step.status === 'idle';
   const watched =
     step.progress <= 0 ? 'Not started' : step.progress >= 100 ? 'Finished' : `${step.progress}% watched · ${step.timeLeft} left`;
 
@@ -338,31 +453,48 @@ export function StepPanel({
       </div>
       <h2 className="mt-3 font-serif text-[1.7rem] leading-tight text-ink">{step.title}</h2>
       <p className="mt-1 text-[15px] leading-relaxed text-muted">{step.detail}</p>
-      {step.status === 'rendering' && (
-        <p className="mt-4 inline-flex items-center gap-3 text-[15px] font-medium text-ink">
-          <span className="block h-8 w-8 animate-spin rounded-full border-[3px] border-ink/15 border-t-crayon motion-reduce:animate-none" />
-          Being rendered
-        </p>
+      {step.status === 'idle' && step.onRender && (
+        <button type="button" onClick={step.onRender} className={buttonClass('primary', 'mt-4 w-full')}>
+          Render
+        </button>
       )}
-      {step.status === 'failed' && <p className="mt-4 text-[15px] text-crayon-text">{step.hint ?? 'This lesson could not be rendered.'}</p>}
+      {step.status === 'rendering' && step.tasks && (
+        <ul className="mt-4 grid gap-2">
+          {step.tasks.map((task) => (
+            <li key={task.label} className="flex items-center gap-3 text-[15px] text-ink">
+              {task.state === 'done' ? (
+                <IconCheck className="h-4 w-4 shrink-0 text-done" />
+              ) : (
+                <span
+                  className={cx(
+                    'block h-5 w-5 shrink-0 rounded-full border-[3px] border-ink/15 border-t-crayon',
+                    task.state === 'active' && 'animate-spin motion-reduce:animate-none',
+                  )}
+                  role={task.state === 'active' ? 'status' : undefined}
+                  aria-label={task.state === 'active' ? task.label : undefined}
+                />
+              )}
+              <span>{task.label}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {step.status === 'failed' && !step.note && <p className="mt-4 text-[15px] text-crayon-text">{step.hint ?? 'This lesson could not be rendered.'}</p>}
+      {step.note && <div className="mt-4">{step.note}</div>}
       {!quiet && (
         <>
           <p className="mt-3 text-[15px] text-muted">{watched}</p>
-          {step.status === 'locked' || (!step.href && !step.onOpen) ? (
-            <button type="button" disabled className={buttonClass('secondary', 'mt-4 w-full')}>
-              {step.hint ?? 'Locked'}
-            </button>
-          ) : step.href ? (
+          {step.href ? (
             <Link to={step.href} className={buttonClass(step.status === 'done' || step.status === 'open' ? 'secondary' : 'primary', 'mt-4 w-full')}>
               {step.status === 'next' && <IconPlay className="h-4 w-4" />}
               {resume}
             </Link>
-          ) : (
+          ) : step.onOpen ? (
             <button type="button" onClick={step.onOpen} className={buttonClass('primary', 'mt-4 w-full')}>
               <IconPlay className="h-4 w-4" />
               {resume}
             </button>
-          )}
+          ) : null}
           <div className="mt-5">
             <p className="text-[12px] font-semibold tracking-[0.14em] text-muted uppercase">In this lesson</p>
             {step.chapters.length === 0 ? (

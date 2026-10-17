@@ -29,6 +29,8 @@ export class LocalEventBus implements EventBus {
       step: event.step ?? full.type,
       score: full.score,
       pass: full.pass,
+      code: full.errorInfo?.code,
+      error: full.error,
     });
     for (const listener of this.listeners.get(event.courseId) ?? []) listener(full);
     return full;

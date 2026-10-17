@@ -1,9 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import type { CourseState, GeneratedLesson, GeneratedSegment, PipelineEvent, Roadmap, RoadmapTopic } from '@krayon/shared';
+import type { CourseFold, CourseState, GeneratedLesson, GeneratedSegment, PipelineEvent, Roadmap, RoadmapTopic } from '@krayon/shared';
+import { reduceCourse } from '@krayon/shared';
 import { generateLesson, generateRoadmap, regenerateSegment } from '../lib/ai.ts';
 import type { LessonProgress } from '../lib/ai.ts';
-import { createCourse, getCourse, regenerateCourseSegment, useBackendPipeline } from '../lib/api.ts';
+import {
+  ApiError,
+  createCourse,
+  getCourse,
+  regenerateCourseSegment,
+  renderCourseTopic,
+  retryCourseSegment,
+  retryCourseTopic,
+  useBackendPipeline,
+} from '../lib/api.ts';
 import { loadCourse, saveCourse } from '../lib/localDb.ts';
 import { connectCourse } from '../lib/socket.ts';
 import type { CourseSocket } from '../lib/socket.ts';
@@ -34,14 +44,18 @@ export function StudySessionProvider({ children }: { children: ReactNode }) {
   const [activeTopicId, setActiveTopicId] = useState<string | null>(null);
   const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
   const [fallbackTopicId, setFallbackTopicId] = useState<string | null>(null);
+  const [courseIdState, setCourseIdState] = useState<string | null>(cached?.id ?? null);
   const [file, setFile] = useState<File | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const inflight = useRef(new Set<string>());
   const socket = useRef<CourseSocket | null>(null);
   const courseId = useRef<string | null>(cached?.id ?? null);
+  const fold = useRef<CourseFold | null>(cached ? { course: cached, seq: 0 } : null);
 
-  const adopt = (course: CourseState) => {
+  const show = (course: CourseState) => {
     saveCourse(course);
     courseId.current = course.id;
+    setCourseIdState(course.id);
     const next = applyCourse(course);
     setFileName(next.fileName);
     setRoadmap(next.roadmap);
@@ -51,7 +65,29 @@ export function StudySessionProvider({ children }: { children: ReactNode }) {
     if (next.error) setError(next.error);
   };
 
+  const adopt = (course: CourseState) => {
+    const current = fold.current ?? { course, seq: 0 };
+    fold.current = reduceCourse(current, { type: 'snapshot', course });
+    show(course);
+  };
+
+  const noteBusy = (caught: unknown) => {
+    if (caught instanceof ApiError && caught.status === 409) {
+      setNotice('Still generating, try again in a moment');
+      setRegeneratingId(null);
+      if (courseId.current) void getCourse(courseId.current).then(adopt).catch(() => undefined);
+      window.setTimeout(() => setNotice(null), 3000);
+      return;
+    }
+    setError(messageOf(caught));
+  };
+
   const onEvent = (event: PipelineEvent) => {
+    if (!fold.current) return;
+    const next = reduceCourse(fold.current, { type: 'event', event });
+    if (next === fold.current) return;
+    fold.current = next;
+    show(next.course);
     if (event.type === 'roadmap.started' || event.type === 'course.created') {
       setBuildingRoadmap(true);
       setStatus('roadmap');
@@ -64,7 +100,7 @@ export function StudySessionProvider({ children }: { children: ReactNode }) {
       setStatusDetail(null);
       setTopics((current) => {
         const next = { ...current };
-        for (const topic of event.roadmap?.topics ?? []) next[topic.id] ??= emptyTopic('queued');
+        for (const topic of event.roadmap?.topics ?? []) next[topic.id] ??= emptyTopic('idle');
         return next;
       });
     }
@@ -82,6 +118,7 @@ export function StudySessionProvider({ children }: { children: ReactNode }) {
       const detail =
         event.detail ??
         (status === 'queued' ? 'Queued' : status === 'generating' ? 'Writing the lesson' : null);
+      const failed = status === 'failed';
       setTopics((current) => {
         const topic = current[topicId] ?? emptyTopic();
         return {
@@ -89,8 +126,10 @@ export function StudySessionProvider({ children }: { children: ReactNode }) {
           [topicId]: {
             ...topic,
             status,
-            statusDetail: status === 'failed' || status === 'ready' ? null : (detail ?? topic.statusDetail),
-            error: event.error ?? topic.error,
+            statusDetail: failed || status === 'ready' ? null : (detail ?? topic.statusDetail),
+            // Topic failures stay on the topic (shown inline with Retry), not in the page-wide error.
+            error: failed ? (event.error ?? topic.error ?? 'Topic failed') : null,
+            errorCode: failed ? (event.errorInfo?.code ?? null) : null,
           },
         };
       });
@@ -99,15 +138,14 @@ export function StudySessionProvider({ children }: { children: ReactNode }) {
       setLessons((current) => ({ ...current, [event.topicId!]: event.lesson! }));
       setFallbackTopicId((current) => (current === event.topicId ? null : current));
     }
+    if (event.type === 'topic.ready' || event.type === 'segment.ready') setError(null);
     if (event.type === 'topic.failed' && event.topicId) {
       setFallbackTopicId(event.topicId);
-      setError(event.error ?? 'Topic failed');
     }
     if (event.type === 'segment.failed' && event.topicId) {
       const topicId = event.topicId;
       const segmentId = event.segmentId;
       setRegeneratingId((current) => (segmentId && current === segmentId ? null : current));
-      setError(event.error ?? 'Segment failed');
       setTopics((current) => {
         const topic = current[topicId];
         if (!topic) return current;
@@ -125,6 +163,8 @@ export function StudySessionProvider({ children }: { children: ReactNode }) {
                     ...(topic.segments[segmentId] ?? { id: segmentId, title: segmentId, status: 'failed', statusDetail: null, rounds: [] }),
                     status: 'failed',
                     statusDetail: null,
+                    error: event.error ?? 'Segment failed',
+                    errorCode: event.errorInfo?.code ?? null,
                   },
                 }
               : topic.segments,
@@ -155,6 +195,8 @@ export function StudySessionProvider({ children }: { children: ReactNode }) {
                 ...segment,
                 status: statusName,
                 statusDetail: detail ?? segment.statusDetail,
+                error: statusName === 'ready' ? null : segment.error,
+                errorCode: statusName === 'ready' ? null : segment.errorCode,
               },
             },
           },
@@ -186,7 +228,13 @@ export function StudySessionProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!useBackendPipeline || !courseId.current) return;
     const id = courseId.current;
-    socket.current = connectCourse(id, { onSnapshot: adopt, onEvent });
+    socket.current = connectCourse(id, {
+      onSnapshot: adopt,
+      onEvent,
+      onReconnect: () => {
+        void getCourse(id).then(adopt).catch(() => undefined);
+      },
+    });
     return () => socket.current?.close();
     // Reconnect only when the cached course id is known at mount or after upload sets it via startFromFiles.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -240,8 +288,27 @@ export function StudySessionProvider({ children }: { children: ReactNode }) {
       setFallbackTopicId(null);
       const created = await createCourse(files);
       courseId.current = created.courseId;
+      fold.current = {
+        course: {
+          id: created.courseId,
+          owner: 'local-user',
+          status: 'created',
+          fileNames: files.map((item) => item.name),
+          sources: [],
+          roadmap: null,
+          topics: [],
+          error: null,
+        },
+        seq: 0,
+      };
       socket.current?.close();
-      socket.current = connectCourse(created.courseId, { onSnapshot: adopt, onEvent });
+      socket.current = connectCourse(created.courseId, {
+        onSnapshot: adopt,
+        onEvent,
+        onReconnect: () => {
+          void getCourse(created.courseId).then(adopt).catch(() => undefined);
+        },
+      });
     };
 
     const openTopic = async (topicId: string) => {
@@ -297,7 +364,7 @@ export function StudySessionProvider({ children }: { children: ReactNode }) {
         });
         void regenerateCourseSegment(courseId.current, topic.id, segment.id, prompt).catch((caught) => {
           setRegeneratingId(null);
-          setError(messageOf(caught));
+          noteBusy(caught);
         });
         return;
       }
@@ -327,6 +394,77 @@ export function StudySessionProvider({ children }: { children: ReactNode }) {
       }
     };
 
+    const markRetrying = (topicId: string, segmentId?: string) =>
+      setTopics((current) => {
+        const topic = current[topicId] ?? emptyTopic('generating');
+        if (!segmentId) return { ...current, [topicId]: { ...topic, status: 'queued', statusDetail: 'Retrying', error: null, errorCode: null } };
+        const segment = topic.segments[segmentId] ?? { id: segmentId, title: segmentId, status: 'failed', statusDetail: null, rounds: [] };
+        return {
+          ...current,
+          [topicId]: {
+            ...topic,
+            segments: { ...topic.segments, [segmentId]: { ...segment, status: 'generating', statusDetail: 'Retrying', error: null, errorCode: null } },
+          },
+        };
+      });
+
+    const retrySegment = async (topicId: string, segmentId: string) => {
+      if (!useBackendPipeline || !courseId.current) return;
+      markRetrying(topicId, segmentId);
+      try {
+        await retryCourseSegment(courseId.current, topicId, segmentId);
+      } catch (caught) {
+        noteBusy(caught);
+        if (!(caught instanceof ApiError && caught.status === 409)) {
+          void getCourse(courseId.current).then(adopt).catch(() => undefined);
+        }
+      }
+    };
+
+    const retryTopic = async (topicId: string) => {
+      if (!useBackendPipeline || !courseId.current) return;
+      markRetrying(topicId);
+      setFallbackTopicId((current) => (current === topicId ? null : current));
+      try {
+        await retryCourseTopic(courseId.current, topicId);
+      } catch (caught) {
+        noteBusy(caught);
+        if (!(caught instanceof ApiError && caught.status === 409)) {
+          void getCourse(courseId.current).then(adopt).catch(() => undefined);
+        }
+      }
+    };
+
+    const renderTopic = async (topicId: string) => {
+      if (!useBackendPipeline || !courseId.current) return;
+      setTopics((current) => {
+        const topic = current[topicId] ?? emptyTopic('idle');
+        return { ...current, [topicId]: { ...topic, status: 'queued', statusDetail: 'Queued', error: null, errorCode: null } };
+      });
+      try {
+        await renderCourseTopic(courseId.current, topicId);
+      } catch (caught) {
+        noteBusy(caught);
+        if (!(caught instanceof ApiError && caught.status === 409)) {
+          void getCourse(courseId.current).then(adopt).catch(() => undefined);
+        }
+      }
+    };
+
+    const openCourse = async (id: string) => {
+      if (!useBackendPipeline || courseId.current === id) return;
+      const course = await getCourse(id);
+      adopt(course);
+      socket.current?.close();
+      socket.current = connectCourse(id, {
+        onSnapshot: adopt,
+        onEvent,
+        onReconnect: () => {
+          void getCourse(id).then(adopt).catch(() => undefined);
+        },
+      });
+    };
+
     return {
       fileName,
       roadmap,
@@ -343,11 +481,18 @@ export function StudySessionProvider({ children }: { children: ReactNode }) {
       startFromFiles,
       openTopic,
       regenerate,
+      canRetry: useBackendPipeline,
+      retrySegment,
+      retryTopic,
+      renderTopic,
+      openCourse,
+      courseId: courseIdState,
       closeTopic: () => setActiveTopicId(null),
     };
   }, [
     activeTopicId,
     buildingRoadmap,
+    courseIdState,
     error,
     fallbackTopicId,
     file,
@@ -360,5 +505,12 @@ export function StudySessionProvider({ children }: { children: ReactNode }) {
     topics,
   ]);
 
-  return <StudySessionContext.Provider value={value}>{children}</StudySessionContext.Provider>;
+  return (
+    <StudySessionContext.Provider value={value}>
+      {notice ? (
+        <div className="fixed left-1/2 top-4 z-50 -translate-x-1/2 rounded-md bg-ink px-4 py-2 text-sm text-paper">{notice}</div>
+      ) : null}
+      {children}
+    </StudySessionContext.Provider>
+  );
 }

@@ -25,10 +25,11 @@ const envSchema = z.object({
   LOG_LEVEL: z.string().default('INFO'),
   LOG_BODY_MAX: z.coerce.number().default(2000),
   MAX_REPAIR_ROUNDS: z.coerce.number().default(2),
-  MAX_REVIEW_ROUNDS: z.coerce.number().default(1),
+  MAX_REVIEW_ROUNDS: z.coerce.number().default(2),
   REVIEW_PASS_SCORE: z.coerce.number().default(8),
   TOPIC_CONCURRENCY: z.coerce.number().default(1),
   RENDER_KEYFRAMES_MAX: z.coerce.number().default(6),
+  RENDER_TIMEOUT_MS: z.coerce.number().default(90_000),
 });
 
 const parsed = envSchema.parse(process.env);
@@ -53,6 +54,7 @@ export const settings = {
   reviewPassScore: parsed.REVIEW_PASS_SCORE,
   topicConcurrency: parsed.TOPIC_CONCURRENCY,
   renderKeyframesMax: parsed.RENDER_KEYFRAMES_MAX,
+  renderTimeoutMs: parsed.RENDER_TIMEOUT_MS,
   maxUploadBytes: 20 * 1024 * 1024,
 };
 

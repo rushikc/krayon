@@ -31,6 +31,7 @@ export type GeminiConfig = {
 
 export type PipelineLogger = {
   info: (message: string, fields?: Record<string, unknown>) => void;
+  warn?: (message: string, fields?: Record<string, unknown>) => void;
   error: (message: string, fields?: Record<string, unknown>, error?: unknown) => void;
   debug: (message: string, fields?: Record<string, unknown>) => void;
 };
@@ -57,22 +58,162 @@ export const MAX_OUTPUT_TOKENS = 8192;
 export const FLASH_THINKING_BUDGET = 1024;
 export const GENERATE_TIMEOUT_MS = 90_000;
 
-const transient = (error: unknown) => {
-  const status = (error as { status?: number }).status;
-  const message = error instanceof Error ? error.message : String(error);
-  return status === 429 || status === 503 || /UNAVAILABLE|RESOURCE_EXHAUSTED|ECONNRESET|ETIMEDOUT|fetch failed/i.test(message);
+export type GeminiErrorKind = 'rate_limited' | 'safety_blocked' | 'token_limit' | 'invalid_request' | 'timeout' | 'unknown';
+
+export class GeminiError extends Error {
+  readonly kind: GeminiErrorKind;
+
+  constructor(kind: GeminiErrorKind, message: string, options?: { cause?: unknown }) {
+    super(message, options);
+    this.name = 'GeminiError';
+    this.kind = kind;
+  }
+}
+
+const errorStatus = (error: unknown) => {
+  const record = error as { status?: number; code?: number; response?: { status?: number } };
+  return record.status ?? record.code ?? record.response?.status;
 };
 
-export const isRetryableGenerateError = (error: unknown) => {
-  if (transient(error)) return true;
-  if (!(error instanceof Error)) return false;
-  return error.name === 'AbortError' || /aborted|MAX_TOKENS/i.test(`${error.name} ${error.message}`);
+const errorText = (error: unknown) => (error instanceof Error ? `${error.name} ${error.message}` : String(error));
+
+export const classifyGeminiFailure = (error: unknown): GeminiErrorKind => {
+  if (error instanceof GeminiError) return error.kind;
+  const status = errorStatus(error);
+  const text = errorText(error);
+  if (/MAX_TOKENS/i.test(text)) return 'token_limit';
+  if (/SAFETY|PROHIBITED_CONTENT|BLOCKLIST|blocked due to safety/i.test(text)) return 'safety_blocked';
+  if (status === 400 || /INVALID_ARGUMENT|invalid argument/i.test(text)) return 'invalid_request';
+  if (status === 429 || status === 503 || /RESOURCE_EXHAUSTED|UNAVAILABLE/i.test(text)) return 'rate_limited';
+  if (error instanceof Error && (error.name === 'AbortError' || /aborted|timed? ?out|DEADLINE_EXCEEDED/i.test(text))) return 'timeout';
+  return 'unknown';
+};
+
+/** 429, RESOURCE_EXHAUSTED, and 503 only. Safety blocks and invalid requests are not retried. */
+export const isRetryableGenerateError = (error: unknown) => classifyGeminiFailure(error) === 'rate_limited';
+
+const headerValue = (error: unknown, name: string) => {
+  const headers = (error as { headers?: { get?: (key: string) => string | undefined } }).headers
+    ?? (error as { response?: { headers?: { get?: (key: string) => string | undefined } | Record<string, string> } }).response?.headers;
+  if (!headers) return undefined;
+  if (typeof (headers as { get?: unknown }).get === 'function') return (headers as { get: (key: string) => string | undefined }).get(name);
+  const record = headers as Record<string, string>;
+  return record[name] ?? record[name.toLowerCase()];
+};
+
+export const retryAfterMs = (error: unknown) => {
+  const raw = headerValue(error, 'retry-after');
+  if (!raw) return undefined;
+  const seconds = Number(raw);
+  if (Number.isFinite(seconds)) return Math.max(0, Math.round(seconds * 1000));
+  const when = Date.parse(raw);
+  if (Number.isNaN(when)) return undefined;
+  return Math.max(0, when - Date.now());
+};
+
+const BACKOFF_MS = [2_000, 4_000, 8_000];
+
+/** About 2s, 4s, 8s with ±25% jitter. A Retry-After header wins when it is present. */
+export const backoffMs = (attempt: number, random: () => number = Math.random, retryAfter?: number) => {
+  if (retryAfter != null) return retryAfter;
+  const base = BACKOFF_MS[Math.min(Math.max(attempt, 0), BACKOFF_MS.length - 1)] ?? 8_000;
+  return Math.round(base * (1 + (random() * 0.5 - 0.25)));
+};
+
+const geminiLimit = () => {
+  const raw = Number(process.env.GEMINI_MAX_CONCURRENCY);
+  return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 4;
+};
+
+let geminiActive = 0;
+const geminiWaiters: Array<() => void> = [];
+
+export const geminiInFlight = () => geminiActive;
+
+/** Process-wide cap on Gemini calls. The slot is held only while the request is in flight. */
+export const withGeminiSlot = async <T>(run: () => Promise<T>): Promise<T> => {
+  if (geminiActive >= geminiLimit()) await new Promise<void>((resolve) => geminiWaiters.push(resolve));
+  geminiActive += 1;
+  try {
+    return await run();
+  } finally {
+    geminiActive -= 1;
+    geminiWaiters.shift()?.();
+  }
+};
+
+export type GeminiOutcome = {
+  finishReason?: string;
+  usage?: { prompt?: number; output?: number; total?: number };
+};
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * One Gemini call with the shared limiter. Retries 429 / RESOURCE_EXHAUSTED / 503 up to 3 times.
+ * MAX_TOKENS fails immediately so the same prompt is not sent again.
+ */
+export const runGeminiCall = async <T>(options: {
+  model: string;
+  log: PipelineLogger;
+  call: () => Promise<T>;
+  outcome: (value: T) => GeminiOutcome;
+  sleep?: (ms: number) => Promise<void>;
+  random?: () => number;
+}): Promise<T> => {
+  const wait = options.sleep ?? sleep;
+  const random = options.random ?? Math.random;
+  let last = new GeminiError('unknown', 'Gemini call failed');
+  for (let attempt = 0; attempt <= 3; attempt += 1) {
+    const started = performance.now();
+    try {
+      const value = await withGeminiSlot(options.call);
+      const outcome = options.outcome(value);
+      const duration_ms = Math.round(performance.now() - started);
+      const finish = outcome.finishReason ?? '';
+      if (finish === 'MAX_TOKENS' || finish === 'length') {
+        const error = new GeminiError('token_limit', 'MAX_TOKENS');
+        options.log.error(`Gemini ${options.model} hit the token limit`, {
+          event: 'gemini',
+          model: options.model,
+          attempt: attempt + 1,
+          duration_ms,
+          error_kind: 'token_limit',
+          usage: outcome.usage,
+        }, error);
+        throw error;
+      }
+      options.log.info(`Gemini ${options.model} ${duration_ms} ms`, {
+        event: 'gemini',
+        model: options.model,
+        attempt: attempt + 1,
+        duration_ms,
+        usage: outcome.usage,
+        finish_reason: finish || undefined,
+      });
+      return value;
+    } catch (error) {
+      if (error instanceof GeminiError && error.kind === 'token_limit') throw error;
+      const kind = classifyGeminiFailure(error);
+      const message = error instanceof Error ? error.message : String(error);
+      last = error instanceof GeminiError ? error : new GeminiError(kind, message, { cause: error });
+      const duration_ms = Math.round(performance.now() - started);
+      options.log.error(`Gemini ${options.model} failed`, {
+        event: 'gemini',
+        model: options.model,
+        attempt: attempt + 1,
+        duration_ms,
+        error_kind: kind,
+      }, last);
+      if (kind !== 'rate_limited' || attempt === 3) throw last;
+      await wait(backoffMs(attempt, random, retryAfterMs(error)));
+    }
+  }
+  throw last;
 };
 
 export const thinkingConfigFor = (model: string) =>
   model.toLowerCase().includes('flash') ? { thinkingConfig: { thinkingBudget: FLASH_THINKING_BUDGET } } : {};
-
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export const aiBackendName = (config: GeminiConfig) => {
   if (config.useVertex && config.project) return 'vertex';
@@ -115,67 +256,44 @@ export const createGemini = (config: GeminiConfig, log: PipelineLogger) => {
       });
     }
     parts.push({ text: prompt });
-    const info: Record<string, unknown> = {
-      event: 'gemini',
-      backend: backend(),
-      model: model || config.model,
-      prompt_chars: prompt.length,
-      file_bytes: (files ?? []).reduce((total, file) => total + file.data.byteLength, 0),
-      file_type: files?.[0]?.mimeType,
-      has_schema: Boolean(responseSchema),
-    };
-    const start = performance.now();
-    let result: Awaited<ReturnType<GoogleGenAI['models']['generateContent']>> | undefined;
-    let lastError: unknown;
-    const modelName = String(info.model);
-    for (let attempt = 0; attempt < 3; attempt += 1) {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), GENERATE_TIMEOUT_MS);
-      try {
-        const next = await genai.models.generateContent({
-          model: modelName,
-          contents: [{ role: 'user', parts }],
-          config: {
-            responseMimeType: 'application/json',
-            responseSchema: responseSchema ? (normalizeSchema(responseSchema) as never) : undefined,
-            maxOutputTokens: MAX_OUTPUT_TOKENS,
-            abortSignal: controller.signal,
-            ...thinkingConfigFor(modelName),
-          },
-        });
-        const finish = String(next.candidates?.[0]?.finishReason ?? '');
-        if (finish === 'MAX_TOKENS') throw new Error('MAX_TOKENS');
-        result = next;
-        lastError = undefined;
-        break;
-      } catch (error) {
-        lastError = error;
-        if (!isRetryableGenerateError(error) || attempt === 2) break;
-        await sleep(400 * 2 ** attempt);
-      } finally {
-        clearTimeout(timer);
-      }
-    }
-    info.latency_ms = Math.round((performance.now() - start) * 10) / 10;
-    if (!result) {
-      const error = lastError instanceof Error ? lastError : new Error(String(lastError));
-      log.error(`Gemini call failed: ${error.name}`, { ...info, error: error.message.slice(0, 1000) }, error);
-      throw error;
-    }
-    const usage = result.usageMetadata;
-    if (usage) {
-      info.usage = {
-        prompt: usage.promptTokenCount,
-        output: usage.candidatesTokenCount,
-        thoughts: usage.thoughtsTokenCount,
-        total: usage.totalTokenCount,
-      };
-    }
+    const modelName = model || config.model;
+    const result = await runGeminiCall({
+      model: modelName,
+      log,
+      call: async () => {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), GENERATE_TIMEOUT_MS);
+        try {
+          return await genai.models.generateContent({
+            model: modelName,
+            contents: [{ role: 'user', parts }],
+            config: {
+              responseMimeType: 'application/json',
+              responseSchema: responseSchema ? (normalizeSchema(responseSchema) as never) : undefined,
+              maxOutputTokens: MAX_OUTPUT_TOKENS,
+              abortSignal: controller.signal,
+              ...thinkingConfigFor(modelName),
+            },
+          });
+        } finally {
+          clearTimeout(timer);
+        }
+      },
+      outcome: (next) => {
+        const usage = next.usageMetadata;
+        return {
+          finishReason: String(next.candidates?.[0]?.finishReason ?? ''),
+          usage: usage
+            ? {
+                prompt: usage.promptTokenCount,
+                output: usage.candidatesTokenCount,
+                total: usage.totalTokenCount,
+              }
+            : undefined,
+        };
+      },
+    });
     const text = result.text ?? '';
-    info.response_chars = text.length;
-    const finish = result.candidates?.[0]?.finishReason;
-    if (finish) info.finish_reason = String(finish);
-    log.info(`Gemini ${info.model} ${Math.round(Number(info.latency_ms))} ms`, info);
     log.debug('Gemini response text', { event: 'gemini.text', text: text.slice(0, 2000) });
     return text;
   };

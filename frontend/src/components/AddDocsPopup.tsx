@@ -95,9 +95,11 @@ export function AddDocsPopup({ onClose }: AddDocsPopupProps) {
     };
   }, [onClose]);
 
-  const addFiles = (list: FileList | null) => {
-    if (!list) return;
-    setFiles((current) => [...current, ...Array.from(list, classify)]);
+  const addFiles = (list: FileList | File[] | null) => {
+    // Copy now. A file input's FileList is live and becomes empty once value is cleared.
+    const picked = list ? Array.from(list) : [];
+    if (picked.length === 0) return;
+    setFiles((current) => [...current, ...picked.map(classify)]);
     setError(null);
   };
 

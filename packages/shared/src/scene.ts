@@ -165,6 +165,10 @@ export type RoadmapTopic = {
 };
 
 export type Roadmap = {
+  /** Short name for the whole subject. Missing on courses created before this field existed. */
+  title?: string;
+  /** One word used as a library filter, such as Economy or Software. */
+  category?: string;
   topics: RoadmapTopic[];
 };
 

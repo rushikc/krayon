@@ -60,6 +60,18 @@ export const createCourse = (files: File[]) => {
   return apiFetch<{ courseId: string; jobId: string }>('/api/courses', { method: 'POST', body: form });
 };
 
+/** Retry a failed segment from its stored draft and errors. */
+export const retryCourseSegment = (courseId: string, topicId: string, segmentId: string) =>
+  apiJson<{ jobId: string }>(`/api/courses/${courseId}/topics/${topicId}/segments/${segmentId}/retry`, 'POST', {});
+
+/** Regenerate a whole topic, for example when its lesson draft failed. */
+export const retryCourseTopic = (courseId: string, topicId: string) =>
+  apiJson<{ jobId: string }>(`/api/courses/${courseId}/topics/${topicId}/retry`, 'POST', {});
+
+/** Queue an idle lesson so it renders after the one already running. */
+export const renderCourseTopic = (courseId: string, topicId: string) =>
+  apiJson<{ jobId: string }>(`/api/courses/${courseId}/topics/${topicId}/render`, 'POST', {});
+
 export const renderUrl = (blobId: string) => `${BASE}/api/renders/${blobId}`;
 
 export const listCourses = () => apiFetch<{ courses: CourseState[] }>('/api/courses');

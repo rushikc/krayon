@@ -17,6 +17,7 @@ export const connectCourse = (
   handlers: {
     onSnapshot: (course: CourseState) => void;
     onEvent: (event: PipelineEvent) => void;
+    onReconnect?: () => void;
   },
 ): CourseSocket => {
   let socket: WebSocket | null = null;
@@ -28,7 +29,9 @@ export const connectCourse = (
     if (closed) return;
     socket = new WebSocket(socketUrl(currentId));
     socket.addEventListener('open', () => {
+      const reconnected = attempt > 0;
       attempt = 0;
+      if (reconnected) handlers.onReconnect?.();
       socket?.send(JSON.stringify({ type: 'subscribe', courseId: currentId }));
     });
     socket.addEventListener('message', (message) => {

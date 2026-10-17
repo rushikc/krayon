@@ -38,7 +38,21 @@ export {
   reviewSchema,
   roadmapSchema,
   segmentSchema,
+  applySegmentDefaults,
+  lessonModelSchema,
+  segmentModelSchema,
 } from './schemas.js';
+export { modelResponseSchemas, toModelSchema } from './modelSchema.js';
+export type { ModelSchemaName } from './modelSchema.js';
+export {
+  GenerationError,
+  generationErrorCode,
+  generationErrorStatus,
+  issuesText,
+  toGenerationError,
+  zodIssues,
+} from './generation.js';
+export type { GenerationErrorCode, GenerationErrorInfo, GenerationIssue } from './generation.js';
 export type { ParsedLesson, ParsedRoadmap, ParsedSegment, ReviewResult } from './schemas.js';
 export type { ReviewIssue } from './schemas.js';
 export { validateSegment } from './sceneValidator.js';
@@ -49,6 +63,7 @@ export type {
   CourseState,
   SegmentRound,
   SegmentState,
+  SegmentStatus,
   TopicPhase,
   TopicState,
 } from './course.js';

@@ -73,15 +73,29 @@ body {
   }
 }
 
-@keyframes crayon-walk {
+@keyframes crayon-walk-move {
   0% {
-    transform: translate(28px, 36px) rotate(-16deg);
+    transform: translate(14.76%, 16.4%);
   }
-  55% {
-    transform: translate(28px, 150px) rotate(-6deg);
+  52% {
+    transform: translate(14.76%, 93.64%);
+  }
+  64% {
+    transform: translate(20%, 93.64%);
   }
   100% {
-    transform: translate(250px, 150px) rotate(8deg);
+    transform: translate(85.7%, 93.64%);
+  }
+}
+
+@keyframes crayon-walk-turn {
+  0%,
+  48% {
+    transform: rotate(0deg);
+  }
+  64%,
+  100% {
+    transform: rotate(90deg);
   }
 }
 
@@ -92,7 +106,15 @@ body {
 }
 
 .crayon-walk {
-  animation: crayon-walk 2.6s ease-in-out infinite;
+  transform-box: view-box;
+  transform-origin: 0 0;
+  animation: crayon-walk-move 2.6s linear infinite;
+}
+
+.crayon-turn {
+  transform-box: fill-box;
+  transform-origin: 50% 100%;
+  animation: crayon-walk-turn 2.6s linear infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -101,8 +123,13 @@ body {
   }
 
   .crayon-draw,
-  .crayon-walk {
+  .crayon-walk,
+  .crayon-turn {
     animation: none;
+  }
+
+  .crayon-walk {
+    transform: translate(14.76%, 93.64%);
   }
 
   .crayon-draw {

@@ -106,7 +106,7 @@ const equilibriumTopic: RoadmapTopic = {
 
 export const roadmapTopics: RoadmapTopic[] = [supplyTopic, demandTopic, equilibriumTopic];
 
-export const roadmap: Roadmap = { topics: roadmapTopics };
+export const roadmap: Roadmap = { title: 'Supply and demand', category: 'Economy', topics: roadmapTopics };
 
 const segmentState = (item: GeneratedSegment, status: SegmentState['status'] = 'ready'): SegmentState => ({
   id: item.id,

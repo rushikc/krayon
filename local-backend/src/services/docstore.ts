@@ -1,7 +1,7 @@
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import Database from 'better-sqlite3';
-import type { DocRecord, DocStore } from '@krayon/shared';
+import type { DocRecord, DocStore, PipelineEmit } from '@krayon/shared';
 import { getLogger } from '../logging.js';
 
 export type { DocRecord };
@@ -83,8 +83,9 @@ export class LocalDocStore implements DocStore {
     return counts;
   }
 
-  recoverInterrupted() {
-    const reason = 'interrupted by restart';
+  recoverInterrupted(emit?: (event: PipelineEmit) => void, requeue?: (uid: string, courseId: string, topicId: string) => void) {
+    const reason = 'interrupted';
+    const mid = new Set(['generating', 'checking', 'reviewing']);
     const jobs = this.db.prepare(`SELECT id, data FROM docs WHERE collection = 'jobs'`).all() as Array<{
       id: string;
       data: string;
@@ -95,17 +96,67 @@ export class LocalDocStore implements DocStore {
         this.set(`jobs/${row.id}`, { status: 'error', error: reason }, true);
       }
     }
-    const topics = this.db.prepare(`SELECT collection, id, data FROM docs WHERE collection LIKE '%/topics'`).all() as Array<{
+    const rows = this.db.prepare('SELECT collection, id, data FROM docs').all() as Array<{
       collection: string;
       id: string;
       data: string;
     }>;
+    const segments = rows.filter((row) => row.collection.endsWith('/segments'));
+    for (const row of segments) {
+      const data = JSON.parse(row.data) as { status?: string };
+      if (!data.status || !mid.has(data.status)) continue;
+      this.set(`${row.collection}/${row.id}`, { status: 'failed', statusDetail: null, error: reason }, true);
+      const parts = row.collection.split('/');
+      emit?.({
+        type: 'segment.failed',
+        courseId: parts[3] ?? '',
+        topicId: parts[5] ?? '',
+        segmentId: row.id,
+        error: reason,
+        flow: 'recover',
+        step: 'interrupted',
+      });
+    }
+    const topics = rows.filter((row) => row.collection.endsWith('/topics'));
+    const queued: Array<{ uid: string; courseId: string; topicId: string }> = [];
     for (const row of topics) {
       const data = JSON.parse(row.data) as { status?: string };
-      if (data.status === 'generating' || data.status === 'checking' || data.status === 'reviewing') {
+      const parts = row.collection.split('/');
+      const uid = parts[1] ?? '';
+      const courseId = parts[3] ?? '';
+      if (data.status && mid.has(data.status)) {
         this.set(`${row.collection}/${row.id}`, { status: 'failed', statusDetail: null, error: reason }, true);
+        emit?.({ type: 'topic.failed', courseId, topicId: row.id, error: reason, flow: 'recover', step: 'interrupted' });
+      } else if (data.status === 'queued') {
+        emit?.({ type: 'topic.queued', courseId, topicId: row.id, flow: 'recover', step: 'queued' });
+        queued.push({ uid, courseId, topicId: row.id });
       }
     }
+    const courses = rows.filter((row) => /^users\/[^/]+\/courses$/.test(row.collection));
+    for (const row of courses) {
+      const uid = row.collection.split('/')[1] ?? '';
+      const topicRows = this.list(`${row.collection}/${row.id}/topics`);
+      const statuses = topicRows.map((topic) => String(topic.data.status ?? 'queued'));
+      const failed = statuses.filter((status) => status === 'failed');
+      const terminal = new Set(['ready', 'failed', 'blocked', 'unreviewed']);
+      let status: 'done' | 'failed' | 'generating' = 'generating';
+      let error: string | null = null;
+      if (statuses.length > 0 && failed.length === statuses.length) {
+        status = 'failed';
+        error = 'interrupted';
+      } else if (statuses.length > 0 && statuses.every((item) => terminal.has(item))) {
+        status = 'done';
+      }
+      this.set(`${row.collection}/${row.id}`, { status, error }, true);
+      if (status === 'failed') emit?.({ type: 'course.failed', courseId: row.id, error: error ?? reason, flow: 'recover', step: 'failed' });
+      if (status === 'done') emit?.({ type: 'course.done', courseId: row.id, failedTopics: failed.length, flow: 'recover', step: 'done' });
+      if (status === 'generating') {
+        for (const topic of queued) {
+          if (topic.uid === uid && topic.courseId === row.id) requeue?.(uid, row.id, topic.topicId);
+        }
+      }
+    }
+    log.info('Recovered interrupted course work', { event: 'recover' });
   }
 
   list(collection: string): DocRecord[] {

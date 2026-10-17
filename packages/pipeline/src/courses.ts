@@ -1,10 +1,10 @@
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import { modelResponseSchemas } from '@krayon/shared';
 import type {
   BlobStorage,
   CourseState,
   DocRecord,
   DocStore,
+  GenerationErrorInfo,
   GeneratedLesson,
   GeneratedSegment,
   Roadmap,
@@ -20,35 +20,17 @@ export const segmentPath = (uid: string, courseId: string, topicId: string, segm
 export const roundPath = (uid: string, courseId: string, topicId: string, segmentId: string, n: number) =>
   `${segmentPath(uid, courseId, topicId, segmentId)}/rounds/${n}`;
 
-const schemaFile = fileURLToPath(new URL('./ai_schemas.json', import.meta.url));
-
-export const responseSchemas = JSON.parse(readFileSync(schemaFile, 'utf8')) as {
-  roadmap: Record<string, unknown>;
-  lesson: Record<string, unknown>;
-  segment: Record<string, unknown>;
+/**
+ * Gemini response schemas generated from the zod schemas in @krayon/shared (single source of truth).
+ * src/ai_schemas.json is a generated copy for reference: `npm run schemas -w @krayon/pipeline`.
+ */
+export const responseSchemas = {
+  roadmap: modelResponseSchemas.roadmap,
+  lesson: modelResponseSchemas.lesson,
+  segment: modelResponseSchemas.segment,
 };
 
-export const reviewResponseSchema: Record<string, unknown> = {
-  type: 'object',
-  properties: {
-    pass: { type: 'boolean' },
-    score: { type: 'number' },
-    issues: {
-      type: 'array',
-      items: {
-        type: 'object',
-        properties: {
-          frame: { type: 'number' },
-          problem: { type: 'string' },
-          severity: { type: 'string', enum: ['low', 'medium', 'high'] },
-        },
-        required: ['frame', 'problem', 'severity'],
-      },
-    },
-    patchedSegment: responseSchemas.segment,
-  },
-  required: ['pass', 'score', 'issues'],
-};
+export const reviewResponseSchema: Record<string, unknown> = modelResponseSchemas.review;
 
 const segmentState = (docs: DocStore, uid: string, courseId: string, topicId: string, doc: DocRecord): SegmentState => {
   const rounds = docs.list(`${segmentPath(uid, courseId, topicId, doc.id)}/rounds`).map((round) => {
@@ -59,6 +41,7 @@ const segmentState = (docs: DocStore, uid: string, courseId: string, topicId: st
       issues: (data.issues as SegmentRound['issues']) ?? [],
       score: (data.score as number | null) ?? null,
       pass: (data.pass as boolean | null) ?? null,
+      fixed: typeof data.fixed === 'boolean' ? data.fixed : undefined,
       keyframeIds: (data.keyframeIds as string[]) ?? [],
     };
   });
@@ -69,6 +52,9 @@ const segmentState = (docs: DocStore, uid: string, courseId: string, topicId: st
     statusDetail: (doc.data.statusDetail as string | null) ?? null,
     rounds,
     segment: (doc.data.segment as GeneratedSegment | null) ?? null,
+    error: (doc.data.error as string | null) ?? null,
+    errorInfo: (doc.data.errorInfo as GenerationErrorInfo | null) ?? null,
+    reviewStatus: doc.data.reviewStatus === 'unreviewed' ? 'unreviewed' : null,
   };
 };
 
@@ -99,6 +85,7 @@ export const assembleCourse = (docs: DocStore, uid: string, courseId: string): C
         status,
         statusDetail: (topic.data.statusDetail as string | null) ?? null,
         error: (topic.data.error as string | null) ?? null,
+        errorInfo: (topic.data.errorInfo as GenerationErrorInfo | null) ?? null,
         lesson: status === 'ready' && lessonSegments.length ? { studyDoc, segments: lessonSegments } : null,
         segments,
       };
@@ -120,13 +107,19 @@ export const listCourses = (docs: DocStore, uid: string): CourseState[] =>
 
 export const saveLesson = (docs: DocStore, uid: string, courseId: string, topicId: string, lesson: GeneratedLesson) => {
   docs.set(topicPath(uid, courseId, topicId), { studyDoc: lesson.studyDoc, status: 'ready', statusDetail: null, error: null }, true);
-  lesson.segments.forEach((segment, order) => {
-    docs.set(segmentPath(uid, courseId, topicId, segment.id), {
+  lesson.segments.forEach((segment, index) => {
+    const path = segmentPath(uid, courseId, topicId, segment.id);
+    // Keep the drafted position so failed segments kept between ready ones stay in place.
+    const previous = docs.get(path)?.data;
+    const stored = previous?.order;
+    const preserved = previous?.status === 'unreviewed' || previous?.status === 'blocked' ? previous.status : 'ready';
+    docs.set(path, {
       title: segment.title,
-      status: 'ready',
+      status: preserved,
       statusDetail: null,
+      reviewStatus: preserved === 'unreviewed' ? 'unreviewed' : null,
       segment,
-      order,
+      order: typeof stored === 'number' ? stored : index,
     });
   });
 };

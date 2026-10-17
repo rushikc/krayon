@@ -2,6 +2,8 @@ import { useState } from 'react';
 import type { ReactNode } from 'react';
 import { Link, Navigate, useMatch, useParams } from 'react-router-dom';
 import { CrayonSketch } from '../components/CrayonSketch.tsx';
+import { FailureNotes } from '../components/FailureNotes.tsx';
+import { topicFailures } from '../study/failures.ts';
 import { RoadmapTrail, StepPanel } from '../components/RoadmapTrail.tsx';
 import type { TrailChapter, TrailStep } from '../components/RoadmapTrail.tsx';
 import { Button } from '../components/ui/Button.tsx';
@@ -14,7 +16,7 @@ import { usePalette } from '../paletteState.ts';
 import { orderTopics } from '../remotion/scene.ts';
 import { curatedChapters, generatedChapters } from '../study/chapters.ts';
 import type { Chapter } from '../study/chapters.ts';
-import { lessonKey, nextSubtopic, stepStatus, topicKey, useLocalStudy } from '../study/localStudy.tsx';
+import { lessonKey, stepStatus, topicKey, useLocalStudy } from '../study/localStudy.tsx';
 import { formatClock, formatLength, topicFrames } from '../study/time.ts';
 import { useUpload } from '../study/uploadState.tsx';
 import { useStudySession } from '../study/studyState.ts';
@@ -27,6 +29,26 @@ const artCycle = [
 ];
 
 const pill = 'inline-flex items-center gap-1.5 rounded-full border-2 border-ink px-3 py-1 text-[13px] font-medium';
+
+const renderStageLabels = ['Queued', 'Writing the lesson', 'Checking the segment', 'Rendering keyframes', 'Reviewing'];
+
+const renderTasks = (status: string | undefined, detail: string | null) => {
+  const text = detail ?? '';
+  const active =
+    status === 'reviewing' || /review/i.test(text)
+      ? 4
+      : /rendering keyframes/i.test(text)
+        ? 3
+        : status === 'checking' || /check/i.test(text)
+          ? 2
+          : status === 'generating'
+            ? 1
+            : 0;
+  return renderStageLabels.map((label, index) => ({
+    label: index === 4 && active === 4 && /review/i.test(text) ? text.charAt(0).toUpperCase() + text.slice(1) : label,
+    state: (index < active ? 'done' : index === active ? 'active' : 'pending') as 'done' | 'active' | 'pending',
+  }));
+};
 
 function chaptersFor(chapters: Chapter[], watchedIds: string[]): { items: TrailChapter[]; progress: number; timeLeft: string } {
   const watched = new Set(watchedIds);
@@ -194,9 +216,7 @@ export function RoadmapPage() {
                 ? 'Generating'
                 : phase === 'queued'
                   ? 'Queued'
-                  : ready
-                    ? undefined
-                    : 'Queued';
+                  : undefined;
       let status: TrailStep['status'] = 'rendering';
       if (complete) status = 'done';
       else if (ready && !markedNext) {
@@ -204,7 +224,9 @@ export function RoadmapPage() {
         markedNext = true;
       } else if (ready) status = 'open';
       else if (phase === 'failed') status = 'failed';
+      else if (phase === 'idle' || !phase) status = 'idle';
       const frames = chapters.reduce((total, chapter) => total + chapter.duration, 0);
+      const failures = topicFailures(session, item);
       const progress = complete
         ? 100
         : ready
@@ -230,7 +252,10 @@ export function RoadmapPage() {
         hint: phase === 'failed' ? (runtime?.error ?? 'This lesson could not be rendered.') : ready ? undefined : (runtime?.statusDetail ?? phaseLabel),
         statusText: phaseLabel,
         href: ready ? `/study/${item.id}` : undefined,
+        onRender: status === 'idle' ? () => void session.renderTopic(item.id) : undefined,
+        tasks: status === 'rendering' ? renderTasks(phase, runtime?.statusDetail ?? null) : undefined,
         chapters: built.items,
+        note: failures.length > 0 ? <FailureNotes items={failures} /> : undefined,
       };
     });
     const steps = topicSteps;
@@ -285,11 +310,6 @@ export function RoadmapPage() {
   const base = home === '/' ? '' : home;
   const ids = topic.subtopics.map((subtopic) => subtopic.id);
   const done = doneIds(topicKey(topic.id));
-  const current = nextSubtopic(topic, done);
-  const currentIndex = Math.max(
-    0,
-    topic.subtopics.findIndex((subtopic) => subtopic.id === current.id),
-  );
   const finished = done.length >= topic.subtopics.length;
   const quizReady = topic.subtopics.filter((subtopic) => lessonMarks(lessonKey(topic.id, subtopic.id)).quizReady).length;
 
@@ -306,8 +326,7 @@ export function RoadmapPage() {
       duration: formatClock(curatedChapters(subtopic).reduce((total, chapter) => total + chapter.duration, 0)),
       progress: status === 'done' ? 100 : built.progress,
       timeLeft: built.timeLeft,
-      hint: status === 'locked' ? `Finish step ${currentIndex + 1} first` : undefined,
-      href: status === 'locked' ? undefined : `${base}/topics/${topic.id}/${subtopic.id}`,
+      href: `${base}/topics/${topic.id}/${subtopic.id}`,
       chapters: built.items,
     };
   };

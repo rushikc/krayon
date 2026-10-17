@@ -4,10 +4,19 @@ import cors from '@fastify/cors';
 import multipart from '@fastify/multipart';
 import Fastify from 'fastify';
 import { GeminiNotConfigured } from '@krayon/pipeline';
+import {
+  generationErrorStatus,
+  lessonModelSchema,
+  modelResponseSchemas,
+  roadmapSchema,
+  segmentModelSchema,
+  toGenerationError,
+} from '@krayon/shared';
 import { z } from 'zod';
 import { aiBackend, settings } from './config.js';
-import { jobs, pipeline, storage, store } from './context.js';
-import { getLogger } from './logging.js';
+import { jobs, pipeline, startRecovery, storage, store } from './context.js';
+import { healthSnapshot } from './health.js';
+import { currentRequestId, getLogger } from './logging.js';
 import { httpError, installErrorHandler, registerRequestLogging } from './requestLogging.js';
 import { registerCourseRoutes } from './routes/courses.js';
 import { registerWebsocket } from './routes/ws.js';
@@ -21,8 +30,12 @@ const generateBody = z.object({
   prompt: z.string(),
   uploadId: z.string().nullish(),
   responseSchema: z.record(z.string(), z.unknown()).nullish(),
+  /** Named schema: the server supplies the response schema and validates the result (zod + retries). */
+  schema: z.enum(['roadmap', 'lesson', 'segment']).nullish(),
   model: z.string().nullish(),
 });
+
+const namedSchemas = { roadmap: roadmapSchema, lesson: lessonModelSchema, segment: segmentModelSchema } as const;
 
 const jobBody = z.object({
   kind: z.string(),
@@ -59,13 +72,11 @@ export const buildApp = async () => {
   installErrorHandler(app);
   registerCourseRoutes(app);
   await registerWebsocket(app);
+  startRecovery();
 
   app.get('/api/health', async () => ({
-    ok: true,
+    ...healthSnapshot(),
     ai: aiBackend(),
-    project: settings.googleCloudProject,
-    location: settings.googleCloudLocation,
-    model: settings.geminiModel,
     services: { firestore: 'local-sqlite', storage: 'local-files', auth: 'stub', jobs: 'in-process' },
   }));
 
@@ -88,7 +99,7 @@ export const buildApp = async () => {
     return blob;
   });
 
-  app.post('/api/ai/generate', async (request) => {
+  app.post('/api/ai/generate', async (request, reply) => {
     const user = auth.currentUser(request.headers['x-user-id']);
     const body = parse(generateBody, request.body);
     let files: { data: Buffer; mimeType: string }[] | undefined;
@@ -97,13 +108,35 @@ export const buildApp = async () => {
       if (!found) throw httpError(404, 'Upload not found. Upload the file again.');
       files = [{ data: found.data, mimeType: found.blob.content_type }];
     }
+    // Errors are sent here, not thrown: the global handler turns every 5xx into a bare 500.
+    const fail = (error: unknown) => {
+      if (error instanceof GeminiNotConfigured) return reply.code(503).send({ detail: error.message, code: 'UPSTREAM' });
+      const info = toGenerationError(error).toInfo();
+      const status = generationErrorStatus(info.code);
+      log.warning(`AI generate failed: ${status} ${info.code}`, { event: 'ai.generate', schema_name: body.schema ?? null, status, code: info.code });
+      const detail = body.schema ? info.message : `Gemini request failed: ${info.message}`;
+      return reply.code(status).send({ detail, ...info, requestId: currentRequestId() });
+    };
+    if (body.schema) {
+      try {
+        const result = await pipeline.generateNamed(
+          body.schema,
+          namedSchemas[body.schema] as z.ZodType<unknown>,
+          modelResponseSchemas[body.schema],
+          body.prompt,
+          files ?? [],
+          body.model,
+        );
+        return { text: JSON.stringify(result.value), data: result.value, attempts: result.attempts };
+      } catch (error) {
+        return fail(error);
+      }
+    }
     try {
       const text = await pipeline.gemini.generateJson(body.prompt, body.responseSchema ?? undefined, files, body.model);
       return { text };
     } catch (error) {
-      if (error instanceof GeminiNotConfigured) throw httpError(503, error.message);
-      const message = error instanceof Error ? error.message : String(error);
-      throw httpError(502, `Gemini request failed: ${message}`);
+      return fail(error);
     }
   });
 
@@ -181,5 +214,15 @@ export const buildApp = async () => {
 const entry = process.argv[1] ? path.resolve(process.argv[1]) : '';
 if (entry === fileURLToPath(import.meta.url)) {
   const app = await buildApp();
+  let closing = false;
+  const shutdown = () => {
+    if (closing) return;
+    closing = true;
+    void pipeline.closeRenderer().finally(() => {
+      void app.close().finally(() => process.exit(0));
+    });
+  };
+  process.once('SIGINT', shutdown);
+  process.once('SIGTERM', shutdown);
   await app.listen({ port: settings.port, host: '127.0.0.1' });
 }

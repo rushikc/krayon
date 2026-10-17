@@ -1,0 +1,37 @@
+---
+description: Every plan ends by judging whether the change is big enough to commit. Large finished plans are committed; small ones are left uncommitted.
+alwaysApply: true
+---
+
+# Commit a finished plan
+
+Every plan's last step is this rule. Write that step into the plan, then run it when the plan is done. Decide yourself. Do not ask. Do not push.
+
+## When to commit
+
+Commit only when the finished plan is a real feature or a sizable change:
+
+- It touches more than 5 files, or
+- It touches fewer files, but the work is still a substantial feature (a new flow, new backend behavior, or a multi-part UI).
+
+Leave the work uncommitted when it is small: fewer than 5 files, or a small change such as a minor UI tweak, copy edit, one-off fix, or a rule update. Do not make a separate commit for that. Leave the files as they are.
+
+## What to commit
+
+- Stage only files this plan created or edited.
+- A file the plan changed for a cross-cutting reason belongs in the commit.
+- Leave every other dirty or untracked file unstaged, including work from earlier turns that this plan did not touch.
+- Do not commit secrets (`.env`, credentials, keys). Warn instead of staging them.
+- If the plan changed no files, do not create an empty commit.
+
+## Message
+
+One line. Short and precise. State why the plan exists, in the same voice as recent `git log` messages: sentence case, imperative, no ticket prefix.
+
+```text
+Open generated lessons on the same page as curated ones.
+```
+
+## How
+
+Follow the repo git safety protocol. In parallel, inspect `git status`, `git diff` (staged and unstaged), and recent `git log`. Stage the plan's files by path. Commit with a HEREDOC. Then run `git status` to confirm the commit, and that unrelated local changes are still unstaged.

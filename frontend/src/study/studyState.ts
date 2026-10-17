@@ -9,12 +9,16 @@ export type SegmentRuntime = {
   status: string;
   statusDetail: string | null;
   rounds: SegmentRound[];
+  /** Path-qualified failure message (failed segment, or a rewrite that failed and kept the old one). */
+  error?: string | null;
+  errorCode?: string | null;
 };
 
 export type TopicRuntime = {
   status: string;
   statusDetail: string | null;
   error: string | null;
+  errorCode?: string | null;
   segments: Record<string, SegmentRuntime>;
 };
 
@@ -34,6 +38,15 @@ export type StudySessionValue = {
   startFromFiles: (files: File[]) => Promise<void>;
   openTopic: (topicId: string) => Promise<void>;
   regenerate: (topic: RoadmapTopic, segment: GeneratedSegment, prompt?: string) => Promise<void>;
+  /** True when failed segments/topics can be retried (backend pipeline). */
+  canRetry: boolean;
+  retrySegment: (topicId: string, segmentId: string) => Promise<void>;
+  retryTopic: (topicId: string) => Promise<void>;
+  /** Queues an idle lesson. The button becomes Queued and it renders next. */
+  renderTopic: (topicId: string) => Promise<void>;
+  /** Opens a stored course and follows its live updates. No-op when that course is already open. */
+  openCourse: (courseId: string) => Promise<void>;
+  courseId: string | null;
   closeTopic: () => void;
 };
 
@@ -50,12 +63,15 @@ export const applyCourse = (course: CourseState) => {
         status: segment.status,
         statusDetail: segment.statusDetail,
         rounds: segment.rounds,
+        error: segment.error ?? null,
+        errorCode: segment.errorInfo?.code ?? null,
       };
     }
     topics[topic.id] = {
       status: topic.status,
       statusDetail: topic.statusDetail,
       error: topic.error,
+      errorCode: topic.errorInfo?.code ?? null,
       segments,
     };
   }
@@ -64,7 +80,7 @@ export const applyCourse = (course: CourseState) => {
     roadmap: course.roadmap,
     lessons,
     topics,
-    buildingRoadmap: !course.roadmap && course.status !== 'done',
+    buildingRoadmap: !course.roadmap && course.status !== 'done' && course.status !== 'failed',
     error: course.error,
   };
 };

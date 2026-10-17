@@ -1,1 +1,1 @@
-export type TrailStatus = 'done' | 'next' | 'locked' | 'open' | 'rendering' | 'failed';
+export type TrailStatus = 'done' | 'next' | 'open' | 'rendering' | 'idle' | 'failed';

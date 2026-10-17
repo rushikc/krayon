@@ -87,7 +87,9 @@ const asRecord = (value: unknown) => value as Record<string, unknown>;
 it('health', async () => {
   const result = await req('GET', '/api/health');
   expect(result.status).toBe(200);
-  expect(result.body.ok).toBe(true);
+  expect(result.body.adc).toEqual(expect.objectContaining({ ok: expect.any(Boolean) }));
+  expect(result.body.renderer).toEqual(expect.objectContaining({ ok: expect.any(Boolean) }));
+  expect(typeof result.body.model).toBe('string');
 });
 
 it('me (stub user)', async () => {
