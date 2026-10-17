@@ -3,8 +3,6 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ChapterStrip } from '../components/ChapterStrip.tsx';
 import { DoubtPanel } from '../components/DoubtPanel.tsx';
-import { FailureNotes } from '../components/FailureNotes.tsx';
-import { topicFailures } from '../study/failures.ts';
 import { Markdown } from '../components/ui/Markdown.tsx';
 import { LessonDesk } from '../components/LessonDesk.tsx';
 import { LessonFrame } from '../components/LessonFrame.tsx';
@@ -187,7 +185,6 @@ export function GeneratedLessonView({ topicId }: { topicId: string }) {
     if (document.fullscreenElement) void document.exitFullscreen();
     chooseTool('ask');
   };
-  const failures = topicFailures(session, topic);
   const statusText =
     session.error ??
     topicRuntime?.segments[session.regeneratingId ?? '']?.statusDetail ??
@@ -223,12 +220,9 @@ export function GeneratedLessonView({ topicId }: { topicId: string }) {
   return (
     <Shell fill bare>
       <div className="flex h-full min-h-0 flex-col">
-        {(failures.length > 0 || statusText) && (
+        {statusText && (
           <div className="shrink-0 bg-paper px-4 py-2">
-            <FailureNotes items={failures} />
-            {statusText && (
-              <p className={`text-[15px] ${session.error ? 'text-crayon-text' : 'text-muted'}`}>{statusText}</p>
-            )}
+            <p className={`text-[15px] ${session.error ? 'text-crayon-text' : 'text-muted'}`}>{statusText}</p>
           </div>
         )}
 

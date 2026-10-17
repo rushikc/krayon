@@ -17,7 +17,11 @@
     "katex": "^0.19.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
+    "react-markdown": "^10.1.0",
     "react-router-dom": "^7.18.4",
+    "rehype-katex": "^7.0.1",
+    "remark-gfm": "^4.0.1",
+    "remark-math": "^6.0.0",
     "remotion": "^4.0.536",
     "tailwindcss": "^4.3.3",
     "zod": "^4.6.7"
