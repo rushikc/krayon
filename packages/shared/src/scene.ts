@@ -151,50 +151,8 @@ export type GeneratedSegment = {
   debug?: SegmentDebug;
 };
 
-export type GeneratedLesson = {
-  studyDoc: string;
-  segments: GeneratedSegment[];
-};
-
-export type RoadmapTopic = {
-  id: string;
-  title: string;
-  summary: string;
-  prerequisites: string[];
-  sourcePages: number[];
-};
-
-export type Roadmap = {
-  /** Short name for the whole subject. Missing on courses created before this field existed. */
-  title?: string;
-  /** One word used as a library filter, such as Economy or Software. */
-  category?: string;
-  topics: RoadmapTopic[];
-};
-
 export const isLayoutType = (type: string): type is LayoutType =>
   (layoutTypes as readonly string[]).includes(type);
 
 export const generatedDuration = (segments: GeneratedSegment[]) =>
   segments.reduce((total, segment) => total + segment.durationInFrames, 0);
-
-export const orderTopics = (topics: RoadmapTopic[]) => {
-  const byId = new Map(topics.map((topic) => [topic.id, topic]));
-  const ordered: RoadmapTopic[] = [];
-  const seen = new Set<string>();
-
-  const visit = (topic: RoadmapTopic, stack: Set<string>) => {
-    if (seen.has(topic.id) || stack.has(topic.id)) return;
-    stack.add(topic.id);
-    for (const prerequisite of topic.prerequisites) {
-      const dependency = byId.get(prerequisite);
-      if (dependency) visit(dependency, stack);
-    }
-    stack.delete(topic.id);
-    seen.add(topic.id);
-    ordered.push(topic);
-  };
-
-  for (const topic of topics) visit(topic, new Set());
-  return ordered;
-};

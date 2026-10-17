@@ -2,8 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import type { DragEvent, KeyboardEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { topics } from '../data/topics.ts';
-import { MAX_INLINE_BYTES } from '../lib/ai.ts';
-import { useBackendPipeline } from '../lib/api.ts';
+import { MAX_UPLOAD_BYTES } from '../lib/api.ts';
 import { usePalette } from '../paletteState.ts';
 import { topicKey, useLocalStudy } from '../study/localStudy.tsx';
 import { useStudySession } from '../study/studyState.ts';
@@ -37,7 +36,7 @@ export function AddDocsPopup({ onClose }: AddDocsPopupProps) {
   const { prefix } = usePalette();
   const { topicId } = useUpload();
   const { addSources } = useLocalStudy();
-  const { startFromFile, startFromFiles } = useStudySession();
+  const { startFromFiles } = useStudySession();
   const titleId = useId();
   const dialogRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -134,19 +133,18 @@ export function AddDocsPopup({ onClose }: AddDocsPopupProps) {
 
   const createTopic = async () => {
     if (accepted.length === 0) return;
-    if (accepted.some((file) => file.file.size > MAX_INLINE_BYTES)) {
+    if (accepted.some((file) => file.file.size > MAX_UPLOAD_BYTES)) {
       setError('That file is over 20MB. Choose a smaller PDF or photo.');
       return;
     }
     setBusy(true);
     setError(null);
     try {
-      if (useBackendPipeline) await startFromFiles(accepted.map((file) => file.file));
-      else await startFromFile(accepted[0].file);
+      await startFromFiles(accepted.map((file) => file.file));
       onClose();
       navigate('/study');
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'The roadmap could not be created.');
+      setError(caught instanceof Error ? caught.message : 'The course could not be created.');
     } finally {
       setBusy(false);
     }
@@ -179,9 +177,7 @@ export function AddDocsPopup({ onClose }: AddDocsPopupProps) {
         </div>
         <div className="min-h-0 overflow-y-auto overscroll-contain">
         <p className="mt-2 text-[15px] leading-relaxed text-muted">
-          {useBackendPipeline
-            ? 'PDFs and photos only. Add them to a topic you already have, or start a lesson from every file you drop.'
-            : 'PDFs and photos only. Add them to a topic you already have, or let the first file become a new topic.'}
+          PDFs and photos only. Add them to a topic you already have, or start a course from every file you drop.
         </p>
 
         <div className="mt-4 flex flex-wrap gap-2" role="group" aria-label="Where the files go">
@@ -232,10 +228,6 @@ export function AddDocsPopup({ onClose }: AddDocsPopupProps) {
           <span className="text-[16px] font-medium text-ink">Drop PDFs or photos</span>
           <span className="mt-1 text-[14px] text-muted">or click to browse</span>
         </button>
-
-        {mode === 'new' && !useBackendPipeline && accepted.length > 1 && (
-          <p className="mt-3 text-[14px] text-muted">Using the first file, {accepted[0]?.name}.</p>
-        )}
 
         {files.length > 0 && (
           <ul className="mt-3 grid grid-cols-2 content-start gap-2">

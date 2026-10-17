@@ -1,8 +1,11 @@
-import type { CourseState } from '@krayon/shared';
+import type { CourseState, LessonDetail, LessonProgress, LessonSummary } from '@krayon/shared';
 
 // All backend traffic goes through here. In dev, Vite proxies /api to local-backend.
 // Set VITE_API_BASE_URL to call an API other than the Vite proxy.
 const BASE = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '');
+
+/** Largest PDF or photo the backend accepts. */
+export const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
 
 export class ApiError extends Error {
   readonly status: number;
@@ -22,8 +25,9 @@ export const apiFetch = async <T>(path: string, init?: RequestInit): Promise<T> 
   if (!response.ok) {
     let message = `Backend error ${response.status}`;
     try {
-      const body = (await response.json()) as { detail?: unknown };
+      const body = (await response.json()) as { detail?: unknown; reason?: unknown };
       if (typeof body.detail === 'string') message = body.detail;
+      else if (typeof body.reason === 'string') message = body.reason;
     } catch {
       /* not JSON */
     }
@@ -32,27 +36,8 @@ export const apiFetch = async <T>(path: string, init?: RequestInit): Promise<T> 
   return (await response.json()) as T;
 };
 
-export const apiJson = <T>(path: string, method: string, body: unknown) =>
-  apiFetch<T>(path, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-
-type UploadResult = { id: string; name: string; content_type: string; size: number; path: string };
-
-const uploads = new WeakMap<File, Promise<UploadResult>>();
-
-/** Uploads a file once per File object and reuses the stored id. */
-export const uploadFile = (file: File) => {
-  let pending = uploads.get(file);
-  if (!pending) {
-    const form = new FormData();
-    form.append('file', file, file.name);
-    pending = apiFetch<UploadResult>('/api/uploads', { method: 'POST', body: form });
-    pending.catch(() => uploads.delete(file));
-    uploads.set(file, pending);
-  }
-  return pending;
-};
-
-export const useBackendPipeline = import.meta.env.VITE_USE_BACKEND !== 'false';
+export const apiJson = <T>(path: string, method: string, body: unknown, init?: RequestInit) =>
+  apiFetch<T>(path, { ...init, method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
 
 export const createCourse = (files: File[]) => {
   const form = new FormData();
@@ -60,27 +45,34 @@ export const createCourse = (files: File[]) => {
   return apiFetch<{ courseId: string; jobId: string }>('/api/courses', { method: 'POST', body: form });
 };
 
-/** Retry a failed segment from its stored draft and errors. */
-export const retryCourseSegment = (courseId: string, topicId: string, segmentId: string) =>
-  apiJson<{ jobId: string }>(`/api/courses/${courseId}/topics/${topicId}/segments/${segmentId}/retry`, 'POST', {});
-
-/** Regenerate a whole topic, for example when its lesson draft failed. */
-export const retryCourseTopic = (courseId: string, topicId: string) =>
-  apiJson<{ jobId: string }>(`/api/courses/${courseId}/topics/${topicId}/retry`, 'POST', {});
-
-/** Queue an idle lesson so it renders after the one already running. */
-export const renderCourseTopic = (courseId: string, topicId: string) =>
-  apiJson<{ jobId: string }>(`/api/courses/${courseId}/topics/${topicId}/render`, 'POST', {});
-
-export const renderUrl = (blobId: string) => `${BASE}/api/renders/${blobId}`;
-
 export const listCourses = () => apiFetch<{ courses: CourseState[] }>('/api/courses');
 
 export const getCourse = (courseId: string) => apiFetch<CourseState>(`/api/courses/${courseId}`);
 
-export const regenerateCourseSegment = (courseId: string, topicId: string, segmentId: string, prompt?: string) =>
-  apiJson<{ jobId: string }>(
-    `/api/courses/${courseId}/topics/${topicId}/segments/${segmentId}/regenerate`,
-    'POST',
-    { prompt },
-  );
+/** Runs a failed structure pass again, or puts failed chapters back on the list. */
+export const retryCourse = (courseId: string) => apiJson<{ jobId: string }>(`/api/courses/${courseId}/retry`, 'POST', {});
+
+/** Continues a failed chapter from its last stored step. */
+export const retryChapter = (chapterId: string) => apiJson<{ jobId: string }>(`/api/chapters/${chapterId}/retry`, 'POST', {});
+
+export const getLesson = (lessonId: string) => apiFetch<LessonDetail>(`/api/lessons/${lessonId}`);
+
+/** Starts the video for a lesson. A ready or rendering lesson is left as it is. */
+export const renderLesson = (lessonId: string) =>
+  apiJson<{ jobId: string | null; lesson: LessonSummary | null }>(`/api/lessons/${lessonId}/render`, 'POST', {});
+
+/** Re-runs only the failed segments of a lesson. */
+export const retryLesson = (lessonId: string) =>
+  apiJson<{ jobId: string | null; lesson: LessonSummary | null }>(`/api/lessons/${lessonId}/retry`, 'POST', {});
+
+export const regenerateSegment = (lessonId: string, segmentId: string, prompt?: string) =>
+  apiJson<{ jobId: string }>(`/api/lessons/${lessonId}/segments/${segmentId}/regenerate`, 'POST', { prompt });
+
+/** `keepalive` lets the last save finish while the page unloads. */
+export const saveLessonProgress = (lessonId: string, patch: Partial<Omit<LessonProgress, 'updatedAt'>>, keepalive = false) =>
+  apiJson<LessonProgress>(`/api/lessons/${lessonId}/progress`, 'PUT', patch, { keepalive });
+
+export const askLesson = (lessonId: string, question: string, frame: number) =>
+  apiJson<{ answer: string; segmentId: string | null }>(`/api/lessons/${lessonId}/ask`, 'POST', { question, frame });
+
+export const renderUrl = (blobId: string) => `${BASE}/api/renders/${blobId}`;

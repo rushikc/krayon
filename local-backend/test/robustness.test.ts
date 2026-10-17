@@ -2,21 +2,29 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { GeminiError, geminiInFlight, runGeminiCall, withGeminiSlot } from '../../packages/pipeline/src/gemini.ts';
-import { applyStepFailure, courseResult } from '../../packages/pipeline/src/outcomes.ts';
-import type { DocStore, GeneratedSegment, PipelineEmit } from '@krayon/shared';
+import { saveProgress } from '../../packages/pipeline/src/store.ts';
 import { afterEach, expect, it } from 'vitest';
 import { acquireJob, jobConflict, lockKey, releaseJob } from '../src/locks.ts';
 import { LocalDocStore } from '../src/services/docstore.ts';
 
 const quiet = { info: () => undefined, error: () => undefined, debug: () => undefined };
 
+const withStore = (run: (store: LocalDocStore) => void) => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'krayon-recover-'));
+  try {
+    run(new LocalDocStore(path.join(dir, 'db.sqlite3')));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+};
+
 afterEach(() => {
-  releaseJob(lockKey('c', 't', 0));
-  releaseJob(lockKey('c', 't', 1));
-  releaseJob(lockKey('c', 't', -1));
+  releaseJob(lockKey('l', 's01'));
+  releaseJob(lockKey('l', 's02'));
+  releaseJob(lockKey('l'));
 });
 
-it('keeps at most 4 Gemini calls in flight', async () => {
+it('keeps at most GEMINI_MAX_CONCURRENCY calls in flight', async () => {
   process.env.GEMINI_MAX_CONCURRENCY = '4';
   let current = 0;
   let max = 0;
@@ -35,16 +43,15 @@ it('keeps at most 4 Gemini calls in flight', async () => {
     ),
   );
   await new Promise((resolve) => setTimeout(resolve, 20));
-  expect(geminiInFlight()).toBeLessThanOrEqual(4);
-  expect(max).toBeLessThanOrEqual(4);
-  expect(release.length).toBeGreaterThan(0);
-  expect(release.length).toBeLessThanOrEqual(4);
+  expect(geminiInFlight()).toBe(4);
+  expect(release.length).toBe(4);
   const finished = Promise.all(tasks);
   for (let turn = 0; turn < 8; turn += 1) {
     while (release.length > 0) release.shift()?.();
     await new Promise((resolve) => setTimeout(resolve, 0));
   }
   await finished;
+  expect(max).toBe(4);
   expect(geminiInFlight()).toBe(0);
 });
 
@@ -85,66 +92,80 @@ it('retries a 429 and does not retry a safety block', async () => {
   await expect(safety).rejects.toBeInstanceOf(GeminiError);
 });
 
-it('returns busy while a topic is generating and while a segment lock is held', () => {
-  const key = lockKey('c', 't', 0);
-  expect(jobConflict('generating', key)).toEqual({ error: 'busy', reason: 'Still generating' });
-  expect(jobConflict('ready', key)).toBeNull();
-  acquireJob(key);
-  expect(jobConflict('ready', key)).toEqual({ error: 'busy', reason: 'Already regenerating' });
-  expect(jobConflict('ready', lockKey('c', 't', 1))).toBeNull();
-  releaseJob(key);
-});
-
-it('marks the course failed only when every topic failed', () => {
-  expect(courseResult([{ status: 'failed', error: 'one' }, { status: 'failed', error: 'two' }])).toMatchObject({
-    type: 'course.failed',
-    status: 'failed',
-    failedTopics: 2,
-  });
-  expect(courseResult([{ status: 'ready' }, { status: 'failed', error: 'two' }])).toMatchObject({
-    type: 'course.done',
-    status: 'done',
-    failedTopics: 1,
-  });
-});
-
-it('keeps a segment playable and unreviewed when render throws', () => {
-  const rows = new Map<string, Record<string, unknown>>();
-  const docs = {
-    get: () => null,
-    set: (docPath: string, data: Record<string, unknown>) => {
-      rows.set(docPath, data);
-      return { id: docPath, data, updatedAt: 0 };
+it('fails MAX_TOKENS at once instead of retrying', async () => {
+  let calls = 0;
+  const run = runGeminiCall({
+    model: 'test',
+    log: quiet,
+    sleep: async () => undefined,
+    call: async () => {
+      calls += 1;
+      return { text: '{' };
     },
-    delete: () => false,
-    list: () => [],
-    clear: () => ({}),
-  } satisfies DocStore;
-  const segment = { id: 's' } as GeneratedSegment;
-  const outcome = applyStepFailure(docs, 'u', 'c', 't', 's', segment, new Error('renderStill failed'));
-  expect(outcome.status).toBe('unreviewed');
-  const saved = rows.get('users/u/courses/c/topics/t/segments/s');
-  expect(saved?.status).toBe('unreviewed');
-  expect(saved?.segment).toBe(segment);
-  expect(saved?.status).not.toBe('ready');
+    outcome: () => ({ finishReason: 'MAX_TOKENS' }),
+  });
+  await expect(run).rejects.toThrow(/MAX_TOKENS/);
+  expect(calls).toBe(1);
 });
 
-it('turns an interrupted segment into failed and recomputes the course', () => {
-  const dir = mkdtempSync(path.join(tmpdir(), 'krayon-recover-'));
-  try {
-    const store = new LocalDocStore(path.join(dir, 'db.sqlite3'));
-    store.set('users/u/courses/c', { status: 'lessons', error: null });
-    store.set('users/u/courses/c/topics/t', { status: 'generating', title: 'Topic' });
-    store.set('users/u/courses/c/topics/t/segments/s', { status: 'checking', segment: { id: 's' } });
-    const events: PipelineEmit[] = [];
-    store.recoverInterrupted((event) => {
-      events.push(event);
-    });
-    expect(store.get('users/u/courses/c/topics/t/segments/s')?.data).toMatchObject({ status: 'failed', error: 'interrupted' });
-    expect(store.get('users/u/courses/c/topics/t')?.data.status).toBe('failed');
-    expect(store.get('users/u/courses/c')?.data.status).toBe('failed');
-    expect(events.some((event) => event.type === 'course.failed')).toBe(true);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
+it('returns busy while a lesson renders and while a segment or the lesson is locked', () => {
+  const segment = lockKey('l', 's01');
+  expect(jobConflict('rendering', segment)).toEqual({ error: 'busy', reason: 'Still rendering' });
+  expect(jobConflict('queued', segment)).toEqual({ error: 'busy', reason: 'Still rendering' });
+  expect(jobConflict('ready', segment)).toBeNull();
+  acquireJob(segment);
+  expect(jobConflict('ready', segment)).toEqual({ error: 'busy', reason: 'Already regenerating' });
+  expect(jobConflict('ready', lockKey('l', 's02'))).toBeNull();
+  expect(jobConflict('ready', lockKey('l'))).toEqual({ error: 'busy', reason: 'Already regenerating' });
+  releaseJob(segment);
+  acquireJob(lockKey('l'));
+  expect(jobConflict('ready', lockKey('l', 's02'))).toEqual({ error: 'busy', reason: 'Already regenerating' });
+});
+
+it('recovers interrupted work without touching ready segments, and requeues the course', () => {
+  withStore((store) => {
+    const course = 'users/u/courses/c';
+    store.set(course, { status: 'writing', stage: 'chapters' });
+    store.set(`${course}/chapters/c-c1`, { status: 'ready' });
+    store.set(`${course}/chapters/c-c2`, { status: 'writing', statusDetail: 'Writing lesson scripts' });
+    store.set(`${course}/lessons/c-c1-l1`, { status: 'rendering', chapterId: 'c-c1' });
+    store.set(`${course}/lessons/c-c1-l2`, { status: 'outlined', chapterId: 'c-c1' });
+    const ready = { status: 'ready', segment: { id: 's01' } };
+    store.set(`${course}/lessons/c-c1-l1/segments/s01`, ready);
+    store.set(`${course}/lessons/c-c1-l1/segments/s02`, { status: 'reviewing', segment: { id: 's02' } });
+    store.set(`${course}/lessons/c-c1-l1/segments/s03`, { status: 'failed' });
+    store.set('jobs/j1', { status: 'running', owner: 'u' });
+    const requeued: string[] = [];
+    store.recoverInterrupted((uid, courseId) => requeued.push(`${uid}/${courseId}`));
+
+    expect(requeued).toEqual(['u/c']);
+    expect(store.get('jobs/j1')?.data).toMatchObject({ status: 'error', error: 'interrupted' });
+    expect(store.get(`${course}/chapters/c-c2`)?.data).toMatchObject({ status: 'pending', statusDetail: null });
+    expect(store.get(`${course}/chapters/c-c1`)?.data.status).toBe('ready');
+    expect(store.get(`${course}/lessons/c-c1-l1`)?.data.status).toBe('queued');
+    expect(store.get(`${course}/lessons/c-c1-l2`)?.data.status).toBe('outlined');
+    expect(store.get(`${course}/lessons/c-c1-l1/segments/s01`)?.data).toEqual(ready);
+    expect(store.get(`${course}/lessons/c-c1-l1/segments/s02`)?.data).toMatchObject({ status: 'pending', segment: { id: 's02' } });
+    expect(store.get(`${course}/lessons/c-c1-l1/segments/s03`)?.data.status).toBe('failed');
+  });
+});
+
+it('does not requeue a finished course', () => {
+  withStore((store) => {
+    store.set('users/u/courses/done', { status: 'ready', stage: 'done' });
+    store.set('users/u/courses/done/lessons/done-c1-l1', { status: 'ready' });
+    const requeued: string[] = [];
+    store.recoverInterrupted((uid, courseId) => requeued.push(`${uid}/${courseId}`));
+    expect(requeued).toEqual([]);
+  });
+});
+
+it('saves lesson progress without ever unwatching a lesson', () => {
+  withStore((store) => {
+    expect(saveProgress(store, 'u', 'l', { positionFrame: 120.4 })).toMatchObject({ watched: false, completed: false, positionFrame: 120 });
+    expect(saveProgress(store, 'u', 'l', { watched: true, positionFrame: 900 })).toMatchObject({ watched: true, completed: false });
+    expect(saveProgress(store, 'u', 'l', { watched: false, positionFrame: 30 })).toMatchObject({ watched: true, positionFrame: 30 });
+    expect(saveProgress(store, 'u', 'l', { completed: true, positionFrame: 0 })).toMatchObject({ watched: true, completed: true, positionFrame: 0 });
+    expect(saveProgress(store, 'u', 'l', { completed: false })).toMatchObject({ completed: true });
+  });
 });

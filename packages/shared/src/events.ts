@@ -1,24 +1,26 @@
-import type { CourseState } from './course.js';
+import type { ChapterState, CourseState, LessonSummary, SegmentState } from './course.js';
 import type { GenerationErrorInfo } from './generation.js';
-import type { GeneratedLesson, Roadmap } from './scene.js';
 
 export const pipelineEventTypes = [
   'course.created',
-  'roadmap.started',
-  'roadmap.ready',
-  'topic.queued',
-  'topic.started',
-  'lesson.drafted',
+  'structure.started',
+  'structure.ready',
+  'structure.failed',
+  'chapter.writing',
+  'chapter.ready',
+  'chapter.failed',
+  'lesson.outlined',
+  'lesson.queued',
+  'lesson.rendering',
+  'lesson.ready',
+  'lesson.failed',
   'segment.check',
   'segment.render',
   'segment.review',
   'segment.fixed',
   'segment.ready',
-  'topic.ready',
-  'topic.failed',
   'segment.failed',
-  'course.failed',
-  'course.done',
+  'course.ready',
 ] as const;
 
 export type PipelineEventType = (typeof pipelineEventTypes)[number];
@@ -26,28 +28,38 @@ export type PipelineEventType = (typeof pipelineEventTypes)[number];
 export type PipelineEvent = {
   type: PipelineEventType;
   courseId: string;
-  topicId?: string;
+  chapterId?: string;
+  lessonId?: string;
   segmentId?: string;
   seq: number;
   ts: string;
-  lesson?: GeneratedLesson;
+  /** Course title and category on structure.ready. */
+  title?: string;
+  category?: string;
+  /** Every chapter on structure.ready. */
+  chapters?: ChapterState[];
+  /** The changed chapter (with its lessons) on chapter.*. */
+  chapter?: ChapterState;
+  /** The changed lesson on lesson.* and segment.*. */
+  lesson?: LessonSummary;
+  /** The changed segment on segment.*. */
+  segment?: SegmentState;
+  /** Ready and total segments on lesson.rendering. */
+  ready?: number;
+  total?: number;
   error?: string;
-  /** Structured failure on segment.failed / topic.failed / course.failed. */
+  /** Structured failure on *.failed. */
   errorInfo?: GenerationErrorInfo;
   round?: number;
   score?: number;
   pass?: boolean;
   /** Whether this review round accepted a fix. */
   fixed?: boolean;
-  /** Topics that failed when the course finishes with course.done. */
-  failedTopics?: number;
-  roadmap?: Roadmap;
   detail?: string;
 };
 
 export type ClientMessage =
   | { type: 'subscribe'; courseId: string }
-  | { type: 'regenerate'; topicId: string; segmentId: string; prompt?: string }
-  | { type: 'cancel'; topicId?: string; segmentId?: string };
+  | { type: 'cancel'; lessonId?: string; segmentId?: string };
 
 export type ServerMessage = { type: 'snapshot'; course: CourseState } | { type: 'event'; event: PipelineEvent };

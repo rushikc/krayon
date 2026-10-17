@@ -2,7 +2,7 @@ import websocket from '@fastify/websocket';
 import type { FastifyInstance } from 'fastify';
 import type { ClientMessage } from '@krayon/shared';
 import { assembleCourse } from '@krayon/pipeline';
-import { events, jobs, store } from '../context.js';
+import { events, store } from '../context.js';
 
 export const registerWebsocket = async (app: FastifyInstance) => {
   await app.register(websocket);
@@ -26,6 +26,8 @@ export const registerWebsocket = async (app: FastifyInstance) => {
     const listen = (id: string) => {
       unsubscribe();
       courseId = id;
+      // The most recent subscribe is the course on screen; its work goes first in the queues.
+      events.setViewedCourse(id);
       sendSnapshot();
       unsubscribe = events.subscribe(id, (event) => {
         socket.send(JSON.stringify({ type: 'event', event }));
@@ -46,20 +48,13 @@ export const registerWebsocket = async (app: FastifyInstance) => {
         return;
       }
       if (message.type === 'cancel') {
-        events.requestCancel(courseId, message.topicId, message.segmentId);
-        return;
-      }
-      if (message.type === 'regenerate' && courseId) {
-        jobs.submit(uid, 'regenerate', {
-          uid,
-          courseId,
-          topicId: message.topicId,
-          segmentId: message.segmentId,
-          prompt: message.prompt,
-        });
+        events.requestCancel(courseId, message.lessonId, message.segmentId);
       }
     });
 
-    socket.on('close', () => unsubscribe());
+    socket.on('close', () => {
+      unsubscribe();
+      if (events.viewedCourse() === courseId) events.setViewedCourse(null);
+    });
   });
 };

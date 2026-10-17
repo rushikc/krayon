@@ -194,60 +194,45 @@ it.skipIf(!AI)('AI plain prompt (no schema)', async () => {
   expect(String(result.body.text).toLowerCase()).toContain('paris');
 });
 
-it.skipIf(!AI)('AI structured (real roadmap schema)', async () => {
-  const schemas = JSON.parse(await readFile(path.join(ROOT, 'test/fixtures/ai_schemas.json'), 'utf8')) as {
-    roadmap: Record<string, unknown>;
-    lesson: Record<string, unknown>;
-  };
+type Schemas = Record<'structure' | 'lessonOutline' | 'segment', Record<string, unknown>>;
+const schemas = async () => JSON.parse(await readFile(path.join(ROOT, 'test/fixtures/ai_schemas.json'), 'utf8')) as Schemas;
+
+it.skipIf(!AI)('AI structured (real lesson outline schema)', async () => {
   const result = await req('POST', '/api/ai/generate', {
-    prompt: 'Give 3 study topics about photosynthesis with ids in kebab-case.',
-    responseSchema: schemas.roadmap,
+    prompt: 'Split a 10-page chapter about photosynthesis (file pages 1 to 10) into 2 or 3 lessons.',
+    responseSchema: (await schemas()).lessonOutline,
   });
   expect(result.status).toBe(200);
-  const topics = (JSON.parse(String(result.body.text)) as { topics: Array<{ id: string }> }).topics;
-  expect(topics.length).toBeGreaterThanOrEqual(1);
-  expect(topics.every((topic) => topic.id)).toBe(true);
+  const lessons = (JSON.parse(String(result.body.text)) as { lessons: Array<{ title: string; pageStart: number }> }).lessons;
+  expect(lessons.length).toBeGreaterThanOrEqual(1);
+  expect(lessons.every((lesson) => lesson.title && lesson.pageStart >= 1)).toBe(true);
 });
 
-it.skipIf(!AI)('AI roadmap from real PDF', async () => {
-  const schemas = JSON.parse(await readFile(path.join(ROOT, 'test/fixtures/ai_schemas.json'), 'utf8')) as {
-    roadmap: Record<string, unknown>;
-  };
-  let exists = true;
-  try {
-    await readFile(SAMPLE_PDF);
-  } catch {
-    exists = false;
-  }
-  expect(exists).toBe(true);
+it.skipIf(!AI)('AI structure from real PDF', async () => {
   const result = await req('POST', '/api/ai/generate', {
     uploadId: upload.id,
-    responseSchema: schemas.roadmap,
+    responseSchema: (await schemas()).structure,
     model: 'gemini-2.5-flash',
-    prompt: 'Read the attached document and split it into a study roadmap of 3 to 7 topics. Each id is unique kebab-case.',
+    prompt: 'Read the attached document and list its chapters with 1-based file pages. Mark front and back matter skip.',
   });
   expect(result.status).toBe(200);
-  const topics = (JSON.parse(String(result.body.text)) as { topics: Array<{ title: string }> }).topics;
-  expect(topics.length).toBeGreaterThanOrEqual(3);
-  expect(topics.length).toBeLessThanOrEqual(7);
+  const structure = JSON.parse(String(result.body.text)) as { title: string; chapters: Array<{ pdfPageStart: number; pdfPageEnd: number }> };
+  expect(structure.title).toBeTruthy();
+  expect(structure.chapters.length).toBeGreaterThanOrEqual(1);
+  expect(structure.chapters.every((chapter) => chapter.pdfPageEnd >= chapter.pdfPageStart)).toBe(true);
 });
 
-it.skipIf(!AI)('AI lesson from real JPG photo (real lesson schema)', async () => {
-  const schemas = JSON.parse(await readFile(path.join(ROOT, 'test/fixtures/ai_schemas.json'), 'utf8')) as {
-    lesson: Record<string, unknown>;
-  };
+it.skipIf(!AI)('AI segment from real JPG photo (real segment schema)', async () => {
   const bytes = await readFile(SAMPLE_JPG);
   const uploaded = await multipart('/api/uploads', path.basename(SAMPLE_JPG), bytes, 'image/jpeg');
   const result = await req('POST', '/api/ai/generate', {
     uploadId: uploaded.body.id,
-    responseSchema: schemas.lesson,
-    prompt:
-      'Create a short lesson (3 to 5 segments, durationInFrames 90-240) grounded only in the attached photo of notes. studyDoc is markdown notes.',
+    responseSchema: (await schemas()).segment,
+    prompt: 'Create one lesson segment (durationInFrames 180 to 450) grounded only in the attached photo of notes.',
   });
   expect(result.status).toBe(200);
-  const lesson = JSON.parse(String(result.body.text)) as { segments: Array<{ scene: unknown }> };
-  expect(lesson.segments.length).toBeGreaterThanOrEqual(1);
-  expect(lesson.segments.every((segment) => segment.scene)).toBe(true);
+  const segment = JSON.parse(String(result.body.text)) as { scene: { layout: { type: string } } };
+  expect(segment.scene.layout.type).toBeTruthy();
 });
 
 it.skipIf(!AI)('AI missing upload -> 404', async () => {
@@ -260,6 +245,65 @@ it.skipIf(!AI)('AI bad model -> 502', async () => {
 
 it.skipIf(!AI)('AI missing prompt -> 422', async () => {
   expect((await req('POST', '/api/ai/generate', {})).status).toBe(422);
+});
+
+const seedLesson = async (status: string) => {
+  const course = '/api/docs/users/local-user/courses/smokec';
+  await req('PUT', course, { status: 'ready', stage: 'done', fileNames: ['n.pdf'], sources: [] });
+  await req('PUT', `${course}/chapters/smokec-c1`, { index: 0, title: 'Chapter one', status: 'writing', pdfPageStart: 0, pdfPageEnd: 3 });
+  await req('PUT', `${course}/lessons/smokec-c1-l1`, {
+    courseId: 'smokec',
+    chapterId: 'smokec-c1',
+    index: 0,
+    title: 'Lesson one',
+    status,
+    explanationSummary: 'Script.',
+    studyDoc: 'Notes.',
+  });
+  await req('PUT', '/api/docs/users/local-user/lessonIndex/smokec-c1-l1', { courseId: 'smokec' });
+  await req('PUT', '/api/docs/users/local-user/chapterIndex/smokec-c1', { courseId: 'smokec' });
+};
+
+it('course, chapter, and lesson routes', async () => {
+  await seedLesson('ready');
+  const course = await req('GET', '/api/courses/smokec');
+  expect(course.status).toBe(200);
+  const chapters = course.body.chapters as Array<{ id: string; lessons: Array<{ id: string; status: string }> }>;
+  expect(chapters.map((chapter) => chapter.id)).toEqual(['smokec-c1']);
+  expect(chapters[0]?.lessons.map((lesson) => lesson.id)).toEqual(['smokec-c1-l1']);
+  expect(((await req('GET', '/api/courses')).body.courses as Array<{ id: string }>).some((item) => item.id === 'smokec')).toBe(true);
+  expect((await req('GET', '/api/courses/nope')).status).toBe(404);
+
+  const lesson = await req('GET', '/api/lessons/smokec-c1-l1');
+  expect(lesson.status).toBe(200);
+  expect(lesson.body).toMatchObject({ chapterTitle: 'Chapter one', studyDoc: 'Notes.', segments: [], progress: null });
+  expect((await req('GET', '/api/lessons/nope')).status).toBe(404);
+
+  const ready = await req('POST', '/api/lessons/smokec-c1-l1/render', {});
+  expect(ready.status).toBe(200);
+  expect(ready.body.jobId).toBeNull();
+  expect(asRecord(ready.body.lesson).status).toBe('ready');
+
+  expect((await req('POST', '/api/chapters/smokec-c1/retry', {})).status).toBe(409);
+  expect((await req('POST', '/api/chapters/nope/retry', {})).status).toBe(404);
+});
+
+it('lesson progress is saved and never unwatched', async () => {
+  await seedLesson('ready');
+  const first = await req('PUT', '/api/lessons/smokec-c1-l1/progress', { watched: true, positionFrame: 600 });
+  expect(first.status).toBe(200);
+  expect(first.body).toMatchObject({ watched: true, completed: false, positionFrame: 600 });
+  const second = await req('PUT', '/api/lessons/smokec-c1-l1/progress', { watched: false, positionFrame: 30 });
+  expect(second.body).toMatchObject({ watched: true, positionFrame: 30 });
+  expect(asRecord((await req('GET', '/api/lessons/smokec-c1-l1')).body.progress)).toMatchObject({ watched: true, positionFrame: 30 });
+  expect((await req('PUT', '/api/lessons/smokec-c1-l1/progress', { positionFrame: -5 })).status).toBe(422);
+  expect((await req('PUT', '/api/lessons/nope/progress', { watched: true })).status).toBe(404);
+});
+
+it('ask validates the question and the lesson', async () => {
+  await seedLesson('ready');
+  expect((await req('POST', '/api/lessons/smokec-c1-l1/ask', { question: '', frame: 0 })).status).toBe(422);
+  expect((await req('POST', '/api/lessons/nope/ask', { question: 'Why?', frame: 0 })).status).toBe(404);
 });
 
 it('admin reset wipes docs + files', async () => {

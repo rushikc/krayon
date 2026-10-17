@@ -1,6 +1,6 @@
 import type { CourseState } from '@krayon/shared';
 
-const KEY = 'krayon.course';
+const KEY = 'krayon.course.v2';
 
 export const saveCourse = (course: CourseState) => {
   const json = JSON.stringify(course);
@@ -25,7 +25,8 @@ export const loadCourse = (): CourseState | null => {
   const raw = localStorage.getItem(KEY);
   if (!raw) return null;
   try {
-    return JSON.parse(raw) as CourseState;
+    const course = JSON.parse(raw) as CourseState;
+    return typeof course.id === 'string' && Array.isArray(course.chapters) ? course : null;
   } catch {
     return null;
   }

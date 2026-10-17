@@ -16,7 +16,7 @@
     "dev:backend": "npm run dev -w local-backend",
     "genkit": "npm run genkit -w local-backend",
     "build": "npm run build -w @krayon/shared && npm run build -w @krayon/pipeline && npm run build -w local-backend && npm run build -w frontend",
-    "test": "npm run test -w @krayon/shared && npm run test:backend:quick",
+    "test": "npm run test -w @krayon/shared && npm run test -w @krayon/pipeline && npm run test:backend:quick",
     "test:backend": "npm run test -w local-backend",
     "test:backend:quick": "npm run test:quick -w local-backend"
   },

@@ -2,7 +2,6 @@ export {
   generatedDuration,
   isLayoutType,
   layoutTypes,
-  orderTopics,
 } from './scene.js';
 export type {
   BulletsLayout,
@@ -15,13 +14,10 @@ export type {
   FlowEdge,
   FlowLayout,
   FlowNode,
-  GeneratedLesson,
   GeneratedSegment,
   HubNode,
   HubSpokeLayout,
   LayoutType,
-  Roadmap,
-  RoadmapTopic,
   Scene,
   SceneIssue,
   SceneLayout,
@@ -32,15 +28,38 @@ export type {
   TitleCardLayout,
 } from './scene.js';
 export {
+  FPS,
+  LESSON_SECONDS,
+  LESSON_WORDS,
+  RENDER_KEYFRAMES_MAX,
+  SEGMENTS_PER_LESSON,
+  SEGMENT_FRAMES,
+  SEGMENT_PAUSE_SECONDS,
+  SEGMENT_SECONDS,
+  SEGMENT_WORDS,
+  WPM,
+  framesFor,
+  scriptWordIssue,
+  speechSeconds,
+  wordCount,
+} from './limits.js';
+export {
+  applySegmentDefaults,
+  beatsSchema,
+  chapterTextSchema,
+  chatSchema,
   layoutSchema,
-  lessonSchema,
+  lessonOutlineSchema,
+  lessonScriptSchema,
   reviewIssueSchema,
   reviewSchema,
-  roadmapSchema,
-  segmentSchema,
-  applySegmentDefaults,
-  lessonModelSchema,
+  sceneModelSchema,
+  sceneOnlySchema,
   segmentModelSchema,
+  segmentSchema,
+  storedLessonSchema,
+  structureSchema,
+  studyDocSchema,
 } from './schemas.js';
 export { modelResponseSchemas, toModelSchema } from './modelSchema.js';
 export type { ModelSchemaName } from './modelSchema.js';
@@ -53,21 +72,27 @@ export {
   zodIssues,
 } from './generation.js';
 export type { GenerationErrorCode, GenerationErrorInfo, GenerationIssue } from './generation.js';
-export type { ParsedLesson, ParsedRoadmap, ParsedSegment, ReviewResult } from './schemas.js';
-export type { ReviewIssue } from './schemas.js';
+export type { ParsedBeats, ParsedSegment, ParsedStructure, ReviewIssue, ReviewResult } from './schemas.js';
 export { validateSegment } from './sceneValidator.js';
 export { collectKeyframeFrames } from './keyframes.js';
 export { theme } from './theme.js';
+export { courseLessons } from './course.js';
 export type {
+  ChapterState,
+  ChapterStatus,
   CourseSource,
+  CourseStage,
   CourseState,
+  CourseStatus,
+  LessonDetail,
+  LessonProgress,
+  LessonStatus,
+  LessonSummary,
   SegmentRound,
   SegmentState,
   SegmentStatus,
-  TopicPhase,
-  TopicState,
 } from './course.js';
-export { reduceCourse } from './reduceCourse.js';
+export { reduceCourse, reduceLesson } from './reduceCourse.js';
 export type { CourseFold } from './reduceCourse.js';
 export { pipelineEventTypes } from './events.js';
 export type { ClientMessage, PipelineEvent, PipelineEventType, ServerMessage } from './events.js';

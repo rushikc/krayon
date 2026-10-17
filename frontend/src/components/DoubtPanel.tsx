@@ -23,6 +23,8 @@ type DoubtPanelProps = {
   highlightAttached: boolean;
   onClose: () => void;
   topicId?: string;
+  /** An answer is on the way; sending waits until it arrives. */
+  thinking?: boolean;
 };
 
 export function DoubtPanel({
@@ -42,6 +44,7 @@ export function DoubtPanel({
   highlightAttached,
   onClose,
   topicId,
+  thinking = false,
 }: DoubtPanelProps) {
   const inputId = useId();
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -62,7 +65,7 @@ export function DoubtPanel({
 
   const sendQuestion = (question: string) => {
     const text = question.trim();
-    if (!text) return;
+    if (!text || thinking) return;
     onAsk(text);
     setDraft('');
   };
@@ -134,6 +137,11 @@ export function DoubtPanel({
               </div>
             </div>
           ),
+        )}
+        {thinking && (
+          <p className="self-start rounded-2xl border-[1.5px] border-ink bg-white px-2.5 py-2 text-[14px] text-muted" role="status">
+            Thinking…
+          </p>
         )}
         {marks.doubts.length === 0 && (
           <div className="rounded-2xl border-[1.5px] border-ink bg-white px-2.5 py-2">
@@ -231,7 +239,8 @@ export function DoubtPanel({
           <button
             type="submit"
             aria-label="Send question"
-            className="absolute right-2 bottom-2 flex h-8 w-8 items-center justify-center rounded-full bg-crayon text-white"
+            disabled={thinking}
+            className="absolute right-2 bottom-2 flex h-8 w-8 items-center justify-center rounded-full bg-crayon text-white disabled:opacity-40"
           >
             <IconArrow className="h-4 w-4" />
           </button>

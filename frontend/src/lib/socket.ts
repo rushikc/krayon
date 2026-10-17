@@ -8,10 +8,10 @@ const socketUrl = (courseId: string) => {
 };
 
 export type CourseSocket = {
-  regenerate: (topicId: string, segmentId: string, prompt?: string) => void;
   close: () => void;
 };
 
+/** Follows one course: a snapshot on connect, then events. Reconnects with backoff. */
 export const connectCourse = (
   courseId: string,
   handlers: {
@@ -23,16 +23,15 @@ export const connectCourse = (
   let socket: WebSocket | null = null;
   let closed = false;
   let attempt = 0;
-  let currentId = courseId;
 
   const open = () => {
     if (closed) return;
-    socket = new WebSocket(socketUrl(currentId));
+    socket = new WebSocket(socketUrl(courseId));
     socket.addEventListener('open', () => {
       const reconnected = attempt > 0;
       attempt = 0;
       if (reconnected) handlers.onReconnect?.();
-      socket?.send(JSON.stringify({ type: 'subscribe', courseId: currentId }));
+      socket?.send(JSON.stringify({ type: 'subscribe', courseId }));
     });
     socket.addEventListener('message', (message) => {
       let parsed: ServerMessage;
@@ -54,9 +53,6 @@ export const connectCourse = (
   open();
 
   return {
-    regenerate: (topicId, segmentId, prompt) => {
-      socket?.send(JSON.stringify({ type: 'regenerate', topicId, segmentId, prompt }));
-    },
     close: () => {
       closed = true;
       socket?.close();

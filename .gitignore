@@ -2,20 +2,57 @@
 node_modules/
 dist/
 dist-ssr/
+build/
+*.tsbuildinfo
+.vite/
+coverage/
 
-# Secrets
+# Secrets and environment files
 .env
 .env.*
 !.env.example
 *.local
 
+# Google Cloud / Firebase credentials (never commit these)
+*service-account*.json
+*serviceAccount*.json
+*credentials*.json
+application_default_credentials.json
+client_secret*.json
+*.pem
+*.key
+*.p12
+*.pfx
+
 # Firebase CLI cache and debug logs
 .firebase/
 *-debug.log
+.runtimeconfig.json
 
 # Logs
 logs/
 *.log
+*.jsonl
+
+# Local data: SQLite (Firestore mock), uploads and file storage (Cloud Storage mock)
+/data/
+/local-backend/data/
+/backend/data/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+*.sqlite-*
+uploads/
+
+# Remotion renders and outputs
+/out/
+**/out/
+renders/
+*.mp4
+*.webm
 
 # OS and editors
 .DS_Store

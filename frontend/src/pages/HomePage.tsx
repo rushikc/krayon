@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import type { GeneratedLesson, Roadmap } from '@krayon/shared';
+import type { CourseState } from '@krayon/shared';
+import { courseLessons } from '@krayon/shared';
 import { Button, buttonClass } from '../components/ui/Button.tsx';
 import { cardClass } from '../components/ui/Card.tsx';
 import { Chip } from '../components/ui/Chip.tsx';
@@ -10,12 +11,9 @@ import { IconHighlight, IconPlay } from '../components/ui/icons.tsx';
 import { Shell } from '../components/ui/Shell.tsx';
 import { TopicArt } from '../components/ui/TopicArt.tsx';
 import { topics } from '../data/topics.ts';
-import { listCourses, useBackendPipeline } from '../lib/api.ts';
-import { MAX_INLINE_BYTES } from '../lib/ai.ts';
+import { MAX_UPLOAD_BYTES, listCourses } from '../lib/api.ts';
 import { usePalette } from '../paletteState.ts';
-import { orderTopics } from '../remotion/scene.ts';
 import { latestOpenTopic, nextSubtopic, topicKey, useLocalStudy } from '../study/localStudy.tsx';
-import type { LessonMarks } from '../study/localStudy.tsx';
 import { formatClock, formatLength, subtopicFrames, topicFrames } from '../study/time.ts';
 import { useStudySession } from '../study/studyState.ts';
 import { useUpload } from '../study/uploadState.tsx';
@@ -27,68 +25,46 @@ const artFor = (index: number) =>
 
 const fileTitle = (name: string) => name.replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' ').trim();
 
-const phaseShare = (status: string | undefined) => {
-  if (status === 'reviewing') return 0.78;
-  if (status === 'checking') return 0.55;
-  if (status === 'generating') return 0.32;
-  if (status === 'failed' || status === 'idle' || status === 'queued') return 0;
-  return 0.08;
-};
-
-const listingsForCourse = (
-  course: CourseListingSource,
-  lessonMarks: (key: string) => LessonMarks,
-  startIndex: number,
-): CreatedListing[] => {
-  const named = course.roadmap?.title?.trim();
-  const title = named || fileTitle(course.fileNames[0] ?? '') || 'Your notes';
-  if (!course.roadmap) {
-    return [
-      {
-        key: course.id,
-        courseId: course.id,
-        title,
-        summary: 'Drawing the lessons from your notes.',
-        field: '',
-        meta: 'Being rendered',
-        percent: 8,
-        href: '/study',
-        artId: artFor(startIndex),
-        timeLeft: '',
-      },
-    ];
-  }
-  const ordered = orderTopics(course.roadmap.topics);
-  let score = 0;
-  let remaining = 0;
-  for (const topic of ordered) {
-    const state = course.topics.find((item) => item.id === topic.id);
-    const segments = state?.lesson?.segments ?? [];
-    if (segments.length === 0) {
-      score += phaseShare(state?.status);
-      continue;
-    }
-    const seen = new Set(lessonMarks(`study:${topic.id}`).watchedIds);
-    score += segments.filter((segment) => seen.has(segment.id)).length / segments.length;
-    remaining += segments
-      .filter((segment) => !seen.has(segment.id))
-      .reduce((total, segment) => total + segment.durationInFrames, 0);
-  }
-  const count = ordered.length;
-  return [
-    {
+/** One library card per course: lessons watched, and time left in the ready ones. */
+const listingForCourse = (course: CourseState, startIndex: number): CreatedListing => {
+  const title = course.title?.trim() || fileTitle(course.fileNames[0] ?? '') || 'Your notes';
+  const lessons = courseLessons(course);
+  if (course.stage === 'structure') {
+    return {
       key: course.id,
       courseId: course.id,
       title,
-      summary: '',
-      field: course.roadmap.category?.trim() ?? '',
-      meta: count === 1 ? '1 lesson' : `${count} lessons`,
-      percent: count === 0 ? 0 : Math.round((score / count) * 100),
+      summary: course.status === 'failed' ? (course.error ?? 'Reading the document failed.') : 'Reading the chapters of your notes.',
+      field: '',
+      meta: course.status === 'failed' ? 'Failed' : 'Being made',
+      percent: course.status === 'failed' ? 0 : 8,
       href: '/study',
       artId: artFor(startIndex),
-      timeLeft: remaining > 0 ? formatClock(remaining) : '',
-    },
-  ];
+      timeLeft: '',
+    };
+  }
+  let score = 0;
+  let remaining = 0;
+  for (const lesson of lessons) {
+    const progress = lesson.progress;
+    const done = progress?.completed || progress?.watched;
+    if (done) score += 1;
+    else if (progress && lesson.durationFrames > 0) score += Math.min(1, progress.positionFrame / lesson.durationFrames);
+    if (lesson.status === 'ready' && !done) remaining += Math.max(0, lesson.durationFrames - (progress?.positionFrame ?? 0));
+  }
+  const chapters = course.chapters.filter((chapter) => !chapter.skip).length;
+  return {
+    key: course.id,
+    courseId: course.id,
+    title,
+    summary: '',
+    field: course.category?.trim() ?? '',
+    meta: `${chapters} ${chapters === 1 ? 'chapter' : 'chapters'} · ${lessons.length} ${lessons.length === 1 ? 'lesson' : 'lessons'}`,
+    percent: lessons.length === 0 ? 0 : Math.round((score / lessons.length) * 100),
+    href: '/study',
+    artId: artFor(startIndex),
+    timeLeft: remaining > 0 ? formatClock(remaining) : '',
+  };
 };
 
 const filterValue = (label: string) => {
@@ -110,88 +86,38 @@ type CreatedListing = {
   timeLeft: string;
 };
 
-type CourseListingSource = {
-  id: string;
-  fileNames: string[];
-  roadmap: Roadmap | null;
-  topics: { id: string; status: string; lesson: GeneratedLesson | null }[];
-};
-
 export function HomePage() {
   const { prefix } = usePalette();
   const { openUpload } = useUpload();
-  const { progress, lessonMarks } = useLocalStudy();
+  const { progress } = useLocalStudy();
   const session = useStudySession();
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
-  const [apiCourses, setApiCourses] = useState<CourseListingSource[]>([]);
+  const [apiCourses, setApiCourses] = useState<CourseState[]>([]);
   const filter = params.get('filter') ?? 'all';
   const home = prefix || '/';
-  const topicSig = Object.entries(session.topics)
-    .map(([id, topic]) => `${id}:${topic.status}`)
-    .join('|');
+  const openCourse = session.course;
+  const courseSig = openCourse
+    ? `${openCourse.id}:${openCourse.status}:${courseLessons(openCourse)
+        .map((lesson) => `${lesson.status}${lesson.progress?.updatedAt ?? 0}`)
+        .join('')}`
+    : '';
 
   useEffect(() => {
-    if (!useBackendPipeline) return;
     let cancel = false;
     listCourses()
       .then((result) => {
-        if (cancel) return;
-        setApiCourses(
-          result.courses.map((course) => ({
-            id: course.id,
-            fileNames: course.fileNames,
-            roadmap: course.roadmap,
-            topics: course.topics.map((topic) => ({ id: topic.id, status: topic.status, lesson: topic.lesson })),
-          })),
-        );
+        if (!cancel) setApiCourses(result.courses);
       })
       .catch(() => undefined);
     return () => {
       cancel = true;
     };
-  }, [session.buildingRoadmap, session.courseId, session.roadmap, topicSig]);
+  }, [courseSig]);
 
   const sources = new Map(apiCourses.map((course) => [course.id, course]));
-  if (session.courseId && session.roadmap && !sources.has(session.courseId)) {
-    sources.set(session.courseId, {
-      id: session.courseId,
-      fileNames: session.fileName ? session.fileName.split(', ') : [],
-      roadmap: session.roadmap,
-      topics: session.roadmap.topics.map((topic) => ({
-        id: topic.id,
-        status: session.topics[topic.id]?.status ?? 'queued',
-        lesson: session.lessons[topic.id] ?? null,
-      })),
-    });
-  } else if (session.courseId && session.buildingRoadmap && !sources.has(session.courseId)) {
-    sources.set(session.courseId, {
-      id: session.courseId,
-      fileNames: session.fileName ? session.fileName.split(', ') : ['Your notes'],
-      roadmap: null,
-      topics: [],
-    });
-  }
-  if (session.courseId && sources.has(session.courseId)) {
-    const current = sources.get(session.courseId)!;
-    sources.set(session.courseId, {
-      ...current,
-      roadmap: session.roadmap ?? current.roadmap,
-      fileNames: session.fileName ? session.fileName.split(', ') : current.fileNames,
-      topics: (session.roadmap ?? current.roadmap)?.topics.map((topic) => ({
-        id: topic.id,
-        status: session.topics[topic.id]?.status ?? current.topics.find((item) => item.id === topic.id)?.status ?? 'queued',
-        lesson: session.lessons[topic.id] ?? current.topics.find((item) => item.id === topic.id)?.lesson ?? null,
-      })) ?? current.topics,
-    });
-  }
-  const created: CreatedListing[] = [];
-  let artIndex = 0;
-  for (const course of sources.values()) {
-    const cards = listingsForCourse(course, lessonMarks, artIndex);
-    created.push(...cards);
-    artIndex += cards.length;
-  }
+  if (openCourse) sources.set(openCourse.id, openCourse);
+  const created = [...sources.values()].map((course, index) => listingForCourse(course, index));
   const known = new Set(baseFilters.map((label) => label.toLowerCase()));
   const chips = [
     ...baseFilters.slice(0, 4),
@@ -234,7 +160,7 @@ export function HomePage() {
     .slice(stepIndex)
     .reduce((total, subtopic) => total + subtopicFrames(subtopic.beats.length), 0);
   const inProgress = doneIds.length > 0;
-  const sizeMb = Math.round(MAX_INLINE_BYTES / (1024 * 1024));
+  const sizeMb = Math.round(MAX_UPLOAD_BYTES / (1024 * 1024));
   const hero = focus
     ? {
         artId: focus.artId,

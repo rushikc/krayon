@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { CourseFold } from '../src/reduceCourse.js';
-import { reduceCourse } from '../src/reduceCourse.js';
-import type { GeneratedLesson, PipelineEvent, PipelineEventType } from '../src/index.js';
-import { lesson, snapshotCourse } from './fixtures/lesson.js';
+import { reduceCourse, reduceLesson } from '../src/reduceCourse.js';
+import { courseLessons } from '../src/course.js';
+import type { PipelineEvent, PipelineEventType } from '../src/index.js';
+import { chapterState, layoutSegments, lessonDetail, lessonSummary, snapshotCourse } from './fixtures/lesson.js';
 
 const event = (seq: number, type: PipelineEventType, extra: Partial<PipelineEvent> = {}): PipelineEvent => ({
   ...extra,
@@ -12,13 +13,7 @@ const event = (seq: number, type: PipelineEventType, extra: Partial<PipelineEven
   ts: '2026-01-01T00:00:00.000Z',
 });
 
-const topicStatus = (fold: CourseFold, topicId: string) => fold.course.topics.find((topic) => topic.id === topicId)?.status;
-
-const supplyLesson = (): GeneratedLesson => {
-  const topic = snapshotCourse.topics.find((item) => item.id === 'supply');
-  if (!topic?.lesson) throw new Error('Supply lesson is missing.');
-  return topic.lesson;
-};
+const lessonStatus = (fold: CourseFold, lessonId: string) => courseLessons(fold.course).find((item) => item.id === lessonId)?.status;
 
 describe('reduceCourse', () => {
   it('applies a snapshot and then events in seq order', () => {
@@ -27,77 +22,88 @@ describe('reduceCourse', () => {
     expect(fold.course).toBe(replacement);
     expect(fold.seq).toBe(4);
 
-    fold = reduceCourse(fold, { type: 'event', event: event(5, 'topic.started', { topicId: 'supply' }) });
-    expect(topicStatus(fold, 'supply')).toBe('generating');
-    fold = reduceCourse(fold, { type: 'event', event: event(6, 'segment.review', { topicId: 'supply', segmentId: 'title-card' }) });
-    expect(topicStatus(fold, 'supply')).toBe('reviewing');
-    expect(fold.seq).toBe(6);
-    expect(topicStatus(fold, 'demand')).toBe('queued');
+    const queued = { ...lessonSummary('course-1-c1', 0), status: 'queued' as const };
+    fold = reduceCourse(fold, { type: 'event', event: event(5, 'lesson.queued', { lessonId: queued.id, lesson: queued }) });
+    expect(lessonStatus(fold, queued.id)).toBe('queued');
+    expect(fold.seq).toBe(5);
+    expect(lessonStatus(fold, 'course-1-c1-l2')).toBe('outlined');
   });
 
   it('ignores a duplicate or older seq', () => {
+    const rendering = { ...lessonSummary('course-1-c1', 0), status: 'rendering' as const };
+    const fold = reduceCourse({ course: snapshotCourse, seq: 0 }, { type: 'event', event: event(2, 'lesson.rendering', { lesson: rendering }) });
+    const failed = { ...rendering, status: 'failed' as const };
+    expect(reduceCourse(fold, { type: 'event', event: event(2, 'lesson.failed', { lesson: failed }) })).toBe(fold);
+    expect(reduceCourse(fold, { type: 'event', event: event(1, 'lesson.failed', { lesson: failed }) })).toBe(fold);
+    expect(lessonStatus(fold, rendering.id)).toBe('rendering');
+  });
+
+  it('takes the chapters and title from structure.ready', () => {
+    const empty = { ...snapshotCourse, status: 'structure' as const, stage: 'structure' as const, title: null, chapters: [] };
+    const chapters = [chapterState(0, [], 'pending'), chapterState(1, [], 'pending')];
+    const fold = reduceCourse(
+      { course: empty, seq: 0 },
+      { type: 'event', event: event(1, 'structure.ready', { title: 'Algorithms', category: 'Software', chapters }) },
+    );
+    expect(fold.course).toMatchObject({ status: 'writing', stage: 'chapters', title: 'Algorithms', category: 'Software' });
+    expect(fold.course.chapters).toBe(chapters);
+  });
+
+  it('records a structure failure on the course only', () => {
     const fold = reduceCourse(
       { course: snapshotCourse, seq: 0 },
-      { type: 'event', event: event(2, 'topic.started', { topicId: 'supply' }) },
+      { type: 'event', event: event(1, 'structure.failed', { error: 'No chapters found' }) },
     );
-    const duplicate = reduceCourse(fold, { type: 'event', event: event(2, 'topic.failed', { topicId: 'supply', error: 'nope' }) });
-    const stale = reduceCourse(fold, { type: 'event', event: event(1, 'topic.queued', { topicId: 'supply' }) });
-    expect(duplicate).toBe(fold);
-    expect(stale).toBe(fold);
-    expect(topicStatus(fold, 'supply')).toBe('generating');
+    expect(fold.course.status).toBe('failed');
+    expect(fold.course.error).toBe('No chapters found');
+    expect(fold.course.chapters).toBe(snapshotCourse.chapters);
   });
 
-  it('moves a topic through queued, generating, reviewing, and ready', () => {
+  it('replaces a written chapter and keeps the others', () => {
+    const written = chapterState(1, [lessonSummary('course-1-c2', 0)]);
+    const fold = reduceCourse({ course: snapshotCourse, seq: 0 }, { type: 'event', event: event(1, 'chapter.ready', { chapter: written }) });
+    expect(fold.course.chapters[1]).toBe(written);
+    expect(fold.course.chapters[0]).toBe(snapshotCourse.chapters[0]);
+    expect(courseLessons(fold.course).map((item) => item.id)).toEqual(['course-1-c1-l1', 'course-1-c1-l2', 'course-1-c2-l1']);
+  });
+
+  it('does not let a failed chapter or lesson change another', () => {
     let fold: CourseFold = { course: snapshotCourse, seq: 0 };
-    fold = reduceCourse(fold, { type: 'event', event: event(1, 'topic.queued', { topicId: 'supply' }) });
-    expect(topicStatus(fold, 'supply')).toBe('queued');
-    fold = reduceCourse(fold, { type: 'event', event: event(2, 'lesson.drafted', { topicId: 'supply' }) });
-    expect(topicStatus(fold, 'supply')).toBe('generating');
-    fold = reduceCourse(fold, { type: 'event', event: event(3, 'segment.review', { topicId: 'supply', segmentId: 'title-card' }) });
-    expect(topicStatus(fold, 'supply')).toBe('reviewing');
-    fold = reduceCourse(fold, { type: 'event', event: event(4, 'topic.ready', { topicId: 'supply', lesson }) });
-    expect(topicStatus(fold, 'supply')).toBe('ready');
-    expect(fold.course.topics.find((topic) => topic.id === 'supply')?.lesson).toBe(lesson);
-    expect(topicStatus(fold, 'demand')).toBe('queued');
+    const failedChapter = { ...chapterState(1, [], 'failed'), error: 'model failed' };
+    fold = reduceCourse(fold, { type: 'event', event: event(1, 'chapter.failed', { chapter: failedChapter }) });
+    const failedLesson = { ...lessonSummary('course-1-c1', 0), status: 'failed' as const, error: 'segment 3 failed' };
+    fold = reduceCourse(fold, { type: 'event', event: event(2, 'lesson.failed', { lesson: failedLesson }) });
+    const ready = { ...lessonSummary('course-1-c1', 1), status: 'ready' as const };
+    fold = reduceCourse(fold, { type: 'event', event: event(3, 'lesson.ready', { lesson: ready }) });
+    expect(fold.course.chapters[1]?.error).toBe('model failed');
+    expect(lessonStatus(fold, failedLesson.id)).toBe('failed');
+    expect(lessonStatus(fold, ready.id)).toBe('ready');
   });
 
-  it('does not let a failed topic block a later topic', () => {
-    let fold: CourseFold = { course: snapshotCourse, seq: 0 };
-    fold = reduceCourse(fold, { type: 'event', event: event(1, 'topic.failed', { topicId: 'supply', error: 'model failed' }) });
-    fold = reduceCourse(fold, { type: 'event', event: event(2, 'topic.queued', { topicId: 'demand' }) });
-    fold = reduceCourse(fold, { type: 'event', event: event(3, 'topic.started', { topicId: 'demand' }) });
-    fold = reduceCourse(fold, { type: 'event', event: event(4, 'topic.ready', { topicId: 'demand', lesson }) });
-    const supply = fold.course.topics.find((topic) => topic.id === 'supply');
-    const demand = fold.course.topics.find((topic) => topic.id === 'demand');
-    expect(supply?.status).toBe('failed');
-    expect(supply?.error).toBe('model failed');
-    expect(demand?.status).toBe('ready');
-    expect(demand?.lesson).toBe(lesson);
+  it('marks the course ready on course.ready', () => {
+    const fold = reduceCourse({ course: snapshotCourse, seq: 0 }, { type: 'event', event: event(1, 'course.ready') });
+    expect(fold.course).toMatchObject({ status: 'ready', stage: 'done' });
+  });
+});
+
+describe('reduceLesson', () => {
+  it('replaces only the changed segment and ignores other lessons', () => {
+    const detail = lessonDetail(['ready', 'rendering', 'pending']);
+    const updated = { ...detail.segments[1], status: 'ready' as const, segment: layoutSegments[1] };
+    const next = reduceLesson(detail, event(1, 'segment.ready', { lessonId: detail.id, segment: updated }));
+    expect(next.segments[1]).toBe(updated);
+    expect(next.segments[0]).toBe(detail.segments[0]);
+    expect(next.segments[2]).toBe(detail.segments[2]);
+
+    const other = reduceLesson(detail, event(2, 'segment.ready', { lessonId: 'course-1-c1-l2', segment: updated }));
+    expect(other).toBe(detail);
   });
 
-  it('replaces only the regenerated segment', () => {
-    const current = supplyLesson();
-    const kept = current.segments[1];
-    const first = current.segments[0];
-    if (!kept || !first) throw new Error('Supply lesson needs two segments.');
-    const rewritten = { ...first, title: 'Rewritten supply', narration: 'A new caption.' };
-    const fold = reduceCourse(
-      { course: snapshotCourse, seq: 0 },
-      {
-        type: 'event',
-        event: event(1, 'segment.ready', {
-          topicId: 'supply',
-          segmentId: first.id,
-          lesson: { studyDoc: 'Replaced notes.', segments: [rewritten] },
-        }),
-      },
-    );
-    const topic = fold.course.topics.find((item) => item.id === 'supply');
-    expect(topic?.status).toBe('queued');
-    expect(topic?.lesson?.studyDoc).toBe('Notes for supply.');
-    expect(topic?.lesson?.segments[0]).toEqual(rewritten);
-    expect(topic?.lesson?.segments[1]).toBe(kept);
-    expect(topic?.segments[1]?.segment).toBe(kept);
-    expect(fold.course.topics.find((item) => item.id === 'demand')).toBe(snapshotCourse.topics[1]);
+  it('takes ready and total from the lesson summary', () => {
+    const detail = lessonDetail(['ready', 'pending']);
+    const summary = { ...lessonSummary('course-1-c1', 0, 'rendering'), segmentCount: 2, segmentsReady: 1 };
+    const next = reduceLesson(detail, event(1, 'lesson.rendering', { lessonId: detail.id, lesson: summary, ready: 1, total: 2 }));
+    expect(next).toMatchObject({ status: 'rendering', segmentCount: 2, segmentsReady: 1, studyDoc: 'Notes.' });
+    expect(next.segments).toBe(detail.segments);
   });
 });

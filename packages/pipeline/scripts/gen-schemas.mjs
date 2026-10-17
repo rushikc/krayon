@@ -4,7 +4,6 @@
 import { writeFileSync } from 'node:fs';
 import { modelResponseSchemas } from '@krayon/shared';
 
-const { roadmap, lesson, segment, review } = modelResponseSchemas;
 const file = new URL('../src/ai_schemas.json', import.meta.url);
-writeFileSync(file, `${JSON.stringify({ roadmap, lesson, segment, review }, null, 2)}\n`);
+writeFileSync(file, `${JSON.stringify(modelResponseSchemas, null, 2)}\n`);
 console.log(`wrote ${file.pathname}`);

@@ -51,6 +51,9 @@ export interface EventBus {
   subscribe(courseId: string, listener: (event: PipelineEvent) => void): () => void;
   beginRun(courseId: string): string;
   endRun(courseId: string, runId: string): void;
-  requestCancel(courseId: string, topicId?: string, segmentId?: string): void;
-  isCancelled(courseId: string, topicId?: string, segmentId?: string): boolean;
+  requestCancel(courseId: string, lessonId?: string, segmentId?: string): void;
+  isCancelled(courseId: string, lessonId?: string, segmentId?: string): boolean;
+  /** The course the learner is looking at (most recent WebSocket subscribe), or null. */
+  viewedCourse(): string | null;
+  setViewedCourse(courseId: string | null): void;
 }

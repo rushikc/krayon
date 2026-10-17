@@ -17,7 +17,7 @@ export type ValidatedRequest<T> = {
   generate: (prompt: string) => Promise<string>;
   schema: z.ZodType<T>;
   /** Extra checks after zod, such as validateSegment. Issues trigger another attempt. */
-  check?: (value: T) => GenerationIssue[];
+  check?: (value: T, attempt: number, attempts: number) => GenerationIssue[];
   /** Total model calls, at least 1. */
   attempts: number;
   /** Builds the next prompt from the issues and the last parsed value (undefined when not JSON). */
@@ -92,7 +92,7 @@ export const generateValidated = async <T>(request: ValidatedRequest<T>): Promis
       if (!parsed.success) {
         issues = zodIssues(parsed.error);
       } else {
-        const extra = request.check?.(parsed.data) ?? [];
+        const extra = request.check?.(parsed.data, attempt, attempts) ?? [];
         if (extra.length === 0) {
           if (attempt > 1) {
             log.info(`AI ${name} valid on attempt ${attempt}`, { ...request.fields, event: 'ai.repaired', schema: name, attempt });

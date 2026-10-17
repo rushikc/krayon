@@ -1,8 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import type { PointerEvent, ReactNode } from 'react';
 import { FPS } from '../remotion/catalog.ts';
-import type { Chapter } from '../study/chapters.ts';
-import { chapterIndexAtFrame } from '../study/chapters.ts';
 import type { Stamp, Stroke } from '../study/localStudy.tsx';
 import { formatClock } from '../study/time.ts';
 import { cx } from './ui/cx.ts';
@@ -25,7 +23,6 @@ export type LessonTool = 'ask' | 'highlight' | 'note' | 'quiz';
 
 type LessonFrameProps = {
   children: ReactNode;
-  chapters: Chapter[];
   frame: number;
   duration: number;
   playing: boolean;
@@ -44,7 +41,6 @@ type LessonFrameProps = {
   pins?: Stamp[];
   heading?: ReactNode;
   onChat?: () => void;
-  watchedIds?: string[];
   artId?: string;
   fill?: boolean;
 };
@@ -63,7 +59,6 @@ const clockToFrame = (clock: string) => {
 
 export function LessonFrame({
   children,
-  chapters,
   frame,
   duration,
   playing,
@@ -80,7 +75,6 @@ export function LessonFrame({
   muted,
   onMute,
   pins = [],
-  watchedIds = [],
   artId,
   fill = false,
   heading,
@@ -91,7 +85,7 @@ export function LessonFrame({
   const [hoverId, setHoverId] = useState<string | null>(null);
   const [focusId, setFocusId] = useState<string | null>(null);
   const openId = focusId ?? hoverId;
-  const activeIndex = chapterIndexAtFrame(frame, chapters);
+  const played = duration > 1 ? Math.min(1, frame / (duration - 1)) : 0;
 
   useEffect(() => {
     if (!openId) return;
@@ -236,7 +230,7 @@ export function LessonFrame({
           {formatClock(frame)} / {formatClock(duration)}
         </span>
         <div
-          className="relative flex h-6 min-w-0 flex-1 items-center gap-1"
+          className="relative flex h-6 min-w-0 flex-1 items-center"
           role="slider"
           tabIndex={0}
           aria-label="Lesson position"
@@ -249,61 +243,24 @@ export function LessonFrame({
             if (event.key === 'ArrowLeft') onSeek(Math.max(0, frame - FPS * 2));
           }}
         >
-          {chapters.map((chapter, index) => {
-            const played = Math.max(0, Math.min(chapter.duration, frame - chapter.start));
-            const ratio = chapter.duration === 0 ? 0 : played / chapter.duration;
-            const watched = watchedIds.includes(chapter.id);
-            const current = index === activeIndex;
-            const number = String(index + 1).padStart(2, '0');
-            const summary = `${number} · ${formatClock(chapter.start)} · ${chapter.title}`;
-            return (
-              <div key={chapter.id} className="relative h-2.5 min-w-2" style={{ flexGrow: chapter.duration }}>
-                <button
-                  type="button"
-                  aria-label={`Seek to ${chapter.title}`}
-                  className={cx(
-                    'relative h-full w-full overflow-hidden rounded-full',
-                    watched ? 'bg-[#4a3428]' : current ? 'bg-crayon/45' : 'bg-white/25',
-                  )}
-                  {...tipProps(chapter.id)}
-                  onClick={(event) => {
-                    const rect = event.currentTarget.getBoundingClientRect();
-                    const ratioClick = (event.clientX - rect.left) / rect.width;
-                    onSeek(chapter.start + Math.round(ratioClick * Math.max(0, chapter.duration - 1)));
-                  }}
-                >
-                  <span
-                    className={cx('absolute inset-y-0 left-0 rounded-full', watched ? 'bg-[#2a1c14]' : 'bg-crayon')}
-                    style={{ width: `${ratio * 100}%` }}
-                  />
-                </button>
-                {openId === chapter.id && (
-                  <MomentTip id={`${tipBase}-${chapter.id}`} artId={artId} text={summary} align={index === 0 ? 'start' : 'center'} />
-                )}
-                {index > 0 && (
-                  <button
-                    type="button"
-                    aria-label={`Key moment ${summary}`}
-                    className="absolute top-1/2 left-0 z-10 h-6 w-3 -translate-x-1/2 -translate-y-1/2"
-                    {...tipProps(`tick-${chapter.id}`)}
-                    onClick={() => onSeek(chapter.start)}
-                  >
-                    <span className="mx-auto block h-3.5 w-[2px] rounded-full bg-paper" />
-                    {openId === `tick-${chapter.id}` && (
-                      <MomentTip id={`${tipBase}-tick-${chapter.id}`} artId={artId} text={summary} align="center" />
-                    )}
-                  </button>
-                )}
-              </div>
-            );
-          })}
+          <button
+            type="button"
+            tabIndex={-1}
+            aria-hidden="true"
+            className="relative h-2.5 w-full overflow-hidden rounded-full bg-white/25"
+            onClick={(event) => {
+              const rect = event.currentTarget.getBoundingClientRect();
+              const ratio = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
+              onSeek(Math.round(ratio * Math.max(0, duration - 1)));
+            }}
+          >
+            <span className="absolute inset-y-0 left-0 rounded-full bg-crayon" style={{ width: `${played * 100}%` }} />
+          </button>
           {pins.map((pin) => {
             const at = clockToFrame(pin.timestamp);
             if (at === null || duration <= 0) return null;
             const id = `pin-${pin.id}`;
-            const chapterAt = chapters[chapterIndexAtFrame(at, chapters)];
-            const number = String(Math.max(1, chapters.indexOf(chapterAt) + 1)).padStart(2, '0');
-            const summary = `${number} · ${pin.timestamp} · ${pin.text}`;
+            const summary = `${pin.timestamp} · ${pin.text}`;
             return (
               <button
                 key={id}

@@ -1,10 +1,6 @@
-import type { GeneratedLesson, GeneratedSegment, Roadmap, SceneIssue } from './scene.js';
+import type { GeneratedSegment, SceneIssue } from './scene.js';
 import type { GenerationErrorInfo } from './generation.js';
 import type { ReviewIssue } from './schemas.js';
-
-export type TopicPhase = 'idle' | 'queued' | 'generating' | 'checking' | 'reviewing' | 'ready' | 'failed';
-
-export type SegmentStatus = TopicPhase | 'draft' | 'rendering' | 'unreviewed' | 'blocked';
 
 export type CourseSource = {
   id: string;
@@ -12,6 +8,24 @@ export type CourseSource = {
   content_type: string;
   size: number;
   path: string;
+};
+
+/** Where course generation is. A restart resumes from the stored stage. */
+export type CourseStage = 'structure' | 'chapters' | 'done';
+
+export type CourseStatus = 'created' | 'structure' | 'writing' | 'ready' | 'failed';
+
+export type ChapterStatus = 'pending' | 'writing' | 'ready' | 'failed';
+
+export type LessonStatus = 'outlined' | 'queued' | 'rendering' | 'ready' | 'failed';
+
+export type SegmentStatus = 'pending' | 'drafting' | 'checking' | 'rendering' | 'reviewing' | 'ready' | 'failed';
+
+export type LessonProgress = {
+  watched: boolean;
+  completed: boolean;
+  positionFrame: number;
+  updatedAt: number;
 };
 
 export type SegmentRound = {
@@ -25,41 +39,88 @@ export type SegmentRound = {
   keyframeIds: string[];
 };
 
-export type SegmentState = {
+/** A lesson as listed on the roadmap (no script, notes, or segments). */
+export type LessonSummary = {
   id: string;
+  courseId: string;
+  chapterId: string;
+  index: number;
   title: string;
-  status: SegmentStatus;
+  /** 1-based PDF pages. */
+  sourcePages: number[];
+  status: LessonStatus;
   statusDetail: string | null;
-  rounds: SegmentRound[];
-  segment: GeneratedSegment | null;
-  /** Path-qualified message when status is failed. */
-  error?: string | null;
-  errorInfo?: GenerationErrorInfo | null;
-  /** Set when render or review failed but the segment can still play. */
-  reviewStatus?: 'unreviewed' | null;
+  durationFrames: number;
+  segmentCount: number;
+  segmentsReady: number;
+  wordCount: number;
+  /** The chapter could not support LESSON_WORDS.min words. */
+  shortSource: boolean;
+  error: string | null;
+  errorInfo: GenerationErrorInfo | null;
+  progress: LessonProgress | null;
 };
 
-export type TopicState = {
+export type ChapterState = {
   id: string;
+  courseId: string;
+  index: number;
   title: string;
-  summary: string;
-  prerequisites: string[];
-  sourcePages: number[];
-  status: TopicPhase;
+  /** 0-based PDF page indexes, inclusive. */
+  pdfPageStart: number;
+  pdfPageEnd: number;
+  /** Front or back matter: no lessons. */
+  skip: boolean;
+  status: ChapterStatus;
   statusDetail: string | null;
   error: string | null;
-  errorInfo?: GenerationErrorInfo | null;
-  lesson: GeneratedLesson | null;
+  errorInfo: GenerationErrorInfo | null;
+  lessons: LessonSummary[];
+};
+
+export type SegmentState = {
+  id: string;
+  lessonId: string;
+  index: number;
+  title: string;
+  narration: string;
+  durationInFrames: number;
+  startFrame: number;
+  /** 1-based PDF pages. */
+  sourcePages: number[];
+  status: SegmentStatus;
+  statusDetail: string | null;
+  segment: GeneratedSegment | null;
+  rounds: SegmentRound[];
+  error: string | null;
+  errorInfo: GenerationErrorInfo | null;
+  /** Set when render or review failed but the segment can still play. */
+  reviewStatus: 'unreviewed' | null;
+};
+
+export type LessonDetail = LessonSummary & {
+  chapterTitle: string;
+  /** Spoken script (reserved for TTS). */
+  explanationSummary: string;
+  studyDoc: string;
   segments: SegmentState[];
 };
 
 export type CourseState = {
   id: string;
   owner: string;
-  status: 'created' | 'roadmap' | 'lessons' | 'generating' | 'done' | 'failed';
+  status: CourseStatus;
+  stage: CourseStage;
+  title: string | null;
+  category: string | null;
   fileNames: string[];
   sources: CourseSource[];
-  roadmap: Roadmap | null;
-  topics: TopicState[];
+  pageCount: number | null;
+  chapters: ChapterState[];
   error: string | null;
+  errorInfo: GenerationErrorInfo | null;
 };
+
+/** Lessons of a course in play order. */
+export const courseLessons = (course: Pick<CourseState, 'chapters'>) =>
+  course.chapters.filter((chapter) => !chapter.skip).flatMap((chapter) => chapter.lessons);

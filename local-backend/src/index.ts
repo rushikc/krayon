@@ -4,14 +4,7 @@ import cors from '@fastify/cors';
 import multipart from '@fastify/multipart';
 import Fastify from 'fastify';
 import { GeminiNotConfigured } from '@krayon/pipeline';
-import {
-  generationErrorStatus,
-  lessonModelSchema,
-  modelResponseSchemas,
-  roadmapSchema,
-  segmentModelSchema,
-  toGenerationError,
-} from '@krayon/shared';
+import { generationErrorStatus, modelResponseSchemas, segmentModelSchema, toGenerationError } from '@krayon/shared';
 import { z } from 'zod';
 import { aiBackend, settings } from './config.js';
 import { jobs, pipeline, startRecovery, storage, store } from './context.js';
@@ -31,11 +24,11 @@ const generateBody = z.object({
   uploadId: z.string().nullish(),
   responseSchema: z.record(z.string(), z.unknown()).nullish(),
   /** Named schema: the server supplies the response schema and validates the result (zod + retries). */
-  schema: z.enum(['roadmap', 'lesson', 'segment']).nullish(),
+  schema: z.enum(['segment']).nullish(),
   model: z.string().nullish(),
 });
 
-const namedSchemas = { roadmap: roadmapSchema, lesson: lessonModelSchema, segment: segmentModelSchema } as const;
+const namedSchemas = { segment: segmentModelSchema } as const;
 
 const jobBody = z.object({
   kind: z.string(),
@@ -175,6 +168,7 @@ export const buildApp = async () => {
   });
 
   app.post('/api/admin/reset', async () => {
+    pipeline.clearCaches();
     const docs = store.clear();
     const files = storage.clear();
     const documents = Object.values(docs).reduce((total, count) => total + count, 0);

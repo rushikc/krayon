@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 const segment = (layout: Record<string, unknown>) => ({
   id: 'idea',
   title: 'Statelessness',
-  durationInFrames: 150,
+  durationInFrames: 180,
   narration: 'Each request stands alone.',
   scene: { layout },
 });

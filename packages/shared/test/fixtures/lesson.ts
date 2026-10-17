@@ -1,5 +1,5 @@
-import type { CourseState, SegmentState, TopicState } from '../../src/course.js';
-import type { GeneratedLesson, GeneratedSegment, Roadmap, RoadmapTopic, SceneLayout } from '../../src/scene.js';
+import type { ChapterState, CourseState, LessonDetail, LessonSummary, SegmentState } from '../../src/course.js';
+import type { GeneratedSegment, SceneLayout } from '../../src/scene.js';
 
 const segment = (id: string, title: string, layout: SceneLayout): GeneratedSegment => ({
   id,
@@ -75,68 +75,80 @@ const labels: Record<string, string> = {
 
 export const labelFor = (item: GeneratedSegment) => labels[item.id] ?? item.title;
 
-export const lesson: GeneratedLesson = {
-  studyDoc: 'Market notes.',
-  segments: layoutSegments,
-};
-
-const supplyTopic: RoadmapTopic = {
-  id: 'supply',
-  title: 'Supply',
-  summary: 'How sellers react.',
-  prerequisites: [],
-  sourcePages: [1],
-};
-
-const demandTopic: RoadmapTopic = {
-  id: 'demand',
-  title: 'Demand',
-  summary: 'How buyers react.',
-  prerequisites: ['supply'],
-  sourcePages: [2],
-};
-
-const equilibriumTopic: RoadmapTopic = {
-  id: 'equilibrium',
-  title: 'Equilibrium',
-  summary: 'Where they meet.',
-  prerequisites: ['demand'],
-  sourcePages: [3],
-};
-
-export const roadmapTopics: RoadmapTopic[] = [supplyTopic, demandTopic, equilibriumTopic];
-
-export const roadmap: Roadmap = { title: 'Supply and demand', category: 'Economy', topics: roadmapTopics };
-
-const segmentState = (item: GeneratedSegment, status: SegmentState['status'] = 'ready'): SegmentState => ({
-  id: item.id,
+const segmentState = (item: GeneratedSegment, index: number, status: SegmentState['status'] = 'ready'): SegmentState => ({
+  id: `s0${index + 1}`,
+  lessonId: 'course-1-c1-l1',
+  index,
   title: item.title,
+  narration: item.narration,
+  durationInFrames: item.durationInFrames,
+  startFrame: index * item.durationInFrames,
+  sourcePages: [1],
   status,
   statusDetail: null,
+  segment: status === 'ready' ? item : null,
   rounds: [],
-  segment: item,
+  error: null,
+  errorInfo: null,
+  reviewStatus: null,
 });
 
-const topicState = (topic: RoadmapTopic, status: TopicState['status'], segments: GeneratedSegment[]): TopicState => ({
-  id: topic.id,
-  title: topic.title,
-  summary: topic.summary,
-  prerequisites: topic.prerequisites,
-  sourcePages: topic.sourcePages,
+export const lessonSummary = (chapterId: string, index: number, status: LessonSummary['status'] = 'outlined'): LessonSummary => ({
+  id: `${chapterId}-l${index + 1}`,
+  courseId: 'course-1',
+  chapterId,
+  index,
+  title: `Lesson ${index + 1}`,
+  sourcePages: [index + 1],
+  status,
+  statusDetail: null,
+  durationFrames: 0,
+  segmentCount: 0,
+  segmentsReady: 0,
+  wordCount: 500,
+  shortSource: false,
+  error: null,
+  errorInfo: null,
+  progress: null,
+});
+
+export const chapterState = (index: number, lessons: LessonSummary[], status: ChapterState['status'] = 'ready'): ChapterState => ({
+  id: `course-1-c${index + 1}`,
+  courseId: 'course-1',
+  index,
+  title: `Chapter ${index + 1}`,
+  pdfPageStart: index * 10,
+  pdfPageEnd: index * 10 + 9,
+  skip: false,
   status,
   statusDetail: null,
   error: null,
-  lesson: segments.length ? { studyDoc: 'Notes for supply.', segments } : null,
-  segments: segments.map((item) => segmentState(item)),
+  errorInfo: null,
+  lessons,
 });
 
 export const snapshotCourse: CourseState = {
   id: 'course-1',
   owner: 'local-user',
-  status: 'lessons',
+  status: 'writing',
+  stage: 'chapters',
+  title: 'Supply and demand',
+  category: 'Economy',
   fileNames: ['notes.pdf'],
   sources: [],
-  roadmap,
-  topics: [topicState(supplyTopic, 'queued', layoutSegments.slice(0, 2)), topicState(demandTopic, 'queued', [])],
+  pageCount: 20,
+  chapters: [
+    chapterState(0, [lessonSummary('course-1-c1', 0), lessonSummary('course-1-c1', 1)]),
+    chapterState(1, [], 'pending'),
+  ],
   error: null,
+  errorInfo: null,
 };
+
+export const lessonDetail = (statuses: SegmentState['status'][]): LessonDetail => ({
+  ...lessonSummary('course-1-c1', 0, 'rendering'),
+  chapterTitle: 'Chapter 1',
+  explanationSummary: 'Script.',
+  studyDoc: 'Notes.',
+  segments: statuses.map((status, index) => segmentState(layoutSegments[index], index, status)),
+});

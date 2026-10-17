@@ -1,7 +1,7 @@
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import Database from 'better-sqlite3';
-import type { DocRecord, DocStore, PipelineEmit } from '@krayon/shared';
+import type { DocRecord, DocStore } from '@krayon/shared';
 import { getLogger } from '../logging.js';
 
 export type { DocRecord };
@@ -83,80 +83,57 @@ export class LocalDocStore implements DocStore {
     return counts;
   }
 
-  recoverInterrupted(emit?: (event: PipelineEmit) => void, requeue?: (uid: string, courseId: string, topicId: string) => void) {
+  /**
+   * After a restart: interrupted jobs become errors; a chapter mid-write goes back to pending; a lesson
+   * mid-render goes back to queued, and its unfinished segments to pending (ready segments are kept).
+   * Every course with open work is handed to `requeue`, which resumes it from the stored stage.
+   */
+  recoverInterrupted(requeue?: (uid: string, courseId: string) => void) {
     const reason = 'interrupted';
-    const mid = new Set(['generating', 'checking', 'reviewing']);
-    const jobs = this.db.prepare(`SELECT id, data FROM docs WHERE collection = 'jobs'`).all() as Array<{
-      id: string;
-      data: string;
-    }>;
-    for (const row of jobs) {
-      const data = JSON.parse(row.data) as { status?: string };
-      if (data.status === 'queued' || data.status === 'running') {
-        this.set(`jobs/${row.id}`, { status: 'error', error: reason }, true);
-      }
-    }
     const rows = this.db.prepare('SELECT collection, id, data FROM docs').all() as Array<{
       collection: string;
       id: string;
       data: string;
     }>;
-    const segments = rows.filter((row) => row.collection.endsWith('/segments'));
-    for (const row of segments) {
-      const data = JSON.parse(row.data) as { status?: string };
-      if (!data.status || !mid.has(data.status)) continue;
-      this.set(`${row.collection}/${row.id}`, { status: 'failed', statusDetail: null, error: reason }, true);
-      const parts = row.collection.split('/');
-      emit?.({
-        type: 'segment.failed',
-        courseId: parts[3] ?? '',
-        topicId: parts[5] ?? '',
-        segmentId: row.id,
-        error: reason,
-        flow: 'recover',
-        step: 'interrupted',
-      });
-    }
-    const topics = rows.filter((row) => row.collection.endsWith('/topics'));
-    const queued: Array<{ uid: string; courseId: string; topicId: string }> = [];
-    for (const row of topics) {
-      const data = JSON.parse(row.data) as { status?: string };
-      const parts = row.collection.split('/');
+    const open = new Map<string, { uid: string; courseId: string }>();
+    const mark = (collection: string) => {
+      const parts = collection.split('/');
       const uid = parts[1] ?? '';
       const courseId = parts[3] ?? '';
-      if (data.status && mid.has(data.status)) {
-        this.set(`${row.collection}/${row.id}`, { status: 'failed', statusDetail: null, error: reason }, true);
-        emit?.({ type: 'topic.failed', courseId, topicId: row.id, error: reason, flow: 'recover', step: 'interrupted' });
-      } else if (data.status === 'queued') {
-        emit?.({ type: 'topic.queued', courseId, topicId: row.id, flow: 'recover', step: 'queued' });
-        queued.push({ uid, courseId, topicId: row.id });
-      }
-    }
-    const courses = rows.filter((row) => /^users\/[^/]+\/courses$/.test(row.collection));
-    for (const row of courses) {
-      const uid = row.collection.split('/')[1] ?? '';
-      const topicRows = this.list(`${row.collection}/${row.id}/topics`);
-      const statuses = topicRows.map((topic) => String(topic.data.status ?? 'queued'));
-      const failed = statuses.filter((status) => status === 'failed');
-      const terminal = new Set(['ready', 'failed', 'blocked', 'unreviewed']);
-      let status: 'done' | 'failed' | 'generating' = 'generating';
-      let error: string | null = null;
-      if (statuses.length > 0 && failed.length === statuses.length) {
-        status = 'failed';
-        error = 'interrupted';
-      } else if (statuses.length > 0 && statuses.every((item) => terminal.has(item))) {
-        status = 'done';
-      }
-      this.set(`${row.collection}/${row.id}`, { status, error }, true);
-      if (status === 'failed') emit?.({ type: 'course.failed', courseId: row.id, error: error ?? reason, flow: 'recover', step: 'failed' });
-      if (status === 'done') emit?.({ type: 'course.done', courseId: row.id, failedTopics: failed.length, flow: 'recover', step: 'done' });
-      if (status === 'generating') {
-        for (const topic of queued) {
-          if (topic.uid === uid && topic.courseId === row.id) requeue?.(uid, row.id, topic.topicId);
+      open.set(`${uid}/${courseId}`, { uid, courseId });
+    };
+    const counts = { jobs: 0, chapters: 0, lessons: 0, segments: 0 };
+    for (const row of rows) {
+      const data = JSON.parse(row.data) as { status?: string; stage?: string };
+      const at = `${row.collection}/${row.id}`;
+      if (row.collection === 'jobs') {
+        if (data.status === 'queued' || data.status === 'running') {
+          this.set(at, { status: 'error', error: reason }, true);
+          counts.jobs += 1;
+        }
+      } else if (/^users\/[^/]+\/courses$/.test(row.collection)) {
+        if (data.status === 'structure' || data.status === 'created' || data.status === 'writing') mark(`${row.collection}/${row.id}`);
+      } else if (row.collection.endsWith('/chapters')) {
+        if (data.status === 'writing') {
+          this.set(at, { status: 'pending', statusDetail: null }, true);
+          counts.chapters += 1;
+        }
+        if (data.status === 'writing' || data.status === 'pending') mark(row.collection);
+      } else if (row.collection.endsWith('/segments')) {
+        if (data.status && !['pending', 'ready', 'failed'].includes(data.status)) {
+          this.set(at, { status: 'pending', statusDetail: null }, true);
+          counts.segments += 1;
+        }
+      } else if (row.collection.endsWith('/lessons')) {
+        if (data.status === 'rendering' || data.status === 'queued') {
+          this.set(at, { status: 'queued', statusDetail: 'Queued' }, true);
+          counts.lessons += 1;
+          mark(row.collection);
         }
       }
     }
-    log.info('Recovered interrupted course work', { event: 'recover' });
+    for (const { uid, courseId } of open.values()) requeue?.(uid, courseId);
+    log.info('Recovered interrupted course work', { event: 'recover', courses: open.size, ...counts });
   }
 
   list(collection: string): DocRecord[] {

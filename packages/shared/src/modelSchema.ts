@@ -1,5 +1,16 @@
 import { z } from 'zod';
-import { lessonSchema, reviewSchema, roadmapSchema, segmentSchema } from './schemas.js';
+import {
+  beatsSchema,
+  chapterTextSchema,
+  chatSchema,
+  lessonOutlineSchema,
+  lessonScriptSchema,
+  reviewSchema,
+  sceneOnlySchema,
+  segmentSchema,
+  structureSchema,
+  studyDocSchema,
+} from './schemas.js';
 
 /**
  * Keys both Gemini paths accept: Vertex `responseJsonSchema` (genkit) and the OpenAPI-style
@@ -28,6 +39,8 @@ const clean = (node: unknown): unknown => {
       out.enum = [value];
     } else if (!KEEP.has(key)) {
       continue;
+    } else if ((key === 'minimum' || key === 'maximum') && Math.abs(Number(value)) === Number.MAX_SAFE_INTEGER) {
+      continue;
     } else if (key === 'type' && Array.isArray(value)) {
       const types = value.filter((type) => type !== 'null');
       out.type = types.length === 1 ? types[0] : types;
@@ -52,10 +65,16 @@ export const toModelSchema = (schema: z.ZodType): Json =>
 
 /** Named response schemas used by the pipeline and POST /api/ai/generate. */
 export const modelResponseSchemas = {
-  roadmap: toModelSchema(roadmapSchema),
-  lesson: toModelSchema(lessonSchema),
+  structure: toModelSchema(structureSchema),
+  chapterText: toModelSchema(chapterTextSchema),
+  lessonOutline: toModelSchema(lessonOutlineSchema),
+  lessonScript: toModelSchema(lessonScriptSchema),
+  studyDoc: toModelSchema(studyDocSchema),
+  beats: toModelSchema(beatsSchema),
+  scene: toModelSchema(sceneOnlySchema),
   segment: toModelSchema(segmentSchema),
   review: toModelSchema(reviewSchema),
+  chat: toModelSchema(chatSchema),
 };
 
 export type ModelSchemaName = keyof typeof modelResponseSchemas;

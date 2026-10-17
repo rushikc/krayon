@@ -2,7 +2,6 @@ export {
   generatedDuration,
   isLayoutType,
   layoutTypes,
-  orderTopics,
 } from '@krayon/shared';
 export type {
   BulletsLayout,
@@ -15,13 +14,10 @@ export type {
   FlowEdge,
   FlowLayout,
   FlowNode,
-  GeneratedLesson,
   GeneratedSegment,
   HubNode,
   HubSpokeLayout,
   LayoutType,
-  Roadmap,
-  RoadmapTopic,
   Scene,
   SceneIssue,
   SceneLayout,

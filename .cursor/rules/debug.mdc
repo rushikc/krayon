@@ -1,40 +1,48 @@
 ---
-description: Debugging Krayon locally. Use when investigating errors, failed requests, AI generation problems, failed segments/topics, or backend behaviour; explains the local-backend logs, pipeline events, error codes, and how to trace a request.
+description: Debugging Krayon locally. Use when investigating errors, failed requests, AI generation problems, failed segments/lessons/chapters, or backend behaviour; explains the local-backend logs, pipeline events, error codes, and how to trace a request.
 alwaysApply: false
 ---
 
 # Debugging with local-backend logs
 
 ## How it fits together
-- `npm run dev` (repo root) builds `packages/shared` and `packages/pipeline`, then runs `tsc --watch` for both, **local-backend** (Fastify + tsx watch, http://localhost:8787) and **Vite** (http://localhost:5173). Vite proxies `/api/*` and `/ws` to the backend, so the browser never calls Google directly.
+- `npm run dev` (repo root) builds `packages/shared` and `packages/pipeline`, then runs `tsc --watch` for both, **local-backend** (Fastify + tsx watch, http://localhost:8787) and **Vite** (http://localhost:5173). Vite proxies `/api/*` and `/ws` to the backend, so the browser never calls Google directly. The backend imports the packages from `dist/`, so rebuild them after editing.
 - The backend mocks Google Cloud locally:
   - Firestore → SQLite at `local-backend/data/firestore.sqlite3` (table `docs`: collection, id, data JSON, updated)
   - Cloud Storage → files under `local-backend/data/storage/`
   - Auth → stub user `local-user` (override with the `X-User-Id` header)
-  - Jobs → in-process (`course`, `regenerate`, `retrySegment`, `retryTopic`, `ingest`), status in `jobs/{id}` docs
+  - Jobs → in-process (`course`, `resumeCourse`, `retryCourse`, `retryChapter`, `renderLesson`, `regenerate`, `ingest`), status in `jobs/{id}` docs
 - Gemini is **real**: Vertex AI, project `krayon-ai`, location `global`, model `GEMINI_MODEL` (default `gemini-2.5-flash`) and `GEMINI_REVIEW_MODEL`, via gcloud Application Default Credentials (`GEMINI_API_KEY` is only a fallback). Config lives in `local-backend/.env`.
-- Course generation (`packages/pipeline/src/pipeline.ts`, Genkit flows): `POST /api/courses` → `roadmapFlow` → `lessonFlow` per topic (draft, then per segment: defaults + zod + `validateSegment`, repair) → `segmentLoop` (check/repair, render keyframes, review, fix). Live events arrive on `/ws`. `npm run genkit` opens the Genkit trace UI.
-- Docs: `users/{uid}/courses/{courseId}/topics/{topicId}/segments/{segmentId}/rounds/{n}`. Failed segments keep `error` (path-qualified text), `errorInfo` and the raw `draft`.
-- Retry: `POST /api/courses/:id/topics/:topicId/segments/:segmentId/retry` (one failed segment, from its draft + errors) and `POST /api/courses/:id/topics/:topicId/retry` (whole topic). The roadmap step panel and the lesson page show failed parts with a Retry button.
-- Fallback when `VITE_USE_BACKEND=false`: `frontend/src/lib/ai.ts` uploads once and calls `POST /api/ai/generate` with `schema: roadmap|lesson|segment`.
-- Reset everything: `curl -X POST localhost:8787/api/admin/reset` (local dev only; also the header's "Clear resources" button).
+
+## Pipeline (`packages/pipeline/src/`)
+Course → chapter → lesson → segment. `pipeline.ts` wires the stages; every step is stored as it finishes, so a restart resumes from the stored stage.
+1. **Structure** (`chapters.ts`, call `structure`): the only call that attaches the whole PDF. Returns chapters with printed TOC pages and file pages; `pageRanges.ts` maps printed numbers to PDF indexes (`/PageLabels`, then running headers, then titles in the page text, then the model's samples), snaps each start to its title, and validates that ranges cover every page (issues go back to the model). Front and back matter are `skip`.
+2. **Chapters** (`CHAPTER_CONCURRENCY` at once): `chapterText` per ≤30-page slice (halved on `MAX_TOKENS`), `lessonOutline`, one `lessonScript` per lesson (420–660 words, `scriptLength.ts` splits/merges/tightens), `studyDoc`. Lessons are stored `outlined`. Partial work (`chapterText`, `outline`, `drafts`, `planned`) lives on the chapter doc.
+3. **Lesson render** (`lessonRender.ts`): only chapter 1 lesson 1 starts on its own; others start on `POST /api/lessons/:id/render`. `beats` splits the verbatim script into 15–30 segments (`beats.ts` fixes timing: 6–15 s, 15–35 words), then per segment: `scene` (+ path-qualified repair) → keyframes → `review` → fix. A segment gets `1 + SEGMENT_RETRIES` tries. The lesson is `ready` only when every segment is ready; otherwise `failed`, and Retry re-runs just the failed segments.
+- Scene, review, script, and chat calls get page slices (`pdf.ts`), never the full file (`assertSliced` throws). Logs show `attached_pages`.
+- Queues (`queue.ts`): one Gemini queue (`GEMINI_MAX_CONCURRENCY`) and one render queue (`RENDER_CONCURRENCY`). Order: user-clicked lesson/chat first, then the viewed course (latest `/ws` subscribe), then auto lesson → chapter work → background, oldest first.
+- Docs: `users/{uid}/courses/{c}/chapters/{ch}`, `…/lessons/{l}` (has `chapterId`), `…/lessons/{l}/segments/{s}/rounds/{n}`, plus `users/{uid}/lessonIndex/{l}`, `chapterIndex/{ch}`, `progress/{l}`, `pageText/{sourceId}`. Ids: `{courseId}-c1`, `{chapterId}-l1`, `s01`.
+- Retry, scoped to where it failed: `POST /api/courses/:id/retry` (structure), `POST /api/chapters/:id/retry`, `POST /api/lessons/:id/retry`. Learner rewrite: `POST /api/lessons/:id/segments/:sid/regenerate`. Chat: `POST /api/lessons/:id/ask` (`call_type=chat`).
+- Restart recovery (`docstore.recoverInterrupted`): writing chapters → pending, rendering lessons → queued, unfinished segments → pending (ready ones are kept), then `resumeCourse` per open course.
+- Reset everything: `curl -X POST localhost:8787/api/admin/reset` (local dev only; also the header's "Clear resources" button). It also clears the slice/page-text caches and both queues and stops runs in flight.
 - Tests: `npm test` (shared + backend without AI), `npm run test:backend` (real Vertex calls).
 
 ## Schemas: one source of truth
-- zod schemas in `packages/shared/src/schemas.ts` define every layout. `toModelSchema()` (`shared/src/modelSchema.ts`) generates the Gemini response schemas from them: the layout is an `anyOf` with one branch per type, each with its own `required` list (e.g. `callout` requires `kind`, `title`, `body`).
-- `segmentModelSchema` / `lessonModelSchema` run `applySegmentDefaults` first: missing `titleCard.title`, `bullets.heading`, `callout.title` become the segment title; an unknown `callout.kind` becomes `keyPoint`. Content fields are never invented.
+- zod schemas in `packages/shared/src/schemas.ts` define every model response (`structure`, `chapterText`, `lessonOutline`, `lessonScript`, `studyDoc`, `beats`, `scene`, `segment`, `review`, `chat`). `toModelSchema()` (`shared/src/modelSchema.ts`) generates the Gemini response schemas: a scene layout is an `anyOf` with one branch per type, each with its own `required` list.
+- Limits (`shared/src/limits.ts`): 140 wpm, 30 fps, `LESSON_WORDS` 420–660, segments 6–15 s.
+- `sceneModelSchema` runs `applySegmentDefaults` first: missing `titleCard.title`, `bullets.heading`, `callout.title` become the segment title; an unknown `callout.kind` becomes `keyPoint`. Content fields are never invented.
 - `packages/pipeline/src/ai_schemas.json` is a generated copy. After changing a zod schema run `npm run build -w @krayon/shared && npm run schemas -w @krayon/pipeline`; `local-backend/test/generate.test.ts` fails if it drifts.
 
 ## Error codes (`errorInfo.code`)
-`errorInfo = {code, message, issues: [{path, message}], attempts}` is stored on failed segment/topic/course docs, sent on `segment.failed` / `topic.failed` / `course.failed` events, and returned by `/api/ai/generate`.
-| code | meaning | `/api/ai/generate` |
+`errorInfo = {code, message, issues: [{path, message}], attempts}` is stored on failed segment/lesson/chapter/course docs, sent on `segment.failed` / `lesson.failed` / `chapter.failed` / `structure.failed` events, and returned by `/api/ai/generate` and `/ask`.
+| code | meaning | HTTP |
 |---|---|---|
-| `SCHEMA_INVALID` | JSON parsed but zod or `validateSegment` rejected it after every attempt | 422 |
+| `SCHEMA_INVALID` | JSON parsed but zod or a check rejected it after every attempt | 422 |
 | `NOT_JSON` | the model output was not JSON | 422 |
-| `MAX_TOKENS` | output hit `MAX_OUTPUT_TOKENS` (after transport retries) | 502 |
-| `TIMEOUT` | the call was aborted (`GENERATE_TIMEOUT_MS`, 90 s) | 502 |
-| `UPSTREAM` | any other Vertex/Gemini/transport error | 502 (503 if no AI backend is configured) |
-Issue paths are relative to the validated object, e.g. `scene.layout.body: Invalid input: expected string, received undefined`.
+| `MAX_TOKENS` | output hit the token limit (8k, or 16k for long calls) | 502 |
+| `TIMEOUT` | the call was aborted (90 s, or 120 s for long calls) | 502 |
+| `UPSTREAM` | any other Vertex/Gemini/transport error, or a safety block | 502 (503 if no AI backend is configured) |
+Issue paths are relative to the validated object, e.g. `scene.layout.body: Invalid input: expected string, received undefined` or `chapters[3].pdfPageStart: Overlaps "Sorting"`.
 
 ## Logs
 Location: `local-backend/logs/` (gitignored; rotated). The same lines also go to the console (the `[backend]` prefix in `npm run dev`).
@@ -44,21 +52,20 @@ Location: `local-backend/logs/` (gitignored; rotated). The same lines also go to
 Events (`event` key):
 - `response` (`krayon.http`), one per request: `method`, `path`, `status`, `duration_ms`, redacted headers, truncated bodies. INFO for 2xx/3xx, WARNING for 4xx, ERROR for 5xx.
 - `error`: an unhandled exception, with `exc`. The client gets 500 `{"detail", "requestId"}`.
-- `gemini` (`krayon.gemini`): one per successful model call: `model`, `finish_reason`, `usage{prompt,output,total}` (and `latency_ms`, `backend`, … on the `/api/ai/generate` path).
-- Validated generation (`krayon.gemini`, from `packages/pipeline/src/generate.ts`); `schema` is `roadmap|lesson|segment|repair|retry|review|api` names:
-  - `ai.attempt` (WARNING): one per rejected attempt: `schema`, `attempt`, `max_attempts`, `code`, `issues[]`, `raw` (first 1500 chars of model output), plus `courseId`/`topicId`/`segmentId`.
+- `gemini` (`krayon.gemini`): one per model call: `call_type` (the schema name, or `api`), `model`, `finish_reason`, `usage{prompt,output,total}`, `queue_wait_ms`, `call_ms`, `duration_ms`, `attached_pages`, `full_document`, plus `courseId`/`chapterId`/`lessonId`/`segmentId`.
+- Validated generation (`krayon.gemini`, `packages/pipeline/src/generate.ts`); `schema` is the call type:
+  - `ai.attempt` (WARNING): one per rejected attempt: `schema`, `attempt`, `max_attempts`, `code`, `issues[]`, `raw` (first 1500 chars of model output).
   - `ai.repaired` (INFO): a later attempt passed.
-  - `ai.accepted` (INFO): kept the best zod-valid value that still has scene issues (segmentLoop check only).
+  - `ai.accepted` (INFO): kept the best zod-valid value that still has check issues (scripts, beats).
   - `ai.failed` (ERROR): final failure: `code`, `attempts`, `issues[]`.
-- `segment.invalid` (WARNING): a drafted segment failed zod/`validateSegment` before repair (`issues`, `raw`).
-- `segment.repair` (WARNING): a check-step repair failed; the previous segment is kept.
-- `segment.fix` (INFO): a review `patchedSegment` was rejected (`issues`).
-- `segment.failed` / `topic.failed` / `course.failed` (ERROR from the pipeline with `code` and `issues`; INFO from the event bus with `code` and `error`).
-- `segment.retry`, `topic.retry` (INFO): a Retry started.
-- `ai.generate` (`krayon.app`, WARNING): `/api/ai/generate` failed: `status`, `code`, `schema_name`.
-- Pipeline events (`krayon.pipeline`), one per emitted event: `courseId`, `topicId`, `segmentId`, `round`, `flow`, `step`, `score`, `pass`.
+- Stage logs: `structure.ranges` (resolved ranges, `offset_method`), `structure.ready`, `chapter.text`, `chapter.split_range`, `chapter.lessons` (word counts), `chapter.ready`, `lesson.beats` (segments, seconds), `lesson.beats_fallback`, `segment.retry`, `segment.ready`, `lesson.ready`; each with `duration_ms`.
+- `render.done` / `render.failed` (with `duration_ms`), `render.wait` (DEBUG, `queue_wait_ms`).
+- `segment.fix` (INFO): a review `patchedSegment` was rejected (`issues`). `segment.review` (ERROR): review stopped; the segment is kept as unreviewed unless it was a safety block.
+- `segment.failed` / `lesson.failed` / `chapter.failed` / `structure.failed` (ERROR from the pipeline with `code` and `issues`; INFO from the event bus).
+- `ai.generate`, `ai.chat` (`krayon.app`, WARNING): `/api/ai/generate` or `/ask` failed: `status`, `code`.
+- Pipeline events (`krayon.pipeline`), one per emitted event: `courseId`, `chapterId`, `lessonId`, `segmentId`, `ready`/`total`, `round`, `flow`, `step`, `score`, `pass`.
 - `job`: `job_id`, `kind`, `status` (queued, running, done, error), `duration_ms`.
-- `reset`, `startup`; at DEBUG only: `docstore.*`, `storage.*`, `gemini.text`.
+- `recover` (counts reset after a restart), `reset`, `startup`; at DEBUG only: `docstore.*`, `storage.*`, `gemini.text`, `queue.viewed`.
 
 Every response carries an `X-Request-ID` header (send your own to choose it); the id propagates into job and pipeline logs, so one course run shares one `request_id`.
 
@@ -68,23 +75,24 @@ cd local-backend/logs
 tail -f app.log                                                       # live
 grep '<request_id>' app.log                                           # everything for one request / course run
 jq -c 'select(.level=="ERROR" or .level=="WARNING") | {ts,request_id,msg,code,issues}' app.jsonl
-jq -c 'select(.event=="ai.attempt") | {ts,schema,attempt,code,segmentId,issues}' app.jsonl   # retries
-jq -c 'select(.event=="ai.failed") | {ts,schema,code,attempts,courseId,topicId,segmentId,issues}' app.jsonl
+jq -c 'select(.event=="ai.attempt") | {ts,schema,attempt,code,lessonId,segmentId,issues}' app.jsonl   # retries
+jq -c 'select(.event=="ai.failed") | {ts,schema,code,attempts,chapterId,lessonId,segmentId,issues}' app.jsonl
 jq -r 'select(.event=="ai.attempt" and .segmentId=="<id>") | .raw' app.jsonl                 # what the model sent
-jq -c 'select(.event=="segment.failed" or .event=="topic.failed") | {ts,topicId,segmentId,code,error}' app.jsonl
-jq -c 'select(.event=="gemini") | {ts,model,latency_ms,usage,finish_reason}' app.jsonl
+jq -c 'select(.event|test("failed$")) | {ts,event,chapterId,lessonId,segmentId,code,error}' app.jsonl
+jq -s 'map(select(.event=="gemini")) | group_by(.call_type) | map({call_type:.[0].call_type, calls:length, prompt:(map(.usage.prompt//0)|add), output:(map(.usage.output//0)|add), avg_ms:((map(.call_ms//0)|add)/length|floor)})' app.jsonl   # tokens per call type
+jq -c 'select(.event=="structure.ranges") | .ranges' app.jsonl                              # chapter page ranges
 jq -r 'select(.exc) | .ts + " " + .request_id + "\n" + .exc' app.jsonl                       # stack traces
 sqlite3 ../data/firestore.sqlite3 "select collection,id,json_extract(data,'$.error') from docs where json_extract(data,'$.status')='failed'"
 ```
-In the browser: the Network tab shows `X-Request-ID` on every `/api` response; failed parts show their path-qualified message (hover for the code).
+In the browser: the Network tab shows `X-Request-ID` on every `/api` response; failed parts show their message with Retry where they happened (course banner, chapter header, lesson row and lesson page).
 
 ## Settings (`local-backend/.env`)
 - `LOG_LEVEL` (`INFO`; `DEBUG` adds docstore, storage and raw Gemini output), `LOG_BODY_MAX` (2000), `LOG_DIR` (`./logs`), `DATA_DIR` (`./data`), `PORT` (8787).
-- `MAX_REPAIR_ROUNDS` (2): a broken segment gets `MAX_REPAIR_ROUNDS + 1` validated repair calls; roadmap/lesson/review drafts get 2 attempts. Transport errors (429/5xx/abort/MAX_TOKENS) are retried 3× inside each call.
-- `GEMINI_REVIEW_MODEL`, `MAX_REVIEW_ROUNDS`, `REVIEW_PASS_SCORE`, `TOPIC_CONCURRENCY`, `RENDER_KEYFRAMES_MAX` control the segment loop. Restart the backend after changing them.
+- `MAX_REPAIR_ROUNDS` (2): a broken scene gets `MAX_REPAIR_ROUNDS + 1` validated calls. 429s are retried with backoff inside each call; `MAX_TOKENS` fails at once.
+- `SEGMENT_RETRIES` (2), `CHAPTER_CONCURRENCY` (3), `GEMINI_MAX_CONCURRENCY` (5), `RENDER_CONCURRENCY` (2), `RENDER_KEYFRAMES_MAX` (8), `GEMINI_REVIEW_MODEL`, `MAX_REVIEW_ROUNDS`, `REVIEW_PASS_SCORE`. Restart the backend after changing them.
 - To test without touching the dev server or its data, run another instance: `PORT=8797 DATA_DIR=/tmp/k/data LOG_DIR=/tmp/k/logs npx tsx src/index.ts` in `local-backend/`.
 
 ## Rules for agents
-- Check `app.jsonl` for the failing request id before guessing; quote the relevant lines (`ai.attempt` → `ai.failed` → `segment.failed`).
+- Check `app.jsonl` for the failing request id before guessing; quote the relevant lines (`ai.attempt` → `ai.failed` → `segment.failed` → `lesson.failed`).
 - Never print or log secrets. The logger masks keys matching authorization, cookie, api key, token, secret, password or credential, plus `AIza…`, `ya29.…` and `Bearer …` values. Don't add a field whose key contains "token" if you want it visible (that's why Gemini usage is logged under `usage`).
 - Don't reset data (`/api/admin/reset`) or delete `data/` or `logs/` unless the user asks.

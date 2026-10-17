@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import type { GeneratedLesson, GeneratedSegment, Roadmap, SceneLayout } from './scene.js';
+import { FPS, LESSON_WORDS, SEGMENT_FRAMES, wordCount } from './limits.js';
+import type { GeneratedSegment, SceneLayout } from './scene.js';
 
 const optionalText = z
   .string()
@@ -152,14 +153,19 @@ const sceneSchema = z.object({
 export const segmentSchema = z.object({
   id: z.string().min(1).describe('Unique kebab-case id.'),
   title: z.string().min(1),
-  durationInFrames: z.number().describe('Length at 30 fps, between 90 and 450.'),
-  narration: z.string().default('').describe('One or two sentences shown as the caption.'),
+  durationInFrames: z
+    .number()
+    .min(SEGMENT_FRAMES.min)
+    .max(SEGMENT_FRAMES.max)
+    .describe(`Length at ${FPS} fps, between ${SEGMENT_FRAMES.min} and ${SEGMENT_FRAMES.max}.`),
+  narration: z.string().default('').describe('The spoken narration for this segment.'),
   scene: sceneSchema,
 });
 
-export const lessonSchema = z.object({
-  studyDoc: z.string().default('').describe('Markdown notes for this topic.'),
-  segments: z.array(segmentSchema).min(1),
+/** What the scene model writes for one segment. Duration and narration come from the backend. */
+export const sceneOnlySchema = z.object({
+  title: z.string().min(1).describe('Short on-screen title for this segment.'),
+  scene: sceneSchema,
 });
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -188,27 +194,110 @@ export const applySegmentDefaults = (raw: unknown): unknown => {
 /** segmentSchema with applySegmentDefaults applied first. Use it to parse model output. */
 export const segmentModelSchema = z.preprocess(applySegmentDefaults, segmentSchema);
 
-/** lessonSchema with applySegmentDefaults applied to every segment. Use it to parse model output. */
-export const lessonModelSchema = z.preprocess(
-  (raw) => (isRecord(raw) && Array.isArray(raw.segments) ? { ...raw, segments: raw.segments.map(applySegmentDefaults) } : raw),
-  lessonSchema,
-);
+/** sceneOnlySchema with applySegmentDefaults applied first. */
+export const sceneModelSchema = z.preprocess(applySegmentDefaults, sceneOnlySchema);
 
-export const roadmapSchema = z.object({
+const filePage = z.number().int().min(1).describe('1-based page of the attached file.');
+
+/** Structure pass: the only call that sees the whole document. */
+export const structureSchema = z.object({
   title: z.string().min(1).describe('Short name for the whole subject, used as the library title.'),
   category: z.string().min(1).describe('One word, title case, such as Economy, Business, or Software.'),
-  topics: z
+  chapters: z
     .array(
       z.object({
-        id: z.string().min(1).describe('Unique kebab-case id.'),
+        title: z.string().min(1).describe('Chapter title as written in the document, without the number.'),
+        printedStart: z
+          .number()
+          .int()
+          .nullish()
+          .transform((value) => value ?? undefined)
+          .describe('Start page printed in the table of contents, if the document has one.'),
+        pdfPageStart: filePage.describe('1-based page of the attached file where the chapter starts (count file pages, not printed numbers).'),
+        pdfPageEnd: filePage.describe('1-based page of the attached file where the chapter ends.'),
+        skip: z
+          .boolean()
+          .nullish()
+          .transform((value) => value ?? false)
+          .describe('True for front or back matter: cover, preface, contents, index, bibliography.'),
+      }),
+    )
+    .min(1),
+  pageLabelSamples: z
+    .array(
+      z.object({
+        pdfPage: filePage,
+        printedLabel: z.string().min(1).describe('Page number printed on that page.'),
+      }),
+    )
+    .default([])
+    .describe('Up to 5 pages where a printed page number is visible, to map printed numbers to file pages.'),
+});
+
+export const chapterTextSchema = z.object({
+  chapterText: z.string().min(1).describe('Markdown that explains the attached pages in full: ideas, definitions, examples, and figures.'),
+});
+
+export const lessonOutlineSchema = z.object({
+  lessons: z
+    .array(
+      z.object({
         title: z.string().min(1),
-        summary: z.string().default(''),
-        prerequisites: z.array(z.string().describe('Id of another topic in this roadmap.')).default([]),
-        sourcePages: z.array(z.number().describe('1-based page number. Use 1 for a photo.')).default([]),
+        focus: z.string().min(1).describe('One or two sentences: what this lesson teaches.'),
+        pageStart: filePage,
+        pageEnd: filePage,
       }),
     )
     .min(1),
 });
+
+export const lessonScriptSchema = z.object({
+  explanationSummary: z
+    .string()
+    .min(1)
+    .describe(`Spoken script, plain prose without markdown or lists, ${LESSON_WORDS.min} to ${LESSON_WORDS.max} words.`),
+});
+
+export const studyDocSchema = z.object({
+  studyDoc: z.string().min(1).describe('Markdown study notes, more extensive than the spoken script.'),
+});
+
+export const beatsSchema = z.object({
+  beats: z
+    .array(
+      z.object({
+        firstSentence: z.number().int().min(1).describe('Number of the first script sentence in this beat.'),
+        lastSentence: z.number().int().min(1).describe('Number of the last script sentence in this beat.'),
+        title: z.string().min(1).describe('Short on-screen title.'),
+        visual: z.string().min(1).describe('One visual that shows the idea: which template and what it shows.'),
+        pages: z.array(filePage).default([]).describe('Pages of the attached file this beat draws on.'),
+      }),
+    )
+    .min(1),
+});
+
+export const chatSchema = z.object({
+  answer: z.string().min(1).describe('Markdown answer to the learner.'),
+});
+
+/** A lesson as stored. The script must meet LESSON_WORDS unless the source material is short. */
+export const storedLessonSchema = z
+  .object({
+    title: z.string().min(1),
+    explanationSummary: z.string().min(1),
+    studyDoc: z.string(),
+    shortSource: z.boolean().default(false),
+  })
+  .superRefine((value, context) => {
+    const words = wordCount(value.explanationSummary);
+    if (words > LESSON_WORDS.max || (!value.shortSource && words < LESSON_WORDS.min)) {
+      context.addIssue({
+        code: 'custom',
+        path: ['explanationSummary'],
+        message: `Has ${words} words; needs ${LESSON_WORDS.min} to ${LESSON_WORDS.max}.`,
+      });
+    }
+  });
 
 export const reviewIssueSchema = z.object({
   frame: z.number(),
@@ -220,11 +309,11 @@ export const reviewSchema = z.object({
   pass: z.boolean(),
   score: z.number().min(0).max(10),
   issues: z.array(reviewIssueSchema).default([]),
-  patchedSegment: segmentSchema.optional(),
+  patchedSegment: sceneOnlySchema.optional().describe('Corrected title and scene, if you can fix it.'),
 });
 
 export type ReviewIssue = z.infer<typeof reviewIssueSchema>;
-export type ParsedRoadmap = Roadmap;
-export type ParsedLesson = GeneratedLesson;
 export type ParsedSegment = GeneratedSegment;
+export type ParsedStructure = z.infer<typeof structureSchema>;
+export type ParsedBeats = z.infer<typeof beatsSchema>;
 export type ReviewResult = z.infer<typeof reviewSchema>;

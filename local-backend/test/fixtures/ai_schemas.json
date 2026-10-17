@@ -1,5 +1,5 @@
 {
-  "roadmap": {
+  "structure": {
     "type": "object",
     "properties": {
       "title": {
@@ -10,40 +10,61 @@
         "type": "string",
         "description": "One word, title case, such as Economy, Business, or Software."
       },
-      "topics": {
+      "chapters": {
         "minItems": 1,
         "type": "array",
         "items": {
           "type": "object",
           "properties": {
-            "id": {
-              "type": "string",
-              "description": "Unique kebab-case id."
-            },
             "title": {
-              "type": "string"
+              "type": "string",
+              "description": "Chapter title as written in the document, without the number."
             },
-            "summary": {
-              "type": "string"
+            "printedStart": {
+              "type": "integer",
+              "description": "Start page printed in the table of contents, if the document has one."
             },
-            "prerequisites": {
-              "type": "array",
-              "items": {
-                "type": "string",
-                "description": "Id of another topic in this roadmap."
-              }
+            "pdfPageStart": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "1-based page of the attached file where the chapter starts (count file pages, not printed numbers)."
             },
-            "sourcePages": {
-              "type": "array",
-              "items": {
-                "type": "number",
-                "description": "1-based page number. Use 1 for a photo."
-              }
+            "pdfPageEnd": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "1-based page of the attached file where the chapter ends."
+            },
+            "skip": {
+              "description": "True for front or back matter: cover, preface, contents, index, bibliography.",
+              "type": "boolean"
             }
           },
           "required": [
-            "id",
-            "title"
+            "title",
+            "pdfPageStart",
+            "pdfPageEnd"
+          ]
+        }
+      },
+      "pageLabelSamples": {
+        "description": "Up to 5 pages where a printed page number is visible, to map printed numbers to file pages.",
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "pdfPage": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "1-based page of the attached file."
+            },
+            "printedLabel": {
+              "type": "string",
+              "description": "Page number printed on that page."
+            }
+          },
+          "required": [
+            "pdfPage",
+            "printedLabel"
           ]
         }
       }
@@ -51,508 +72,605 @@
     "required": [
       "title",
       "category",
-      "topics"
+      "chapters"
     ]
   },
-  "lesson": {
+  "chapterText": {
     "type": "object",
     "properties": {
-      "studyDoc": {
-        "description": "Markdown notes for this topic.",
-        "type": "string"
-      },
-      "segments": {
+      "chapterText": {
+        "type": "string",
+        "description": "Markdown that explains the attached pages in full: ideas, definitions, examples, and figures."
+      }
+    },
+    "required": [
+      "chapterText"
+    ]
+  },
+  "lessonOutline": {
+    "type": "object",
+    "properties": {
+      "lessons": {
         "minItems": 1,
         "type": "array",
         "items": {
           "type": "object",
           "properties": {
-            "id": {
-              "type": "string",
-              "description": "Unique kebab-case id."
-            },
             "title": {
               "type": "string"
             },
-            "durationInFrames": {
-              "type": "number",
-              "description": "Length at 30 fps, between 90 and 450."
+            "focus": {
+              "type": "string",
+              "description": "One or two sentences: what this lesson teaches."
             },
-            "narration": {
-              "description": "One or two sentences shown as the caption.",
-              "type": "string"
+            "pageStart": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "1-based page of the attached file."
             },
-            "scene": {
-              "type": "object",
-              "properties": {
-                "layout": {
-                  "anyOf": [
-                    {
-                      "type": "object",
-                      "properties": {
-                        "type": {
-                          "type": "string",
-                          "enum": [
-                            "titleCard"
-                          ]
-                        },
-                        "title": {
-                          "type": "string"
-                        },
-                        "subtitle": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "type",
-                        "title"
-                      ]
-                    },
-                    {
-                      "type": "object",
-                      "properties": {
-                        "type": {
-                          "type": "string",
-                          "enum": [
-                            "bullets"
-                          ]
-                        },
-                        "heading": {
-                          "type": "string"
-                        },
-                        "items": {
-                          "minItems": 1,
-                          "maxItems": 5,
-                          "type": "array",
-                          "items": {
-                            "type": "object",
-                            "properties": {
-                              "text": {
-                                "type": "string"
-                              },
-                              "appearAt": {
-                                "description": "Optional frame when this item appears.",
-                                "type": "number"
-                              }
-                            },
-                            "required": [
-                              "text"
-                            ]
-                          }
-                        }
-                      },
-                      "required": [
-                        "type",
-                        "heading",
-                        "items"
-                      ]
-                    },
-                    {
-                      "type": "object",
-                      "properties": {
-                        "type": {
-                          "type": "string",
-                          "enum": [
-                            "flow"
-                          ]
-                        },
-                        "heading": {
-                          "type": "string"
-                        },
-                        "direction": {
-                          "type": "string",
-                          "enum": [
-                            "horizontal",
-                            "vertical"
-                          ]
-                        },
-                        "nodes": {
-                          "minItems": 2,
-                          "maxItems": 6,
-                          "type": "array",
-                          "items": {
-                            "type": "object",
-                            "properties": {
-                              "id": {
-                                "type": "string"
-                              },
-                              "label": {
-                                "type": "string",
-                                "description": "About 6 words."
-                              },
-                              "sublabel": {
-                                "type": "string"
-                              },
-                              "appearAt": {
-                                "description": "Optional frame when this item appears.",
-                                "type": "number"
-                              }
-                            },
-                            "required": [
-                              "id",
-                              "label"
-                            ]
-                          }
-                        },
-                        "edges": {
-                          "type": "array",
-                          "items": {
-                            "type": "object",
-                            "properties": {
-                              "from": {
-                                "type": "string"
-                              },
-                              "to": {
-                                "type": "string"
-                              },
-                              "label": {
-                                "type": "string"
-                              }
-                            },
-                            "required": [
-                              "from",
-                              "to"
-                            ]
-                          }
-                        }
-                      },
-                      "required": [
-                        "type",
-                        "nodes"
-                      ]
-                    },
-                    {
-                      "type": "object",
-                      "properties": {
-                        "type": {
-                          "type": "string",
-                          "enum": [
-                            "compare"
-                          ]
-                        },
-                        "heading": {
-                          "type": "string"
-                        },
-                        "left": {
-                          "type": "object",
-                          "properties": {
-                            "title": {
-                              "type": "string"
-                            },
-                            "points": {
-                              "minItems": 1,
-                              "maxItems": 5,
-                              "type": "array",
-                              "items": {
-                                "type": "object",
-                                "properties": {
-                                  "text": {
-                                    "type": "string"
-                                  },
-                                  "appearAt": {
-                                    "description": "Optional frame when this item appears.",
-                                    "type": "number"
-                                  }
-                                },
-                                "required": [
-                                  "text"
-                                ]
-                              }
-                            }
-                          },
-                          "required": [
-                            "title",
-                            "points"
-                          ]
-                        },
-                        "right": {
-                          "type": "object",
-                          "properties": {
-                            "title": {
-                              "type": "string"
-                            },
-                            "points": {
-                              "minItems": 1,
-                              "maxItems": 5,
-                              "type": "array",
-                              "items": {
-                                "type": "object",
-                                "properties": {
-                                  "text": {
-                                    "type": "string"
-                                  },
-                                  "appearAt": {
-                                    "description": "Optional frame when this item appears.",
-                                    "type": "number"
-                                  }
-                                },
-                                "required": [
-                                  "text"
-                                ]
-                              }
-                            }
-                          },
-                          "required": [
-                            "title",
-                            "points"
-                          ]
-                        }
-                      },
-                      "required": [
-                        "type",
-                        "left",
-                        "right"
-                      ]
-                    },
-                    {
-                      "type": "object",
-                      "properties": {
-                        "type": {
-                          "type": "string",
-                          "enum": [
-                            "hubSpoke"
-                          ]
-                        },
-                        "center": {
-                          "type": "object",
-                          "properties": {
-                            "id": {
-                              "type": "string"
-                            },
-                            "label": {
-                              "type": "string"
-                            }
-                          },
-                          "required": [
-                            "id",
-                            "label"
-                          ]
-                        },
-                        "spokes": {
-                          "minItems": 3,
-                          "maxItems": 6,
-                          "type": "array",
-                          "items": {
-                            "type": "object",
-                            "properties": {
-                              "id": {
-                                "type": "string"
-                              },
-                              "label": {
-                                "type": "string",
-                                "description": "About 6 words."
-                              },
-                              "sublabel": {
-                                "type": "string"
-                              },
-                              "appearAt": {
-                                "description": "Optional frame when this item appears.",
-                                "type": "number"
-                              }
-                            },
-                            "required": [
-                              "id",
-                              "label"
-                            ]
-                          }
-                        }
-                      },
-                      "required": [
-                        "type",
-                        "center",
-                        "spokes"
-                      ]
-                    },
-                    {
-                      "type": "object",
-                      "properties": {
-                        "type": {
-                          "type": "string",
-                          "enum": [
-                            "chart"
-                          ]
-                        },
-                        "heading": {
-                          "type": "string"
-                        },
-                        "xLabel": {
-                          "type": "string"
-                        },
-                        "yLabel": {
-                          "type": "string"
-                        },
-                        "curves": {
-                          "minItems": 1,
-                          "maxItems": 4,
-                          "type": "array",
-                          "items": {
-                            "type": "object",
-                            "properties": {
-                              "id": {
-                                "type": "string"
-                              },
-                              "label": {
-                                "type": "string"
-                              },
-                              "kind": {
-                                "type": "string",
-                                "enum": [
-                                  "upward",
-                                  "downward",
-                                  "flat"
-                                ]
-                              },
-                              "shift": {
-                                "type": "string",
-                                "enum": [
-                                  "left",
-                                  "right"
-                                ]
-                              },
-                              "appearAt": {
-                                "description": "Optional frame when this item appears.",
-                                "type": "number"
-                              }
-                            },
-                            "required": [
-                              "id",
-                              "label",
-                              "kind"
-                            ]
-                          }
-                        },
-                        "markers": {
-                          "type": "array",
-                          "items": {
-                            "type": "object",
-                            "properties": {
-                              "type": {
-                                "type": "string",
-                                "enum": [
-                                  "intersection",
-                                  "point"
-                                ]
-                              },
-                              "curveIds": {
-                                "type": "array",
-                                "items": {
-                                  "type": "string"
-                                }
-                              },
-                              "label": {
-                                "type": "string"
-                              },
-                              "appearAt": {
-                                "description": "Optional frame when this item appears.",
-                                "type": "number"
-                              }
-                            },
-                            "required": [
-                              "type",
-                              "label"
-                            ]
-                          }
-                        }
-                      },
-                      "required": [
-                        "type",
-                        "xLabel",
-                        "yLabel",
-                        "curves"
-                      ]
-                    },
-                    {
-                      "type": "object",
-                      "properties": {
-                        "type": {
-                          "type": "string",
-                          "enum": [
-                            "timeline"
-                          ]
-                        },
-                        "heading": {
-                          "type": "string"
-                        },
-                        "steps": {
-                          "minItems": 2,
-                          "maxItems": 6,
-                          "type": "array",
-                          "items": {
-                            "type": "object",
-                            "properties": {
-                              "label": {
-                                "type": "string"
-                              },
-                              "detail": {
-                                "type": "string"
-                              },
-                              "appearAt": {
-                                "description": "Optional frame when this item appears.",
-                                "type": "number"
-                              }
-                            },
-                            "required": [
-                              "label"
-                            ]
-                          }
-                        }
-                      },
-                      "required": [
-                        "type",
-                        "steps"
-                      ]
-                    },
-                    {
-                      "type": "object",
-                      "properties": {
-                        "type": {
-                          "type": "string",
-                          "enum": [
-                            "callout"
-                          ]
-                        },
-                        "kind": {
-                          "type": "string",
-                          "enum": [
-                            "definition",
-                            "example",
-                            "keyPoint"
-                          ]
-                        },
-                        "title": {
-                          "type": "string"
-                        },
-                        "body": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "type",
-                        "kind",
-                        "title",
-                        "body"
-                      ]
-                    }
-                  ],
-                  "description": "Exactly one template. Fill every required field of the chosen type."
-                }
-              },
-              "required": [
-                "layout"
-              ]
+            "pageEnd": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "1-based page of the attached file."
             }
           },
           "required": [
-            "id",
             "title",
-            "durationInFrames",
-            "scene"
+            "focus",
+            "pageStart",
+            "pageEnd"
           ]
         }
       }
     },
     "required": [
-      "segments"
+      "lessons"
+    ]
+  },
+  "lessonScript": {
+    "type": "object",
+    "properties": {
+      "explanationSummary": {
+        "type": "string",
+        "description": "Spoken script, plain prose without markdown or lists, 420 to 660 words."
+      }
+    },
+    "required": [
+      "explanationSummary"
+    ]
+  },
+  "studyDoc": {
+    "type": "object",
+    "properties": {
+      "studyDoc": {
+        "type": "string",
+        "description": "Markdown study notes, more extensive than the spoken script."
+      }
+    },
+    "required": [
+      "studyDoc"
+    ]
+  },
+  "beats": {
+    "type": "object",
+    "properties": {
+      "beats": {
+        "minItems": 1,
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "firstSentence": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Number of the first script sentence in this beat."
+            },
+            "lastSentence": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Number of the last script sentence in this beat."
+            },
+            "title": {
+              "type": "string",
+              "description": "Short on-screen title."
+            },
+            "visual": {
+              "type": "string",
+              "description": "One visual that shows the idea: which template and what it shows."
+            },
+            "pages": {
+              "description": "Pages of the attached file this beat draws on.",
+              "type": "array",
+              "items": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "1-based page of the attached file."
+              }
+            }
+          },
+          "required": [
+            "firstSentence",
+            "lastSentence",
+            "title",
+            "visual"
+          ]
+        }
+      }
+    },
+    "required": [
+      "beats"
+    ]
+  },
+  "scene": {
+    "type": "object",
+    "properties": {
+      "title": {
+        "type": "string",
+        "description": "Short on-screen title for this segment."
+      },
+      "scene": {
+        "type": "object",
+        "properties": {
+          "layout": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "titleCard"
+                    ]
+                  },
+                  "title": {
+                    "type": "string"
+                  },
+                  "subtitle": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type",
+                  "title"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "bullets"
+                    ]
+                  },
+                  "heading": {
+                    "type": "string"
+                  },
+                  "items": {
+                    "minItems": 1,
+                    "maxItems": 5,
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "text": {
+                          "type": "string"
+                        },
+                        "appearAt": {
+                          "description": "Optional frame when this item appears.",
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "text"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "type",
+                  "heading",
+                  "items"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "flow"
+                    ]
+                  },
+                  "heading": {
+                    "type": "string"
+                  },
+                  "direction": {
+                    "type": "string",
+                    "enum": [
+                      "horizontal",
+                      "vertical"
+                    ]
+                  },
+                  "nodes": {
+                    "minItems": 2,
+                    "maxItems": 6,
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "label": {
+                          "type": "string",
+                          "description": "About 6 words."
+                        },
+                        "sublabel": {
+                          "type": "string"
+                        },
+                        "appearAt": {
+                          "description": "Optional frame when this item appears.",
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "label"
+                      ]
+                    }
+                  },
+                  "edges": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "from": {
+                          "type": "string"
+                        },
+                        "to": {
+                          "type": "string"
+                        },
+                        "label": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "from",
+                        "to"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "type",
+                  "nodes"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "compare"
+                    ]
+                  },
+                  "heading": {
+                    "type": "string"
+                  },
+                  "left": {
+                    "type": "object",
+                    "properties": {
+                      "title": {
+                        "type": "string"
+                      },
+                      "points": {
+                        "minItems": 1,
+                        "maxItems": 5,
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "text": {
+                              "type": "string"
+                            },
+                            "appearAt": {
+                              "description": "Optional frame when this item appears.",
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "text"
+                          ]
+                        }
+                      }
+                    },
+                    "required": [
+                      "title",
+                      "points"
+                    ]
+                  },
+                  "right": {
+                    "type": "object",
+                    "properties": {
+                      "title": {
+                        "type": "string"
+                      },
+                      "points": {
+                        "minItems": 1,
+                        "maxItems": 5,
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "text": {
+                              "type": "string"
+                            },
+                            "appearAt": {
+                              "description": "Optional frame when this item appears.",
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "text"
+                          ]
+                        }
+                      }
+                    },
+                    "required": [
+                      "title",
+                      "points"
+                    ]
+                  }
+                },
+                "required": [
+                  "type",
+                  "left",
+                  "right"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "hubSpoke"
+                    ]
+                  },
+                  "center": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "label": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "label"
+                    ]
+                  },
+                  "spokes": {
+                    "minItems": 3,
+                    "maxItems": 6,
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "label": {
+                          "type": "string",
+                          "description": "About 6 words."
+                        },
+                        "sublabel": {
+                          "type": "string"
+                        },
+                        "appearAt": {
+                          "description": "Optional frame when this item appears.",
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "label"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "type",
+                  "center",
+                  "spokes"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "chart"
+                    ]
+                  },
+                  "heading": {
+                    "type": "string"
+                  },
+                  "xLabel": {
+                    "type": "string"
+                  },
+                  "yLabel": {
+                    "type": "string"
+                  },
+                  "curves": {
+                    "minItems": 1,
+                    "maxItems": 4,
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "label": {
+                          "type": "string"
+                        },
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "upward",
+                            "downward",
+                            "flat"
+                          ]
+                        },
+                        "shift": {
+                          "type": "string",
+                          "enum": [
+                            "left",
+                            "right"
+                          ]
+                        },
+                        "appearAt": {
+                          "description": "Optional frame when this item appears.",
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "label",
+                        "kind"
+                      ]
+                    }
+                  },
+                  "markers": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "type": "string",
+                          "enum": [
+                            "intersection",
+                            "point"
+                          ]
+                        },
+                        "curveIds": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "label": {
+                          "type": "string"
+                        },
+                        "appearAt": {
+                          "description": "Optional frame when this item appears.",
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "label"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "type",
+                  "xLabel",
+                  "yLabel",
+                  "curves"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "timeline"
+                    ]
+                  },
+                  "heading": {
+                    "type": "string"
+                  },
+                  "steps": {
+                    "minItems": 2,
+                    "maxItems": 6,
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "label": {
+                          "type": "string"
+                        },
+                        "detail": {
+                          "type": "string"
+                        },
+                        "appearAt": {
+                          "description": "Optional frame when this item appears.",
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "label"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "type",
+                  "steps"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "callout"
+                    ]
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "definition",
+                      "example",
+                      "keyPoint"
+                    ]
+                  },
+                  "title": {
+                    "type": "string"
+                  },
+                  "body": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type",
+                  "kind",
+                  "title",
+                  "body"
+                ]
+              }
+            ],
+            "description": "Exactly one template. Fill every required field of the chosen type."
+          }
+        },
+        "required": [
+          "layout"
+        ]
+      }
+    },
+    "required": [
+      "title",
+      "scene"
     ]
   },
   "segment": {
@@ -567,10 +685,12 @@
       },
       "durationInFrames": {
         "type": "number",
-        "description": "Length at 30 fps, between 90 and 450."
+        "minimum": 180,
+        "maximum": 450,
+        "description": "Length at 30 fps, between 180 and 450."
       },
       "narration": {
-        "description": "One or two sentences shown as the caption.",
+        "description": "The spoken narration for this segment.",
         "type": "string"
       },
       "scene": {
@@ -1079,22 +1199,12 @@
         }
       },
       "patchedSegment": {
+        "description": "Corrected title and scene, if you can fix it.",
         "type": "object",
         "properties": {
-          "id": {
-            "type": "string",
-            "description": "Unique kebab-case id."
-          },
           "title": {
-            "type": "string"
-          },
-          "durationInFrames": {
-            "type": "number",
-            "description": "Length at 30 fps, between 90 and 450."
-          },
-          "narration": {
-            "description": "One or two sentences shown as the caption.",
-            "type": "string"
+            "type": "string",
+            "description": "Short on-screen title for this segment."
           },
           "scene": {
             "type": "object",
@@ -1557,9 +1667,7 @@
           }
         },
         "required": [
-          "id",
           "title",
-          "durationInFrames",
           "scene"
         ]
       }
@@ -1567,6 +1675,18 @@
     "required": [
       "pass",
       "score"
+    ]
+  },
+  "chat": {
+    "type": "object",
+    "properties": {
+      "answer": {
+        "type": "string",
+        "description": "Markdown answer to the learner."
+      }
+    },
+    "required": [
+      "answer"
     ]
   }
 }

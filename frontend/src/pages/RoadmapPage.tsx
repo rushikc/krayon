@@ -1,54 +1,22 @@
 import { useState } from 'react';
 import type { ReactNode } from 'react';
 import { Link, Navigate, useMatch, useParams } from 'react-router-dom';
-import { CrayonSketch } from '../components/CrayonSketch.tsx';
-import { FailureNotes } from '../components/FailureNotes.tsx';
-import { topicFailures } from '../study/failures.ts';
+import { CourseRoadmap } from '../components/CourseRoadmap.tsx';
 import { RoadmapTrail, StepPanel } from '../components/RoadmapTrail.tsx';
 import type { TrailChapter, TrailStep } from '../components/RoadmapTrail.tsx';
-import { Button } from '../components/ui/Button.tsx';
 import { HandUnderline } from '../components/ui/HandUnderline.tsx';
 import { IconBack, IconCheck, IconClock } from '../components/ui/icons.tsx';
 import { Shell } from '../components/ui/Shell.tsx';
 import type { SourceFile, Subtopic } from '../data/topics.ts';
 import { getTopic } from '../data/topics.ts';
 import { usePalette } from '../paletteState.ts';
-import { orderTopics } from '../remotion/scene.ts';
-import { curatedChapters, generatedChapters } from '../study/chapters.ts';
+import { curatedChapters } from '../study/chapters.ts';
 import type { Chapter } from '../study/chapters.ts';
 import { lessonKey, stepStatus, topicKey, useLocalStudy } from '../study/localStudy.tsx';
 import { formatClock, formatLength, topicFrames } from '../study/time.ts';
 import { useUpload } from '../study/uploadState.tsx';
-import { useStudySession } from '../study/studyState.ts';
-
-const artCycle = [
-  'inflation-and-interest-rates',
-  'how-a-company-makes-money',
-  'how-the-internet-works',
-  'unit-economics',
-];
 
 const pill = 'inline-flex items-center gap-1.5 rounded-full border-2 border-ink px-3 py-1 text-[13px] font-medium';
-
-const renderStageLabels = ['Queued', 'Writing the lesson', 'Checking the segment', 'Rendering keyframes', 'Reviewing'];
-
-const renderTasks = (status: string | undefined, detail: string | null) => {
-  const text = detail ?? '';
-  const active =
-    status === 'reviewing' || /review/i.test(text)
-      ? 4
-      : /rendering keyframes/i.test(text)
-        ? 3
-        : status === 'checking' || /check/i.test(text)
-          ? 2
-          : status === 'generating'
-            ? 1
-            : 0;
-  return renderStageLabels.map((label, index) => ({
-    label: index === 4 && active === 4 && /review/i.test(text) ? text.charAt(0).toUpperCase() + text.slice(1) : label,
-    state: (index < active ? 'done' : index === active ? 'active' : 'pending') as 'done' | 'active' | 'pending',
-  }));
-};
 
 function chaptersFor(chapters: Chapter[], watchedIds: string[]): { items: TrailChapter[]; progress: number; timeLeft: string } {
   const watched = new Set(watchedIds);
@@ -185,125 +153,13 @@ function StatPills({ done, total, length, quizReady }: { done: number; total: nu
 export function RoadmapPage() {
   const { topicId } = useParams();
   const isStudy = useMatch('/study');
-  const session = useStudySession();
   const { prefix } = usePalette();
   const { openUpload } = useUpload();
   const { doneIds, lessonMarks, sourceList } = useLocalStudy();
   const topic = topicId ? getTopic(topicId) : undefined;
   const home = prefix || '/';
 
-  if (isStudy) {
-    const ordered = session.roadmap ? orderTopics(session.roadmap.topics) : [];
-    const waiting = !session.roadmap && (session.buildingRoadmap || session.status === 'roadmap');
-    let markedNext = false;
-    const topicSteps: TrailStep[] = ordered.map((item, index) => {
-      const lesson = session.lessons[item.id];
-      const runtime = session.topics[item.id];
-      const ready = Boolean(lesson);
-      const marks = lessonMarks(`study:${item.id}`);
-      const chapters = lesson ? generatedChapters(lesson.segments) : [];
-      const built = chaptersFor(chapters, marks.watchedIds);
-      const complete = ready && chapters.length > 0 && chapters.every((chapter) => marks.watchedIds.includes(chapter.id));
-      const phase = runtime?.status;
-      const phaseLabel =
-        phase === 'failed'
-          ? 'Failed'
-          : phase === 'reviewing'
-            ? (runtime?.statusDetail ?? 'Reviewing')
-            : phase === 'checking'
-              ? 'Checking'
-              : phase === 'generating'
-                ? 'Generating'
-                : phase === 'queued'
-                  ? 'Queued'
-                  : undefined;
-      let status: TrailStep['status'] = 'rendering';
-      if (complete) status = 'done';
-      else if (ready && !markedNext) {
-        status = 'next';
-        markedNext = true;
-      } else if (ready) status = 'open';
-      else if (phase === 'failed') status = 'failed';
-      else if (phase === 'idle' || !phase) status = 'idle';
-      const frames = chapters.reduce((total, chapter) => total + chapter.duration, 0);
-      const failures = topicFailures(session, item);
-      const progress = complete
-        ? 100
-        : ready
-          ? built.progress
-          : phase === 'failed'
-            ? 0
-            : phase === 'reviewing'
-              ? 78
-              : phase === 'checking'
-                ? 55
-                : phase === 'generating'
-                  ? 32
-                  : 8;
-      return {
-        id: item.id,
-        title: item.title,
-        detail: item.summary,
-        status,
-        artId: artCycle[index % artCycle.length],
-        duration: frames ? formatClock(frames) : '',
-        progress,
-        timeLeft: frames ? built.timeLeft : '',
-        hint: phase === 'failed' ? (runtime?.error ?? 'This lesson could not be rendered.') : ready ? undefined : (runtime?.statusDetail ?? phaseLabel),
-        statusText: phaseLabel,
-        href: ready ? `/study/${item.id}` : undefined,
-        onRender: status === 'idle' ? () => void session.renderTopic(item.id) : undefined,
-        tasks: status === 'rendering' ? renderTasks(phase, runtime?.statusDetail ?? null) : undefined,
-        chapters: built.items,
-        note: failures.length > 0 ? <FailureNotes items={failures} /> : undefined,
-      };
-    });
-    const steps = topicSteps;
-    const doneCount = steps.filter((step) => step.status === 'done').length;
-    const quizReady = ordered.filter((item) => lessonMarks(`study:${item.id}`).quizReady).length;
-    const totalFrames = ordered.reduce((total, item) => {
-      const lesson = session.lessons[item.id];
-      return total + (lesson?.segments.reduce((sum, segment) => sum + segment.durationInFrames, 0) ?? 0);
-    }, 0);
-    const fileName = session.fileName ?? '';
-    const sources: SourceFile[] = fileName
-      ? [{ name: fileName, kind: /\.(png|jpe?g|gif|webp)$/i.test(fileName) ? 'image' : 'pdf' }]
-      : [];
-
-    return (
-      <RoadmapLayout
-        backTo="/"
-        backLabel="Library"
-        title="Roadmap"
-        summary={
-          session.roadmap && session.fileName
-            ? `From ${session.fileName}. A topic opens once its lesson is ready.`
-            : waiting
-              ? 'Reading the document…'
-              : 'Add a document from the library to build a roadmap.'
-        }
-        pills={
-          steps.length > 0 ? (
-            <StatPills
-              done={doneCount}
-              total={steps.length}
-              length={totalFrames ? formatLength(totalFrames) : undefined}
-              quizReady={quizReady}
-            />
-          ) : undefined
-        }
-        notice={
-          session.error ? <p className="mt-4 text-[16px] text-crayon-text">{session.error}</p> : undefined
-        }
-        steps={steps}
-        sources={sources}
-        onAdd={() => openUpload()}
-        empty={
-          waiting ? <CrayonSketch /> : <Button onClick={() => openUpload()}>Create a lesson from your notes</Button>
-        }
-      />
-    );
-  }
+  if (isStudy) return <CourseRoadmap />;
 
   if (!topic) return <Navigate to={home} replace />;
 

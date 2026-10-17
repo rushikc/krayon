@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { GenerationError, generationErrorCode, generationErrorStatus, issuesText, zodIssues } from '../src/generation.js';
 import { modelResponseSchemas } from '../src/modelSchema.js';
-import { applySegmentDefaults, lessonModelSchema, segmentModelSchema, segmentSchema } from '../src/schemas.js';
+import { applySegmentDefaults, sceneModelSchema, segmentModelSchema, segmentSchema } from '../src/schemas.js';
 
 const callout = (layout: Record<string, unknown>) => ({
   id: 'key-idea',
   title: 'Statelessness',
-  durationInFrames: 150,
+  durationInFrames: 180,
   narration: 'Each request carries everything the server needs.',
   scene: { layout: { type: 'callout', ...layout } },
 });
@@ -51,16 +51,16 @@ describe('layout defaults', () => {
     }
   });
 
-  it('applies defaults to every lesson segment', () => {
-    const parsed = lessonModelSchema.safeParse({ studyDoc: '', segments: [callout({ kind: 'definition', body: 'b' })] });
-    expect(parsed.success).toBe(true);
+  it('applies defaults to the scene-only model output', () => {
+    const parsed = sceneModelSchema.safeParse({ title: 'Statelessness', scene: { layout: { type: 'callout', kind: 'definition', body: 'b' } } });
+    expect(parsed.success && parsed.data.scene.layout.type === 'callout' && parsed.data.scene.layout.title).toBe('Statelessness');
   });
 });
 
 describe('model response schemas', () => {
   it('make the required fields of every layout required', () => {
-    for (const schema of [modelResponseSchemas.segment, (modelResponseSchemas.lesson.properties as Json).segments as Json]) {
-      const branches = layoutBranches((schema.items as Json | undefined) ?? schema);
+    for (const schema of [modelResponseSchemas.segment, modelResponseSchemas.scene]) {
+      const branches = layoutBranches(schema);
       expect(branches.titleCard).toEqual(['type', 'title']);
       expect(branches.bullets).toEqual(['type', 'heading', 'items']);
       expect(branches.chart).toEqual(['type', 'xLabel', 'yLabel', 'curves']);
@@ -81,6 +81,17 @@ describe('model response schemas', () => {
       }
     };
     Object.values(modelResponseSchemas).forEach(walk);
+  });
+});
+
+describe('model response schemas for the course pipeline', () => {
+  it('drop integer bounds Gemini rejects but keep required page fields', () => {
+    const structure = modelResponseSchemas.structure as Json;
+    const chapter = ((structure.properties as Json).chapters as Json).items as Json;
+    expect(chapter.required).toEqual(expect.arrayContaining(['title', 'pdfPageStart', 'pdfPageEnd']));
+    const outline = (((modelResponseSchemas.lessonOutline as Json).properties as Json).lessons as Json).items as Json;
+    expect(outline.required).toEqual(['title', 'focus', 'pageStart', 'pageEnd']);
+    expect((modelResponseSchemas.chat as Json).required).toEqual(['answer']);
   });
 });
 

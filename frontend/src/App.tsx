@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { BrowserRouter, Route, Routes } from 'react-router-dom';
-import { apiFetch, useBackendPipeline } from './lib/api.ts';
+import { apiFetch } from './lib/api.ts';
 import { HomePage } from './pages/HomePage.tsx';
 import { LessonPage } from './pages/LessonPage.tsx';
 import { PalettePreview } from './pages/PalettePreview.tsx';
@@ -14,7 +14,6 @@ type Health = { ok: boolean; adc?: { ok: boolean; error?: string }; renderer?: {
 function HealthBanner() {
   const [message, setMessage] = useState<string | null>(null);
   useEffect(() => {
-    if (!useBackendPipeline) return;
     const pending = (health: Health) =>
       health.adc?.error?.startsWith('Checking') || health.renderer?.error === 'Starting the renderer.';
     void (async () => {
@@ -47,7 +46,7 @@ export default function App() {
             <Routes>
               <Route path="/" element={<HomePage />} />
               <Route path="/study" element={<RoadmapPage />} />
-              <Route path="/study/:topicId" element={<LessonPage />} />
+              <Route path="/study/:lessonId" element={<LessonPage />} />
               <Route path="/topics/:topicId" element={<RoadmapPage />} />
               <Route path="/topics/:topicId/:subtopicId" element={<LessonPage />} />
               <Route path="/preview/:paletteId" element={<PalettePreview />}>

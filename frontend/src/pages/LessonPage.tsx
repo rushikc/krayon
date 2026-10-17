@@ -17,9 +17,9 @@ import { lessonKey, topicKey, useLocalStudy } from '../study/localStudy.tsx';
 import { formatClock } from '../study/time.ts';
 
 export function LessonPage() {
-  const generated = useMatch('/study/:topicId');
-  if (generated?.params.topicId) {
-    return <GeneratedLessonView topicId={generated.params.topicId} />;
+  const generated = useMatch('/study/:lessonId');
+  if (generated?.params.lessonId) {
+    return <GeneratedLessonView key={generated.params.lessonId} lessonId={generated.params.lessonId} />;
   }
   return <CuratedLesson />;
 }
@@ -206,7 +206,6 @@ function CuratedLesson() {
                 </div>
               }
               onChat={panelOpen ? undefined : openChat}
-              chapters={chapters}
               frame={frame}
               duration={duration}
               playing={playing}
@@ -214,7 +213,6 @@ function CuratedLesson() {
               drawing={tool === 'highlight'}
               strokes={marks.strokes}
               pins={marks.pins}
-              watchedIds={marks.watchedIds}
               artId={topic.id}
               explaining={false}
               onToggle={() => {

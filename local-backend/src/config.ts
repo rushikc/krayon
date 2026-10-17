@@ -27,12 +27,17 @@ const envSchema = z.object({
   MAX_REPAIR_ROUNDS: z.coerce.number().default(2),
   MAX_REVIEW_ROUNDS: z.coerce.number().default(2),
   REVIEW_PASS_SCORE: z.coerce.number().default(8),
-  TOPIC_CONCURRENCY: z.coerce.number().default(1),
-  RENDER_KEYFRAMES_MAX: z.coerce.number().default(6),
+  CHAPTER_CONCURRENCY: z.coerce.number().default(3),
+  GEMINI_MAX_CONCURRENCY: z.coerce.number().default(5),
+  RENDER_CONCURRENCY: z.coerce.number().default(2),
+  SEGMENT_RETRIES: z.coerce.number().default(2),
+  RENDER_KEYFRAMES_MAX: z.coerce.number().default(8),
   RENDER_TIMEOUT_MS: z.coerce.number().default(90_000),
 });
 
 const parsed = envSchema.parse(process.env);
+// The Gemini queue in @krayon/pipeline reads this at call time.
+process.env.GEMINI_MAX_CONCURRENCY = String(parsed.GEMINI_MAX_CONCURRENCY);
 
 export const rootDir = ROOT;
 
@@ -52,7 +57,10 @@ export const settings = {
   maxRepairRounds: parsed.MAX_REPAIR_ROUNDS,
   maxReviewRounds: parsed.MAX_REVIEW_ROUNDS,
   reviewPassScore: parsed.REVIEW_PASS_SCORE,
-  topicConcurrency: parsed.TOPIC_CONCURRENCY,
+  chapterConcurrency: parsed.CHAPTER_CONCURRENCY,
+  geminiMaxConcurrency: parsed.GEMINI_MAX_CONCURRENCY,
+  renderConcurrency: parsed.RENDER_CONCURRENCY,
+  segmentRetries: parsed.SEGMENT_RETRIES,
   renderKeyframesMax: parsed.RENDER_KEYFRAMES_MAX,
   renderTimeoutMs: parsed.RENDER_TIMEOUT_MS,
   maxUploadBytes: 20 * 1024 * 1024,

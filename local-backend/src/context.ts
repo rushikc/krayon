@@ -35,7 +35,9 @@ export const pipeline = createPipeline({
     maxRepairRounds: settings.maxRepairRounds,
     maxReviewRounds: settings.maxReviewRounds,
     reviewPassScore: settings.reviewPassScore,
-    topicConcurrency: settings.topicConcurrency,
+    chapterConcurrency: settings.chapterConcurrency,
+    renderConcurrency: settings.renderConcurrency,
+    segmentRetries: settings.segmentRetries,
     renderKeyframesMax: settings.renderKeyframesMax,
     renderTimeoutMs: settings.renderTimeoutMs,
     remotionEntry: path.resolve(rootDir, '../packages/shared/dist/remotion/entry.js'),
@@ -49,12 +51,7 @@ void pipeline.warmup().catch((error: unknown) => {
 });
 
 export const startRecovery = () => {
-  store.recoverInterrupted(
-    (event) => {
-      events.emit(event);
-    },
-    (uid, courseId) => {
-      jobs.submit(uid, 'resumeCourse', { uid, courseId });
-    },
-  );
+  store.recoverInterrupted((uid, courseId) => {
+    jobs.submit(uid, 'resumeCourse', { uid, courseId });
+  });
 };

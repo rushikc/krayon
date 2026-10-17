@@ -45,7 +45,8 @@ beforeAll(async () => {
       LOG_LEVEL: 'INFO',
       MAX_REVIEW_ROUNDS: '1',
       RENDER_KEYFRAMES_MAX: '2',
-      TOPIC_CONCURRENCY: '1',
+      CHAPTER_CONCURRENCY: '1',
+      SEGMENT_RETRIES: '1',
     },
     stdio: 'pipe',
   });
@@ -66,7 +67,13 @@ afterAll(async () => {
   if (tmp) await rm(tmp, { recursive: true, force: true });
 });
 
-it.skipIf(!AI)('upload, roadmap, one topic.ready, and a persisted keyframe round', async () => {
+type Course = {
+  status: string;
+  chapters: Array<{ skip: boolean; lessons: Array<{ id: string; status: string; wordCount: number; shortSource: boolean }> }>;
+};
+type Lesson = { status: string; segments: Array<{ status: string; segment: unknown; rounds: Array<{ keyframeIds: string[] }> }> };
+
+it.skipIf(!AI)('upload, chapters, lessons, Ch1 L1 renders on its own, and a persisted keyframe round', async () => {
   const bytes = await readFile(SAMPLE);
   const form = new FormData();
   form.append('file', new Blob([bytes], { type: 'image/jpeg' }), path.basename(SAMPLE));
@@ -74,17 +81,16 @@ it.skipIf(!AI)('upload, roadmap, one topic.ready, and a persisted keyframe round
   expect(created.status).toBe(200);
   const { courseId } = (await created.json()) as { courseId: string };
   const ws = new WebSocket(`${base.replace('http', 'ws')}/ws?courseId=${courseId}&uid=local-user`);
-  const ready = new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('timed out waiting for topic.ready')), 12 * 60 * 1000);
+  const seen: string[] = [];
+  const settled = new Promise<string>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`timed out; saw ${seen.join(', ')}`)), 14 * 60 * 1000);
     ws.addEventListener('message', (event) => {
       const message = JSON.parse(String(event.data)) as { type: string; event?: { type: string } };
-      if (message.type === 'event' && message.event?.type === 'topic.ready') {
+      if (message.type !== 'event' || !message.event) return;
+      seen.push(message.event.type);
+      if (['lesson.ready', 'lesson.failed', 'structure.failed'].includes(message.event.type)) {
         clearTimeout(timer);
-        resolve();
-      }
-      if (message.type === 'event' && message.event?.type === 'course.done') {
-        clearTimeout(timer);
-        resolve();
+        resolve(message.event.type);
       }
     });
     ws.addEventListener('error', () => {
@@ -92,16 +98,20 @@ it.skipIf(!AI)('upload, roadmap, one topic.ready, and a persisted keyframe round
       reject(new Error('websocket failed'));
     });
   });
-  await ready;
+  expect(await settled).toBe('lesson.ready');
   ws.close();
-  const course = (await (await fetch(`${base}/api/courses/${courseId}`)).json()) as {
-    roadmap: { topics: unknown[] } | null;
-    topics: Array<{ status: string; segments: Array<{ rounds: Array<{ keyframeIds: string[] }> }> }>;
-  };
-  expect(course.roadmap?.topics.length).toBeGreaterThan(0);
-  const finished = course.topics.find((topic) => topic.status === 'ready');
-  expect(finished).toBeTruthy();
-  const round = finished?.segments.flatMap((segment) => segment.rounds).find((item) => item.keyframeIds.length > 0);
+  expect(seen.indexOf('structure.ready')).toBeLessThan(seen.indexOf('lesson.outlined'));
+
+  const course = (await (await fetch(`${base}/api/courses/${courseId}`)).json()) as Course;
+  const lessons = course.chapters.filter((chapter) => !chapter.skip).flatMap((chapter) => chapter.lessons);
+  expect(lessons.length).toBeGreaterThan(0);
+  expect(lessons.every((lesson) => lesson.shortSource || (lesson.wordCount >= 420 && lesson.wordCount <= 660))).toBe(true);
+  expect(lessons.filter((lesson) => lesson.status !== 'outlined').map((lesson) => lesson.id)).toEqual([lessons[0]!.id]);
+
+  const lesson = (await (await fetch(`${base}/api/lessons/${lessons[0]!.id}`)).json()) as Lesson;
+  expect(lesson.status).toBe('ready');
+  expect(lesson.segments.every((segment) => segment.status === 'ready' && segment.segment)).toBe(true);
+  const round = lesson.segments.flatMap((segment) => segment.rounds).find((item) => item.keyframeIds.length > 0);
   expect(round?.keyframeIds.length).toBeGreaterThan(0);
   const image = await fetch(`${base}/api/renders/${round?.keyframeIds[0]}`);
   expect(image.status).toBe(200);

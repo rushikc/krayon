@@ -5,6 +5,9 @@ import { bundle } from '@remotion/bundler';
 import { openBrowser, renderStill, selectComposition } from '@remotion/renderer';
 import { collectKeyframeFrames } from '@krayon/shared';
 import type { BlobStorage, GeneratedSegment } from '@krayon/shared';
+import type { PipelineLogger } from './gemini.js';
+import { BACKGROUND, createPriorityQueue } from './queue.js';
+import type { Priority } from './queue.js';
 
 type Browser = Awaited<ReturnType<typeof openBrowser>>;
 
@@ -22,6 +25,9 @@ export type RendererOptions = {
   renderStill?: typeof renderStill;
   /** Skip the Remotion webpack bundle. Tests pass a resolved serve url. */
   bundle?: () => Promise<string>;
+  /** Renders at once (RENDER_CONCURRENCY), separate from the Gemini limit. */
+  concurrency?: number;
+  log?: PipelineLogger;
 };
 
 const browserConnected = (instance: Browser) => {
@@ -127,8 +133,10 @@ export const createRenderer = (
     }, idleMs);
   };
 
-  const open = async () => {
-    if (browser && (await stillOpen(browser))) return browser;
+  /** Every caller shares one launch, so concurrent renders never start (and leak) a second Chrome. */
+  let opening: Promise<Browser> | null = null;
+
+  const launch = async () => {
     if (browser) await discard(browser);
     clearIdle();
     const next = await openImpl('chrome');
@@ -145,6 +153,17 @@ export const createRenderer = (
     }
     browser = next;
     return next;
+  };
+
+  const open = async () => {
+    if (opening) return opening;
+    if (browser && (await stillOpen(browser))) return browser;
+    if (!opening) {
+      opening = launch().finally(() => {
+        opening = null;
+      });
+    }
+    return opening;
   };
 
   const renderWith = async (url: string, instance: Browser, owner: string, segment: GeneratedSegment) => {
@@ -180,7 +199,31 @@ export const createRenderer = (
     return { frames, keyframeIds };
   };
 
-  const renderKeyframes = async (owner: string, segment: GeneratedSegment) => {
+  const renderQueue = createPriorityQueue({ limit: () => Math.max(1, options.concurrency ?? 2) });
+
+  /** Renders the review keyframes of one segment, holding one render slot. Logs render.done with the duration. */
+  const renderKeyframes = (owner: string, segment: GeneratedSegment, priority: Priority = BACKGROUND, fields: Record<string, unknown> = {}) =>
+    renderQueue.run(priority, async () => {
+      const started = performance.now();
+      try {
+        const result = await renderNow(owner, segment);
+        options.log?.info(`Rendered ${result.frames.length} keyframes in ${Math.round(performance.now() - started)} ms`, {
+          ...fields,
+          event: 'render.done',
+          segmentId: segment.id,
+          frames: result.frames.length,
+          duration_ms: Math.round(performance.now() - started),
+        });
+        return result;
+      } catch (error) {
+        options.log?.error('Render failed', { ...fields, event: 'render.failed', segmentId: segment.id, duration_ms: Math.round(performance.now() - started) }, error);
+        throw error;
+      }
+    }, (waitMs) => {
+      if (waitMs > 0) options.log?.debug('Render slot wait', { ...fields, event: 'render.wait', segmentId: segment.id, queue_wait_ms: waitMs });
+    });
+
+  const renderNow = async (owner: string, segment: GeneratedSegment) => {
     inflight += 1;
     clearIdle();
     try {
@@ -223,5 +266,5 @@ export const createRenderer = (
 
   const warmup = () => bundleOnce();
 
-  return { renderKeyframes, warmup, health, close };
+  return { renderKeyframes, warmup, health, close, clear: renderQueue.clear, open };
 };

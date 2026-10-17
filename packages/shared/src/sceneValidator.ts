@@ -1,3 +1,4 @@
+import { SEGMENT_FRAMES } from './limits.js';
 import type { GeneratedSegment, SceneIssue, SceneLayout } from './scene.js';
 import {
   bulletCapacity,
@@ -254,8 +255,10 @@ const validateLayout = (layout: SceneLayout, duration: number, issues: SceneIssu
 
 export const validateSegment = (segment: GeneratedSegment): SceneIssue[] => {
   const issues: SceneIssue[] = [];
-  if (segment.durationInFrames < 90 || segment.durationInFrames > 450) {
-    issues.push(issue('duration', 'durationInFrames', 'Duration must be between 90 and 450 frames.'));
+  if (segment.durationInFrames < SEGMENT_FRAMES.min || segment.durationInFrames > SEGMENT_FRAMES.max) {
+    issues.push(
+      issue('duration', 'durationInFrames', `Duration must be between ${SEGMENT_FRAMES.min} and ${SEGMENT_FRAMES.max} frames.`),
+    );
   }
   if (!segment.scene?.layout) {
     issues.push(issue('required', 'scene.layout', 'A layout template is required.'));
