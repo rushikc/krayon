@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { validateSegment } from '../src/sceneValidator.js';
+import { normalizeScene, validateSegment } from '../src/sceneValidator.js';
 import type { GeneratedSegment, SceneLayout } from '../src/scene.js';
 import { layoutSegments } from './fixtures/lesson.js';
 
@@ -50,40 +50,50 @@ describe('validateSegment', () => {
     expect(codes(duplicate)).toContain('duplicate-id');
   });
 
-  it('reports too-long', () => {
-    const longTitle = withLayout(titleCard, { type: 'titleCard', title: 'A'.repeat(61) });
-    const issues = validateSegment(longTitle);
-    expect(issues.map((issue) => issue.code)).toEqual(['too-long']);
+  it('clamps appearAt, trims extra items, fits text, and adds a missing equilibrium marker', () => {
+    const timed = normalizeScene(
+      withLayout(bullets, {
+        ...bulletsLayout,
+        items: [
+          { text: 'First', appearAt: 500 },
+          { text: 'Second', appearAt: 10 },
+          { text: 'Third', appearAt: -4 },
+          { text: 'Fourth', appearAt: 12 },
+          { text: 'Fifth', appearAt: 20 },
+          { text: 'Sixth', appearAt: 30 },
+        ],
+      }),
+    );
+    if (timed.scene.layout.type !== 'bullets') throw new Error('layout');
+    expect(timed.scene.layout.items).toHaveLength(5);
+    const ceiling = Math.min(timed.durationInFrames - 1, 500);
+    expect(timed.scene.layout.items.map((item) => item.appearAt)).toEqual([ceiling, ceiling, ceiling, ceiling, ceiling]);
+    const fitted = normalizeScene(withLayout(titleCard, { type: 'titleCard', title: 'A short title that still fits' }));
+    if (fitted.scene.layout.type !== 'titleCard') throw new Error('layout');
+    expect(fitted.scene.layout.title).toBe('A short title that still fits');
+    const huge = normalizeScene(withLayout(titleCard, { type: 'titleCard', title: Array.from({ length: 80 }, () => 'word').join(' ') }));
+    if (huge.scene.layout.type !== 'titleCard') throw new Error('layout');
+    expect(huge.scene.layout.title.endsWith('…')).toBe(true);
+    expect(huge.scene.layout.title.length).toBeLessThan(80 * 5);
+    if (chartLayout.type !== 'chart') throw new Error('layout');
+    const marked = normalizeScene(
+      withLayout(chart, {
+        ...chartLayout,
+        markers: [],
+        curves: [
+          { id: 'supply', label: 'Supply', kind: 'upward' },
+          { id: 'demand', label: 'Demand', kind: 'downward' },
+        ],
+      }),
+    );
+    if (marked.scene.layout.type !== 'chart') throw new Error('layout');
+    expect(marked.scene.layout.markers[0]).toMatchObject({ type: 'intersection', curveIds: ['supply', 'demand'], label: 'equilibrium' });
   });
 
-  it('reports overflow', () => {
-    const wideEdge = withLayout(flow, {
-      ...flowLayout,
-      edges: [{ from: 'client', to: 'server', label: 'x'.repeat(17) }],
-    });
-    const issues = validateSegment(wideEdge);
-    expect(issues.map((issue) => issue.code)).toEqual(['overflow']);
-  });
-
-  it('reports timing when appearAt is out of range or not ascending', () => {
-    const outOfRange = withLayout(bullets, {
-      ...bulletsLayout,
-      items: [{ text: 'Price rises', appearAt: 500 }],
-    });
-    const descending = withLayout(bullets, {
-      ...bulletsLayout,
-      items: [
-        { text: 'First', appearAt: 40 },
-        { text: 'Second', appearAt: 10 },
-      ],
-    });
-    expect(codes(outOfRange)).toContain('timing');
-    expect(codes(descending)).toContain('timing');
-  });
-
-  it('reports duration bounds', () => {
-    expect(codes({ ...titleCard, durationInFrames: 89 })).toContain('duration');
-    expect(codes({ ...titleCard, durationInFrames: 451 })).toContain('duration');
+  it('accepts a 20 second segment', () => {
+    expect(validateSegment({ ...titleCard, durationInFrames: 20 * 30 })).toEqual([]);
+    expect(codes({ ...titleCard, durationInFrames: 0 })).toContain('duration');
+    expect(codes({ ...titleCard, durationInFrames: -5 })).toContain('duration');
   });
 
   it('returns no issues for a clean segment', () => {

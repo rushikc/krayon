@@ -1,22 +1,20 @@
 import {
   GenerationError,
   LESSON_WORDS,
-  LESSON_WORDS_ACCEPTED,
   chapterTextSchema,
   lessonOutlineSchema,
   lessonScriptSchema,
   modelResponseSchemas,
-  scriptWordIssue,
   storedLessonSchema,
   structureSchema,
   studyDocSchema,
   wordCount,
   zodIssues,
 } from '@krayon/shared';
-import type { GenerationIssue, ParsedStructure } from '@krayon/shared';
+import type { ParsedStructure } from '@krayon/shared';
 import { coverageIssues, shiftCitations } from './citations.js';
 import { isPdf } from './pdf.js';
-import { detectOffset, subRanges, toPdfRanges, validateRanges } from './pageRanges.js';
+import { detectOffset, normalizeRanges, subRanges, toPdfRanges, validateRanges } from './pageRanges.js';
 import type { PdfRange } from './pageRanges.js';
 import {
   chapterTextPrompt,
@@ -24,12 +22,11 @@ import {
   lessonScriptPrompt,
   structurePrompt,
   studyDocPrompt,
-  tightenPrompt,
 } from './prompts.js';
 import type { Priority } from './queue.js';
 import { isCancelled } from './runtime.js';
 import type { Runtime } from './runtime.js';
-import { planLessonSizes, truncateScript } from './scriptLength.js';
+import { planLessonSizes } from './scriptLength.js';
 import type { DraftLesson } from './scriptLength.js';
 import {
   assembleCourse,
@@ -69,9 +66,6 @@ export const withShorterRetry = async <T>(write: (short: boolean) => Promise<T>)
 
 const FINISHED_LINE = /[.!?)\]`*_|"”]\s*$/;
 
-/** The model sometimes closes the JSON string mid-sentence while reporting a normal stop. */
-export const studyDocFinished = (doc: string) => /key takeaways/i.test(doc) && FINISHED_LINE.test(doc.trimEnd());
-
 /** Drops a cut-off last line. */
 export const trimUnfinished = (doc: string) => {
   const lines = doc.trimEnd().split('\n');
@@ -79,30 +73,17 @@ export const trimUnfinished = (doc: string) => {
   return lines.slice(0, -1).join('\n').trimEnd();
 };
 
-/** Soft outline issues: too few lessons, or pages at the start, end, or between lessons left out. */
-export const outlineAdvice = (
-  value: { lessons: Array<{ pageStart: number; pageEnd: number }> },
-  pages: number,
-  fewest: number,
-  suggested: number,
-): GenerationIssue[] => {
-  const issues: GenerationIssue[] = [];
-  const { lessons } = value;
-  if (lessons.length < fewest) issues.push({ path: 'lessons', message: `Has ${lessons.length} lessons for ${pages} pages; split it into about ${suggested}.` });
-  if (lessons.length > Math.ceil(suggested * 1.5)) {
-    issues.push({ path: 'lessons', message: `Has ${lessons.length} lessons; about ${suggested} fit, combine related ones.` });
-  }
-  if (lessons.length === 0) return issues;
-  if (lessons[0].pageStart > 2) issues.push({ path: 'lessons[0].pageStart', message: `Pages 1 to ${lessons[0].pageStart - 1} are not in any lesson.` });
-  const last = lessons.length - 1;
-  if (lessons[last].pageEnd < pages - 1) {
-    issues.push({ path: `lessons[${last}].pageEnd`, message: `Pages ${lessons[last].pageEnd + 1} to ${pages} are not in any lesson.` });
-  }
-  lessons.slice(1).forEach((lesson, index) => {
-    const gap = lesson.pageStart - lessons[index].pageEnd - 1;
-    if (gap > 2) issues.push({ path: `lessons[${index + 1}].pageStart`, message: `Pages ${lessons[index].pageEnd + 1} to ${lesson.pageStart - 1} are not in any lesson.` });
-  });
-  return issues;
+/** Clamps lesson pages into 1..pages, swaps a reversed range, and sorts by start page. An empty list stays empty. */
+export const normalizeOutline = <T extends { pageStart: number; pageEnd: number }>(lessons: T[], pages: number): T[] => {
+  const span = Math.max(1, pages);
+  return lessons
+    .map((lesson) => {
+      let start = Math.min(span, Math.max(1, Math.round(lesson.pageStart)));
+      let end = Math.min(span, Math.max(1, Math.round(lesson.pageEnd)));
+      if (end < start) [start, end] = [end, start];
+      return { ...lesson, pageStart: start, pageEnd: end };
+    })
+    .sort((a, b) => a.pageStart - b.pageStart || a.pageEnd - b.pageEnd);
 };
 
 type ChapterDoc = {
@@ -164,7 +145,7 @@ export const createChapterStages = (rt: Runtime) => {
             }
             const resolver = detectOffset(value.chapters, info.pageTexts, info.labels, value.pageLabelSamples);
             method = resolver?.method ?? null;
-            converted = toPdfRanges(value.chapters, info.pageCount, info.pageTexts, resolver);
+            converted = normalizeRanges(toPdfRanges(value.chapters, info.pageCount, info.pageTexts, resolver), info.pageCount);
             return validateRanges(converted, info.pageCount);
           },
         });
@@ -236,13 +217,20 @@ export const createChapterStages = (rt: Runtime) => {
         responseSchema: modelResponseSchemas.chapterText,
         prompt: chapterTextPrompt(chapter.title, start, end, part, parts),
         files: [await rt.sources.slice(uid, chapter.sourceId, start, end)],
-        check: (value) => coverageIssues(value.chapterText, end - start + 1),
-        acceptBest: true,
         attempts: 3,
         long: true,
         priority,
         fields: { courseId, chapterId: chapter.id, pages: `${start + 1}-${end + 1}` },
       });
+      const advice = coverageIssues(result.value.chapterText, end - start + 1);
+      if (advice.length > 0) {
+        log.info('Chapter text coverage is partial', {
+          courseId,
+          chapterId: chapter.id,
+          event: 'chapter.coverage',
+          issues: advice.slice(0, 5),
+        });
+      }
       return shiftCitations(result.value.chapterText, start - chapter.pdfPageStart);
     } catch (error) {
       if (error instanceof GenerationError && error.code === 'MAX_TOKENS' && end - start >= 3) {
@@ -259,19 +247,6 @@ export const createChapterStages = (rt: Runtime) => {
       }
       throw error;
     }
-  };
-
-  const outlineIssues = (value: { lessons: Array<{ pageStart: number; pageEnd: number }> }, pages: number): GenerationIssue[] => {
-    const issues: GenerationIssue[] = [];
-    let previousStart = 1;
-    value.lessons.forEach((lesson, index) => {
-      if (lesson.pageStart > pages) issues.push({ path: `lessons[${index}].pageStart`, message: `Must be 1 to ${pages}.` });
-      if (lesson.pageEnd > pages) issues.push({ path: `lessons[${index}].pageEnd`, message: `Must be 1 to ${pages}.` });
-      if (lesson.pageEnd < lesson.pageStart) issues.push({ path: `lessons[${index}].pageEnd`, message: 'Ends before it starts.' });
-      if (lesson.pageStart < previousStart) issues.push({ path: `lessons[${index}].pageStart`, message: 'Lessons must follow the pages in order.' });
-      previousStart = lesson.pageStart;
-    });
-    return issues;
   };
 
   const writeScript = async (
@@ -295,44 +270,12 @@ export const createChapterStages = (rt: Runtime) => {
         ...neighbours,
       }),
       files: [await rt.sources.slice(uid, chapter.sourceId, lesson.pageStart, lesson.pageEnd)],
-      check: (value) => {
-        const issue = scriptWordIssue(value.explanationSummary);
-        return issue ? [issue] : [];
-      },
-      acceptBest: true,
       attempts: 3,
       long: true,
       priority: sameChapterPriority(courseId, chapter.index),
       fields: { courseId, chapterId: chapter.id, lesson: lesson.title },
     });
     return result.value.explanationSummary;
-  };
-
-  /** Brings an over-long script under LESSON_WORDS.max; whole-sentence truncation is the last resort. */
-  const tighten = async (courseId: string, chapter: ChapterDoc & { id: string }, lesson: DraftLesson) => {
-    try {
-      const result = await rt.modelJson({
-        name: 'tighten',
-        schema: lessonScriptSchema,
-        responseSchema: modelResponseSchemas.lessonScript,
-        prompt: tightenPrompt(lesson.script, Math.round((LESSON_WORDS.min + LESSON_WORDS.max) / 2)),
-        check: (value) => {
-          const issue = scriptWordIssue(value.explanationSummary);
-          return issue ? [issue] : [];
-        },
-        acceptBest: true,
-        attempts: 2,
-        long: true,
-        priority: sameChapterPriority(courseId, chapter.index),
-        fields: { courseId, chapterId: chapter.id, lesson: lesson.title },
-      });
-      const script = result.value.explanationSummary;
-      if (wordCount(script) <= LESSON_WORDS_ACCEPTED.max && wordCount(script) >= LESSON_WORDS_ACCEPTED.min) return script;
-      return wordCount(script) > LESSON_WORDS_ACCEPTED.max ? truncateScript(script) : truncateScript(lesson.script);
-    } catch (error) {
-      if (isCancelled(error)) throw error;
-      return truncateScript(lesson.script);
-    }
   };
 
   const writeStudyDoc = async (uid: string, courseId: string, chapter: ChapterDoc & { id: string }, lesson: DraftLesson) => {
@@ -351,11 +294,6 @@ export const createChapterStages = (rt: Runtime) => {
           short,
         }),
         files: [await rt.sources.slice(uid, chapter.sourceId, lesson.pageStart, lesson.pageEnd)],
-        check: (value) =>
-          studyDocFinished(value.studyDoc)
-            ? []
-            : [{ path: 'studyDoc', message: 'Stops before the end; finish every section and end with a "Key takeaways" list.' }],
-        acceptBest: true,
         attempts: 3,
         long: true,
         priority: sameChapterPriority(courseId, chapter.index),
@@ -391,7 +329,7 @@ export const createChapterStages = (rt: Runtime) => {
       const lessonId = lessonIdFor(chapterId, index);
       const lessonDoc = lessonPath(uid, courseId, lessonId);
       const existing = docs.get(lessonDoc);
-      if (existing && existing.data.status !== 'writing') return;
+      if (existing && existing.data.status !== 'writing' && existing.data.status !== 'failed') return;
       const pages: number[] = [];
       for (let page = lesson.pageStart; page <= lesson.pageEnd; page += 1) pages.push(page + 1);
       docs.set(
@@ -445,24 +383,19 @@ export const createChapterStages = (rt: Runtime) => {
       if (!chapter.outline) {
         detail('Splitting into lessons');
         const pages = chapter.pdfPageEnd - chapter.pdfPageStart + 1;
-        const { suggested, fewest } = lessonTarget({ words: wordCount(chapter.chapterText ?? ''), pages });
+        const { suggested } = lessonTarget({ words: wordCount(chapter.chapterText ?? ''), pages });
         const result = await rt.modelJson({
           name: 'lessonOutline',
           schema: lessonOutlineSchema,
           responseSchema: modelResponseSchemas.lessonOutline,
           prompt: lessonOutlinePrompt(chapter.title, chapter.pdfPageStart, chapter.pdfPageEnd, chapter.chapterText, suggested),
           files: [await rt.sources.slice(uid, chapter.sourceId, chapter.pdfPageStart, chapter.pdfPageEnd)],
-          check: (value, attempt, attempts) => {
-            // Count and coverage are only advisory on the last attempt, so thin chapters still get an outline.
-            const advice = attempt < attempts ? outlineAdvice(value, pages, fewest, suggested) : [];
-            return [...outlineIssues(value, pages), ...advice];
-          },
           attempts: 3,
           long: true,
           priority: sameChapterPriority(courseId, chapter.index),
           fields,
         });
-        chapter.outline = result.value.lessons.map((lesson) => ({
+        chapter.outline = normalizeOutline(result.value.lessons, pages).map((lesson) => ({
           title: lesson.title,
           focus: lesson.focus,
           pageStart: chapter.pdfPageStart + lesson.pageStart - 1,
@@ -487,16 +420,8 @@ export const createChapterStages = (rt: Runtime) => {
             publishWriting(index, lesson, 'Script written');
           }),
         );
-        let planned: DraftLesson[] = planLessonSizes(
+        const planned: DraftLesson[] = planLessonSizes(
           outline.map((lesson, index) => ({ ...lesson, script: drafts[index] ?? '' })),
-        );
-        // A lone lesson that came back short gets one more script call before it is accepted as short.
-        if (planned.length === 1 && planned[0]!.shortSource && outline.length === 1) {
-          const again = await writeScript(uid, courseId, chapter, outline[0]!, {});
-          if (wordCount(again) > wordCount(planned[0]!.script)) planned = planLessonSizes([{ ...outline[0]!, script: again }]);
-        }
-        planned = await Promise.all(
-          planned.map(async (lesson) => (lesson.needsTighten ? { ...lesson, script: await tighten(courseId, chapter, lesson), needsTighten: false } : lesson)),
         );
         chapter.planned = planned;
         docs.set(path, { planned }, true);
@@ -567,6 +492,11 @@ export const createChapterStages = (rt: Runtime) => {
       const failure = rt.failureOf(error, fields);
       log.error(`Chapter failed: ${failure.code} ${failure.message}`, { ...fields, event: 'chapter.failed', code: failure.code, issues: failure.issues.slice(0, 10) });
       docs.set(path, { status: 'failed', statusDetail: null, error: failure.message, errorInfo: failure }, true);
+      for (const row of docs.list(lessonsPath(uid, courseId))) {
+        if (row.data.chapterId !== chapterId || row.data.status !== 'writing') continue;
+        docs.set(lessonPath(uid, courseId, row.id), { status: 'failed', statusDetail: null, error: failure.message, errorInfo: failure }, true);
+        rt.emitLesson(uid, courseId, row.id, 'lesson.failed', { error: failure.message, errorInfo: failure, step: 'failed' });
+      }
       rt.emitChapter(uid, courseId, chapterId, 'chapter.failed', { error: failure.message, errorInfo: failure, step: 'failed' });
     }
   };

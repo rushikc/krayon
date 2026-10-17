@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { FPS, LESSON_WORDS, SEGMENT_FRAMES, WPM, framesFor, scriptWordIssue, wordCount } from '../src/limits.js';
+import { FPS, LESSON_WORDS, SEGMENT_FRAMES, WPM, framesFor, framesForAudio, wordCount } from '../src/limits.js';
 import {
   beatsSchema,
   lessonOutlineSchema,
@@ -31,22 +31,14 @@ describe('limits', () => {
     expect(Math.round((LESSON_WORDS.max / WPM) * 60)).toBeLessThanOrEqual(300);
   });
 
-  it('clamps segment frames to 6 to 15 seconds', () => {
-    expect(SEGMENT_FRAMES).toEqual({ min: 6 * FPS, max: 15 * FPS });
+  it('clamps the silent estimate to 6 to 15 seconds and audio to 60 seconds', () => {
+    expect(SEGMENT_FRAMES).toEqual({ min: 6 * FPS, max: 15 * FPS, sanityMax: 60 * FPS });
     expect(framesFor(1)).toBe(SEGMENT_FRAMES.min);
     expect(framesFor(500)).toBe(SEGMENT_FRAMES.max);
     expect(framesFor(25)).toBe(Math.ceil(((25 / WPM) * 60 + 0.6) * FPS));
-  });
-
-  it('reports a script outside the word range with its path', () => {
-    expect(scriptWordIssue(words(500))).toBeNull();
-    expect(scriptWordIssue(words(399))).toBeNull();
-    expect(scriptWordIssue(words(693))).toBeNull();
-    expect(scriptWordIssue(words(398))?.message).toMatch(/Has 398 words; write 420 to 660/);
-    expect(scriptWordIssue(words(694))?.message).toMatch(/Has 694 words; shorten it to 420 to 660/);
-    expect(scriptWordIssue(words(100))?.path).toBe('explanationSummary');
-    expect(scriptWordIssue(words(100))?.message).toMatch(/Has 100 words; write 420 to 660/);
-    expect(scriptWordIssue(words(700), 'lessons.0')?.message).toMatch(/shorten/);
+    expect(framesForAudio(0)).toBe(SEGMENT_FRAMES.min);
+    expect(framesForAudio(20)).toBe(Math.ceil((20 + 0.6) * FPS));
+    expect(framesForAudio(120)).toBe(SEGMENT_FRAMES.sanityMax);
     expect(wordCount('  a  b\nc ')).toBe(3);
   });
 });
@@ -78,10 +70,13 @@ describe('schemas', () => {
     expect(segmentSchema.safeParse(badDuration).success).toBe(false);
   });
 
-  it('keeps durationInFrames inside SEGMENT_FRAMES', () => {
-    expect(segmentSchema.safeParse({ ...titleCard, durationInFrames: 10 }).success).toBe(false);
-    expect(segmentSchema.safeParse({ ...titleCard, durationInFrames: 999 }).success).toBe(false);
-    expect(segmentSchema.safeParse({ ...titleCard, durationInFrames: SEGMENT_FRAMES.max }).success).toBe(true);
+  it('accepts any positive duration up to the sanity max', () => {
+    expect(segmentSchema.safeParse({ ...titleCard, durationInFrames: 0 }).success).toBe(false);
+    expect(segmentSchema.safeParse({ ...titleCard, durationInFrames: 10.5 }).success).toBe(false);
+    expect(segmentSchema.safeParse({ ...titleCard, durationInFrames: 10 }).success).toBe(true);
+    expect(segmentSchema.safeParse({ ...titleCard, durationInFrames: 20 * FPS }).success).toBe(true);
+    expect(segmentSchema.safeParse({ ...titleCard, durationInFrames: SEGMENT_FRAMES.sanityMax }).success).toBe(true);
+    expect(segmentSchema.safeParse({ ...titleCard, durationInFrames: SEGMENT_FRAMES.sanityMax + 1 }).success).toBe(false);
   });
 
   it('parses structure with 1-based file pages and defaults skip', () => {
@@ -102,16 +97,11 @@ describe('schemas', () => {
     expect(beats.beats[0]?.pages).toEqual([]);
   });
 
-  it('stores a lesson only within LESSON_WORDS unless the source is short', () => {
+  it('stores a lesson with any non-empty script', () => {
     const base = { title: 'T', studyDoc: 'notes' };
-    expect(storedLessonSchema.safeParse({ ...base, explanationSummary: words(500) }).success).toBe(true);
-    expect(storedLessonSchema.safeParse({ ...base, explanationSummary: words(399) }).success).toBe(true);
-    expect(storedLessonSchema.safeParse({ ...base, explanationSummary: words(693) }).success).toBe(true);
-    expect(storedLessonSchema.safeParse({ ...base, explanationSummary: words(398) }).success).toBe(false);
-    expect(storedLessonSchema.safeParse({ ...base, explanationSummary: words(200) }).success).toBe(false);
-    expect(storedLessonSchema.safeParse({ ...base, explanationSummary: words(200), shortSource: true }).success).toBe(true);
-    const long = storedLessonSchema.safeParse({ ...base, explanationSummary: words(700), shortSource: true });
-    expect(long.success).toBe(false);
-    if (!long.success) expect(long.error.issues[0]?.path).toEqual(['explanationSummary']);
+    expect(storedLessonSchema.safeParse({ ...base, explanationSummary: words(2000) }).success).toBe(true);
+    expect(storedLessonSchema.safeParse({ ...base, explanationSummary: words(20) }).success).toBe(true);
+    expect(storedLessonSchema.safeParse({ ...base, explanationSummary: '   ' }).success).toBe(false);
+    expect(storedLessonSchema.safeParse({ ...base, title: '', explanationSummary: words(20) }).success).toBe(false);
   });
 });

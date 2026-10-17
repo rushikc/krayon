@@ -248,7 +248,6 @@
                   },
                   "items": {
                     "minItems": 1,
-                    "maxItems": 5,
                     "type": "array",
                     "items": {
                       "type": "object",
@@ -264,7 +263,8 @@
                       "required": [
                         "text"
                       ]
-                    }
+                    },
+                    "maxItems": 5
                   }
                 },
                 "required": [
@@ -294,7 +294,6 @@
                   },
                   "nodes": {
                     "minItems": 2,
-                    "maxItems": 6,
                     "type": "array",
                     "items": {
                       "type": "object",
@@ -318,7 +317,8 @@
                         "id",
                         "label"
                       ]
-                    }
+                    },
+                    "maxItems": 6
                   },
                   "edges": {
                     "type": "array",
@@ -367,7 +367,6 @@
                       },
                       "points": {
                         "minItems": 1,
-                        "maxItems": 5,
                         "type": "array",
                         "items": {
                           "type": "object",
@@ -383,7 +382,8 @@
                           "required": [
                             "text"
                           ]
-                        }
+                        },
+                        "maxItems": 5
                       }
                     },
                     "required": [
@@ -399,7 +399,6 @@
                       },
                       "points": {
                         "minItems": 1,
-                        "maxItems": 5,
                         "type": "array",
                         "items": {
                           "type": "object",
@@ -415,7 +414,8 @@
                           "required": [
                             "text"
                           ]
-                        }
+                        },
+                        "maxItems": 5
                       }
                     },
                     "required": [
@@ -456,7 +456,6 @@
                   },
                   "spokes": {
                     "minItems": 3,
-                    "maxItems": 6,
                     "type": "array",
                     "items": {
                       "type": "object",
@@ -480,7 +479,8 @@
                         "id",
                         "label"
                       ]
-                    }
+                    },
+                    "maxItems": 6
                   }
                 },
                 "required": [
@@ -509,7 +509,6 @@
                   },
                   "curves": {
                     "minItems": 1,
-                    "maxItems": 4,
                     "type": "array",
                     "items": {
                       "type": "object",
@@ -545,7 +544,8 @@
                         "label",
                         "kind"
                       ]
-                    }
+                    },
+                    "maxItems": 4
                   },
                   "markers": {
                     "type": "array",
@@ -601,7 +601,6 @@
                   },
                   "steps": {
                     "minItems": 2,
-                    "maxItems": 6,
                     "type": "array",
                     "items": {
                       "type": "object",
@@ -620,7 +619,8 @@
                       "required": [
                         "label"
                       ]
-                    }
+                    },
+                    "maxItems": 6
                   }
                 },
                 "required": [
@@ -684,10 +684,9 @@
         "type": "string"
       },
       "durationInFrames": {
-        "type": "number",
-        "minimum": 180,
-        "maximum": 450,
-        "description": "Length at 30 fps, between 180 and 450."
+        "type": "integer",
+        "maximum": 1800,
+        "description": "Length at 30 fps. A positive integer, at most 1800 frames."
       },
       "narration": {
         "description": "The spoken narration for this segment.",
@@ -733,7 +732,6 @@
                   },
                   "items": {
                     "minItems": 1,
-                    "maxItems": 5,
                     "type": "array",
                     "items": {
                       "type": "object",
@@ -749,7 +747,8 @@
                       "required": [
                         "text"
                       ]
-                    }
+                    },
+                    "maxItems": 5
                   }
                 },
                 "required": [
@@ -779,7 +778,6 @@
                   },
                   "nodes": {
                     "minItems": 2,
-                    "maxItems": 6,
                     "type": "array",
                     "items": {
                       "type": "object",
@@ -803,7 +801,8 @@
                         "id",
                         "label"
                       ]
-                    }
+                    },
+                    "maxItems": 6
                   },
                   "edges": {
                     "type": "array",
@@ -852,7 +851,6 @@
                       },
                       "points": {
                         "minItems": 1,
-                        "maxItems": 5,
                         "type": "array",
                         "items": {
                           "type": "object",
@@ -868,7 +866,8 @@
                           "required": [
                             "text"
                           ]
-                        }
+                        },
+                        "maxItems": 5
                       }
                     },
                     "required": [
@@ -884,7 +883,6 @@
                       },
                       "points": {
                         "minItems": 1,
-                        "maxItems": 5,
                         "type": "array",
                         "items": {
                           "type": "object",
@@ -900,7 +898,8 @@
                           "required": [
                             "text"
                           ]
-                        }
+                        },
+                        "maxItems": 5
                       }
                     },
                     "required": [
@@ -941,7 +940,6 @@
                   },
                   "spokes": {
                     "minItems": 3,
-                    "maxItems": 6,
                     "type": "array",
                     "items": {
                       "type": "object",
@@ -965,7 +963,8 @@
                         "id",
                         "label"
                       ]
-                    }
+                    },
+                    "maxItems": 6
                   }
                 },
                 "required": [
@@ -994,7 +993,6 @@
                   },
                   "curves": {
                     "minItems": 1,
-                    "maxItems": 4,
                     "type": "array",
                     "items": {
                       "type": "object",
@@ -1030,7 +1028,8 @@
                         "label",
                         "kind"
                       ]
-                    }
+                    },
+                    "maxItems": 4
                   },
                   "markers": {
                     "type": "array",
@@ -1086,7 +1085,6 @@
                   },
                   "steps": {
                     "minItems": 2,
-                    "maxItems": 6,
                     "type": "array",
                     "items": {
                       "type": "object",
@@ -1105,7 +1103,8 @@
                       "required": [
                         "label"
                       ]
-                    }
+                    },
+                    "maxItems": 6
                   }
                 },
                 "required": [
@@ -1246,7 +1245,6 @@
                       },
                       "items": {
                         "minItems": 1,
-                        "maxItems": 5,
                         "type": "array",
                         "items": {
                           "type": "object",
@@ -1262,7 +1260,8 @@
                           "required": [
                             "text"
                           ]
-                        }
+                        },
+                        "maxItems": 5
                       }
                     },
                     "required": [
@@ -1292,7 +1291,6 @@
                       },
                       "nodes": {
                         "minItems": 2,
-                        "maxItems": 6,
                         "type": "array",
                         "items": {
                           "type": "object",
@@ -1316,7 +1314,8 @@
                             "id",
                             "label"
                           ]
-                        }
+                        },
+                        "maxItems": 6
                       },
                       "edges": {
                         "type": "array",
@@ -1365,7 +1364,6 @@
                           },
                           "points": {
                             "minItems": 1,
-                            "maxItems": 5,
                             "type": "array",
                             "items": {
                               "type": "object",
@@ -1381,7 +1379,8 @@
                               "required": [
                                 "text"
                               ]
-                            }
+                            },
+                            "maxItems": 5
                           }
                         },
                         "required": [
@@ -1397,7 +1396,6 @@
                           },
                           "points": {
                             "minItems": 1,
-                            "maxItems": 5,
                             "type": "array",
                             "items": {
                               "type": "object",
@@ -1413,7 +1411,8 @@
                               "required": [
                                 "text"
                               ]
-                            }
+                            },
+                            "maxItems": 5
                           }
                         },
                         "required": [
@@ -1454,7 +1453,6 @@
                       },
                       "spokes": {
                         "minItems": 3,
-                        "maxItems": 6,
                         "type": "array",
                         "items": {
                           "type": "object",
@@ -1478,7 +1476,8 @@
                             "id",
                             "label"
                           ]
-                        }
+                        },
+                        "maxItems": 6
                       }
                     },
                     "required": [
@@ -1507,7 +1506,6 @@
                       },
                       "curves": {
                         "minItems": 1,
-                        "maxItems": 4,
                         "type": "array",
                         "items": {
                           "type": "object",
@@ -1543,7 +1541,8 @@
                             "label",
                             "kind"
                           ]
-                        }
+                        },
+                        "maxItems": 4
                       },
                       "markers": {
                         "type": "array",
@@ -1599,7 +1598,6 @@
                       },
                       "steps": {
                         "minItems": 2,
-                        "maxItems": 6,
                         "type": "array",
                         "items": {
                           "type": "object",
@@ -1618,7 +1616,8 @@
                           "required": [
                             "label"
                           ]
-                        }
+                        },
+                        "maxItems": 6
                       }
                     },
                     "required": [

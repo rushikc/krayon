@@ -1,15 +1,4 @@
-import {
-  FPS,
-  LESSON_SECONDS,
-  SEGMENT_PAUSE_SECONDS,
-  SEGMENT_SECONDS,
-  SEGMENT_FRAMES,
-  SEGMENTS_PER_LESSON,
-  SEGMENT_WORDS,
-  WPM,
-  framesFor,
-  wordCount,
-} from '@krayon/shared';
+import { FPS, SEGMENT_WORDS, framesFor, wordCount } from '@krayon/shared';
 import type { GenerationIssue } from '@krayon/shared';
 
 /** Splits prose into sentences, keeping the text verbatim. */
@@ -83,12 +72,7 @@ export const beatsFromRanges = (sentences: string[], ranges: BeatRange[], toPdfP
 
 const beatWords = (beat: Beat) => wordCount(beat.sentences.join(' '));
 
-const speechFits = (words: number) => (words / WPM) * 60 <= SEGMENT_SECONDS.max;
-
-const tooLong = (beat: Beat) => {
-  const words = beatWords(beat);
-  return words > SEGMENT_WORDS.max || !speechFits(words);
-};
+const tooLong = (beat: Beat) => beatWords(beat) > SEGMENT_WORDS.max;
 
 /** Splits text at the clause boundary (or word) nearest its middle. */
 const splitText = (text: string): [string, string] => {
@@ -136,27 +120,12 @@ const mergeBeats = (a: Beat, b: Beat): Beat => ({
   sentences: [...a.sentences, ...b.sentences],
 });
 
-/** Index of the adjacent pair with the fewest combined words that still fits one segment, or -1. */
-const smallestPair = (beats: Beat[]) => {
-  let best = -1;
-  let bestWords = Number.POSITIVE_INFINITY;
-  for (let index = 0; index < beats.length - 1; index += 1) {
-    const words = beatWords(beats[index]!) + beatWords(beats[index + 1]!);
-    if (words <= SEGMENT_WORDS.max && speechFits(words) && words < bestWords) {
-      best = index;
-      bestWords = words;
-    }
-  }
-  return best;
-};
-
 export const lessonSeconds = (beats: Beat[]) => beats.reduce((total, beat) => total + framesFor(beatWords(beat)), 0) / FPS;
 
 /**
- * Fits beats to the segment limits: splits beats over SEGMENT_WORDS.max (at a sentence, else a clause),
- * merges beats under SEGMENT_WORDS.min into a neighbour, keeps the count inside SEGMENTS_PER_LESSON, and
- * merges more while the lesson is over LESSON_SECONDS.max. Short beats are stretched to SEGMENT_SECONDS.min
- * by framesFor. Narration stays verbatim; startFrame is cumulative.
+ * Keeps each TTS request small: splits a beat over SEGMENT_WORDS.max (at a sentence, else a clause) and
+ * merges a beat under SEGMENT_WORDS.min into a neighbour when the pair still fits. Narration stays verbatim.
+ * Duration is the pre-TTS estimate from framesFor (6–15 s). startFrame is cumulative.
  */
 export const normalizeBeats = (input: Beat[]): TimedBeat[] => {
   let beats = input.filter((beat) => beat.sentences.join(' ').trim());
@@ -168,10 +137,8 @@ export const normalizeBeats = (input: Beat[]): TimedBeat[] => {
     beats = [...beats.slice(0, index), first, second, ...beats.slice(index + 1)];
   }
 
-  // A short beat joins the neighbour that gives the smaller fitting segment. One that fits nowhere stays
-  // short; framesFor stretches it to SEGMENT_SECONDS.min.
   const pairWords = (at: number) => beatWords(beats[at]!) + beatWords(beats[at + 1]!);
-  const fits = (words: number) => words <= SEGMENT_WORDS.max && speechFits(words);
+  const fits = (count: number) => count <= SEGMENT_WORDS.max;
   for (let changed = true; changed; ) {
     changed = false;
     for (let index = 0; index < beats.length; index += 1) {
@@ -185,68 +152,11 @@ export const normalizeBeats = (input: Beat[]): TimedBeat[] => {
     }
   }
 
-  while (beats.length > SEGMENTS_PER_LESSON.max) {
-    const at = smallestPair(beats);
-    if (at < 0) break;
-    beats = [...beats.slice(0, at), mergeBeats(beats[at]!, beats[at + 1]!), ...beats.slice(at + 2)];
-  }
-
-  while (beats.length < SEGMENTS_PER_LESSON.min) {
-    let largest = -1;
-    beats.forEach((beat, index) => {
-      if (beatWords(beat) >= 2 * SEGMENT_WORDS.min - 4 && (largest < 0 || beatWords(beat) > beatWords(beats[largest]!))) largest = index;
-    });
-    if (largest < 0) break;
-    const [first, second] = splitBeat(beats[largest]!);
-    beats = [...beats.slice(0, largest), first, second, ...beats.slice(largest + 1)];
-  }
-
-  while (lessonSeconds(beats) > LESSON_SECONDS.max && beats.length > SEGMENTS_PER_LESSON.min) {
-    const at = smallestPair(beats);
-    if (at < 0) break;
-    beats = [...beats.slice(0, at), mergeBeats(beats[at]!, beats[at + 1]!), ...beats.slice(at + 2)];
-  }
-
-  // The lesson clock is the summed frames, not the word count. Shrink the pause first. If segments
-  // stretched to the 6 s minimum still run past 5 minutes, merge the pair that saves the most time.
-  const limit = LESSON_SECONDS.max * FPS;
-  const framesAt = (words: number, pauseSeconds: number) => {
-    if (pauseSeconds === SEGMENT_PAUSE_SECONDS) return framesFor(words);
-    const frames = Math.ceil((words / WPM) * 60 * FPS) + Math.round(pauseSeconds * FPS);
-    return Math.min(SEGMENT_FRAMES.max, Math.max(SEGMENT_FRAMES.min, frames));
-  };
-  const totalAt = (pauseSeconds: number) => beats.reduce((sum, beat) => sum + framesAt(beatWords(beat), pauseSeconds), 0);
-  let pause = SEGMENT_PAUSE_SECONDS;
-  if (totalAt(pause) > limit) {
-    pause = 0;
-    for (let frames = Math.round(SEGMENT_PAUSE_SECONDS * FPS); frames >= 0; frames -= 1) {
-      if (totalAt(frames / FPS) <= limit) {
-        pause = frames / FPS;
-        break;
-      }
-    }
-  }
-  while (totalAt(pause) > limit) {
-    let best = -1;
-    let bestSaved = 0;
-    for (let index = 0; index < beats.length - 1; index += 1) {
-      const combined = beatWords(beats[index]!) + beatWords(beats[index + 1]!);
-      if (combined > SEGMENT_WORDS.max || !speechFits(combined)) continue;
-      const saved = framesAt(beatWords(beats[index]!), pause) + framesAt(beatWords(beats[index + 1]!), pause) - framesAt(combined, pause);
-      if (saved > bestSaved) {
-        best = index;
-        bestSaved = saved;
-      }
-    }
-    if (best < 0) break;
-    beats = [...beats.slice(0, best), mergeBeats(beats[best]!, beats[best + 1]!), ...beats.slice(best + 2)];
-  }
-
   let startFrame = 0;
   return beats.map((beat) => {
     const narration = beat.sentences.join(' ');
     const words = wordCount(narration);
-    const durationInFrames = framesAt(words, pause);
+    const durationInFrames = framesFor(words);
     const timed: TimedBeat = { ...beat, narration, words, durationInFrames, startFrame };
     startFrame += durationInFrames;
     return timed;

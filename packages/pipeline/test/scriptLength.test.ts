@@ -1,6 +1,6 @@
-import { LESSON_WORDS, LESSON_WORDS_ACCEPTED, wordCount } from '@krayon/shared';
+import { LESSON_WORDS, wordCount } from '@krayon/shared';
 import { describe, expect, it } from 'vitest';
-import { planLessonSizes, splitScript, truncateScript } from '../src/scriptLength.js';
+import { planLessonSizes, splitScript } from '../src/scriptLength.js';
 import type { DraftLesson } from '../src/scriptLength.js';
 import { script } from './helpers.js';
 
@@ -24,57 +24,50 @@ describe('planLessonSizes', () => {
     expect(planLessonSizes(lessons).map((lesson) => lesson.title)).toEqual(['a', 'b']);
   });
 
-  it('keeps a script inside the tolerance band whole', () => {
+  it('keeps a script that is merely near the target', () => {
     const nearMin = Array.from({ length: 412 }, () => 'word').join(' ');
     const nearMax = Array.from({ length: 680 }, () => 'word').join(' ');
-    for (const text of [nearMin, nearMax]) {
-      const planned = planLessonSizes([draft('kept', text)]);
-      expect(planned).toHaveLength(1);
-      expect(planned[0]?.script).toBe(text);
-      expect(planned[0]?.needsTighten).toBe(false);
-      expect(planned[0]?.shortSource).toBeFalsy();
-    }
+    const under = planLessonSizes([draft('near', nearMin)]);
+    expect(under).toHaveLength(1);
+    expect(under[0]?.script).toBe(nearMin);
+    expect(under[0]?.shortSource).toBe(true);
+    const over = planLessonSizes([draft('near', nearMax)]);
+    expect(over[0]?.script).toBe(nearMax);
+    expect(over[0]?.shortSource).toBeFalsy();
   });
 
-  it('merges a short lesson into its smaller neighbour', () => {
+  it('merges a lesson under half the minimum into its smaller neighbour', () => {
     const planned = planLessonSizes([draft('a', script(30, 20), 0, 4), draft('short', script(10, 20), 5, 6), draft('c', script(22, 20), 7, 9)]);
     expect(planned.map((lesson) => lesson.title)).toEqual(['a', 'short']);
     expect(planned[1]).toMatchObject({ pageStart: 5, pageEnd: 9 });
-    expect(planned.every((lesson) => wordCount(lesson.script) >= LESSON_WORDS.min && wordCount(lesson.script) <= LESSON_WORDS.max)).toBe(true);
   });
 
-  it('splits a long lesson into two parts and halves its pages', () => {
+  it('splits a lesson over 1.5× the maximum when both halves stay long enough', () => {
     const planned = planLessonSizes([draft('long', script(50, 20), 10, 19)]);
     expect(planned.map((lesson) => lesson.title)).toEqual(['long (part 1)', 'long (part 2)']);
     expect(planned[0]).toMatchObject({ pageStart: 10, pageEnd: 14 });
     expect(planned[1]).toMatchObject({ pageStart: 14, pageEnd: 19 });
+    expect(planned.every((lesson) => wordCount(lesson.script) >= LESSON_WORDS.min)).toBe(true);
   });
 
-  it('marks a long lesson that cannot split for tightening', () => {
+  it('keeps a long lesson that cannot be split into two full lessons', () => {
     const planned = planLessonSizes([draft('a', script(25, 20)), draft('over', script(36, 20))]);
-    expect(planned[1]).toMatchObject({ title: 'over', needsTighten: true });
-    expect(planned[0]?.needsTighten).toBe(false);
+    expect(planned.map((lesson) => lesson.title)).toEqual(['a', 'over']);
+    expect(planned[1]?.script.startsWith('Sentence 1')).toBe(true);
   });
 
-  it('flags a lone short lesson as short source', () => {
-    const planned = planLessonSizes([draft('only', script(8, 20))]);
+  it('flags a lone short lesson as short source and does not drop words', () => {
+    const text = script(8, 20);
+    const planned = planLessonSizes([draft('only', text)]);
     expect(planned).toHaveLength(1);
     expect(planned[0]?.shortSource).toBe(true);
+    expect(planned[0]?.script).toBe(text);
   });
 
-  it('merges every short lesson of a chapter into one', () => {
+  it('merges every clearly short lesson of a chapter into one', () => {
     const planned = planLessonSizes([draft('a', script(5, 20)), draft('b', script(5, 20)), draft('c', script(5, 20))]);
     expect(planned).toHaveLength(1);
     expect(planned[0]?.shortSource).toBe(true);
     expect(wordCount(planned[0]!.script)).toBe(300);
-  });
-});
-
-describe('truncateScript', () => {
-  it('keeps whole sentences up to the top of the accepted band', () => {
-    const cut = truncateScript(script(40, 20));
-    expect(wordCount(cut)).toBeLessThanOrEqual(LESSON_WORDS_ACCEPTED.max);
-    expect(wordCount(cut)).toBe(680);
-    expect(cut.endsWith('end.')).toBe(true);
   });
 });

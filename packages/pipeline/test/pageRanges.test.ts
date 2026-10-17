@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { detectOffset, headerOffset, pageHasTitle, sampleOffset, subRanges, titleOffset, toPdfRanges, validateRanges } from '../src/pageRanges.js';
+import { detectOffset, headerOffset, normalizeRanges, pageHasTitle, sampleOffset, subRanges, titleOffset, toPdfRanges, validateRanges } from '../src/pageRanges.js';
 
 /** A 60-page book whose printed page 1 is PDF index 20, with running headers. */
 const book = () =>
@@ -94,24 +94,34 @@ describe('toPdfRanges', () => {
   });
 });
 
-describe('validateRanges', () => {
-  it('reports overlaps, gaps, coverage, and all-skip with paths', () => {
-    const issues = validateRanges(
+describe('normalizeRanges', () => {
+  it('snaps overlaps and closes gaps inside the file', () => {
+    const fixed = normalizeRanges(
       [
-        { title: 'A', pdfPageStart: 1, pdfPageEnd: 10, skip: true },
-        { title: 'B', pdfPageStart: 8, pdfPageEnd: 12, skip: true },
-        { title: 'C', pdfPageStart: 15, pdfPageEnd: 18, skip: true },
+        { title: 'B', pdfPageStart: 8, pdfPageEnd: 12, skip: false },
+        { title: 'A', pdfPageStart: 1, pdfPageEnd: 10, skip: false },
+        { title: 'C', pdfPageStart: 15, pdfPageEnd: 18, skip: false },
       ],
       20,
     );
-    expect(issues.map((issue) => issue.path)).toEqual([
-      'chapters',
-      'chapters[0].pdfPageStart',
-      'chapters[1].pdfPageStart',
-      'chapters[2].pdfPageStart',
-      'chapters[2].pdfPageEnd',
+    expect(fixed).toEqual([
+      { title: 'A', pdfPageStart: 0, pdfPageEnd: 10, skip: false },
+      { title: 'B', pdfPageStart: 11, pdfPageEnd: 14, skip: false },
+      { title: 'C', pdfPageStart: 15, pdfPageEnd: 19, skip: false },
     ]);
+    expect(validateRanges(fixed, 20)).toEqual([]);
+  });
+
+  it('rejects only an empty list or a book that is all skipped', () => {
     expect(validateRanges([], 5)).toEqual([{ path: 'chapters', message: 'At least one chapter is required.' }]);
+    const skipped = normalizeRanges(
+      [
+        { title: 'A', pdfPageStart: 1, pdfPageEnd: 10, skip: true },
+        { title: 'B', pdfPageStart: 8, pdfPageEnd: 12, skip: true },
+      ],
+      20,
+    );
+    expect(validateRanges(skipped, 20).map((issue) => issue.path)).toEqual(['chapters']);
   });
 });
 

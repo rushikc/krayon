@@ -8,12 +8,12 @@ export const templateGuide = `Each segment uses exactly one scene.layout. Fill i
 Optional appearAt is a frame number inside the segment. Omit it to let items appear in order.
 
 titleCard: the opening. Fields: title, optional subtitle.
-bullets: a short list of facts. Fields: heading, items[{text, appearAt?}] with 1 to 5 items. A bullet is about 12 words.
-flow: a sequence, such as a request path. Fields: optional heading, direction horizontal or vertical, nodes[{id, label, sublabel?, appearAt?}] with 2 to 6 nodes, edges[{from, to, label?}] whose from and to are node ids. A node label is about 6 words.
-compare: two sides. Fields: optional heading, left{title, points[{text, appearAt?}]}, right with the same shape. 1 to 5 points on a side.
-hubSpoke: one center with parts around it, such as Porter's five forces. Fields: center{id, label}, spokes[{id, label, sublabel?, appearAt?}] with 3 to 6 spokes. Spoke labels are about 6 words.
+bullets: a short list of facts. Fields: heading, items[{text, appearAt?}]. Aim for 1 to 5 items. A bullet is about 12 words.
+flow: a sequence, such as a request path. Fields: optional heading, direction horizontal or vertical, nodes[{id, label, sublabel?, appearAt?}]. Aim for 2 to 6 nodes. edges[{from, to, label?}] whose from and to are node ids. A node label is about 6 words.
+compare: two sides. Fields: optional heading, left{title, points[{text, appearAt?}]}, right with the same shape. Aim for 1 to 5 points on a side.
+hubSpoke: one center with parts around it, such as Porter's five forces. Fields: center{id, label}, spokes[{id, label, sublabel?, appearAt?}]. Aim for 3 to 6 spokes. Spoke labels are about 6 words.
 chart: a graph with axes. Fields: optional heading, xLabel, yLabel, curves[{id, label, kind: upward or downward or flat, shift?: left or right, appearAt?}], markers[{type: intersection or point, curveIds, label, appearAt?}]. Supply slopes upward. Demand slopes downward. Mark their crossing with an intersection marker labeled equilibrium. A shift sets shift on that curve.
-timeline: steps over time. Fields: optional heading, steps[{label, detail?, appearAt?}] with 2 to 6 steps.
+timeline: steps over time. Fields: optional heading, steps[{label, detail?, appearAt?}]. Aim for 2 to 6 steps.
 callout: one statement. Fields: kind definition or example or keyPoint, title, body.
 
 Wrap math in single dollar signs, like $P = Q$.`;
@@ -69,7 +69,7 @@ Stay inside what the pages say. Do not add outside material.`;
 export const lessonOutlinePrompt = (chapterTitle: string, start: number, end: number, chapterText: string, suggested: number) => `${attachedPages(start, end)}
 It is the chapter "${chapterTitle}". A full explanation of the chapter follows below.
 
-Split the chapter into lessons, in order. Each lesson is a short video with a spoken script of ${LESSON_WORDS.min} to ${LESSON_WORDS.max} words (3 to 5 minutes), so give each lesson enough material for that.
+Split the chapter into lessons, in order. Each lesson is a short video. Aim for a spoken script of ${LESSON_WORDS.min} to ${LESSON_WORDS.max} words (about 3 to 5 minutes), so give each lesson enough material for that.
 About ${suggested} lesson${suggested === 1 ? '' : 's'} fit this chapter; use fewer for thin material.
 pageStart and pageEnd are positions in the attached file (1 to ${end - start + 1}), not the numbers printed on the pages; the explanation cites the same positions as [p. N]. Lessons cover every page in order, from page 1 to the last page; neighbours may share a boundary page.
 focus says in one or two sentences what the lesson teaches.
@@ -91,21 +91,15 @@ Write the spoken script for the lesson "${input.title}" in the chapter "${input.
 Focus: ${input.focus}
 ${input.previousTitle ? `The previous lesson was "${input.previousTitle}".` : 'This is the first lesson of the chapter.'}${input.nextTitle ? ` The next lesson is "${input.nextTitle}".` : ''}
 
-explanationSummary is read aloud by a narrator over a video. Write ${LESSON_WORDS.min} to ${LESSON_WORDS.max} words; aim for about ${Math.round((LESSON_WORDS.min + LESSON_WORDS.max) / 2)}.
-Plain prose only: no markdown, lists, headings, code blocks, or tables. Say formulas in words.
-Every sentence is complete and under ${SEGMENT_WORDS.max - 5} words.
+explanationSummary is read aloud by a narrator over a video. Aim for ${LESSON_WORDS.min} to ${LESSON_WORDS.max} words, about ${Math.round((LESSON_WORDS.min + LESSON_WORDS.max) / 2)}.
+Plain prose only: no markdown, lists, headings, code blocks, or tables.
+Write it the way it should be spoken: write code identifiers, symbols and formulas in spoken words (for example 'string copy' for strcpy, 'C plus plus' for C++).
+Aim for complete sentences of about ${SEGMENT_WORDS.max - 5} words.
 Teach the ideas; do not mention pages, files, or "this lesson".
 Stay inside the attached pages and the chapter notes below.
 
 Chapter notes:
 ${input.notes}`;
-
-export const tightenPrompt = (script: string, target: number) => `Rewrite this spoken lesson script to about ${target} words (between ${LESSON_WORDS.min} and ${LESSON_WORDS.max}).
-Keep every key idea and the order. Keep plain prose, complete sentences, each under ${SEGMENT_WORDS.max - 5} words.
-Return it as explanationSummary.
-
-Script:
-${script}`;
 
 export const studyDocPrompt = (input: {
   chapterTitle: string;
@@ -119,7 +113,7 @@ export const studyDocPrompt = (input: {
 Write the study notes for the lesson "${input.title}" in the chapter "${input.chapterTitle}". They are shown below the lesson video.
 
 studyDoc is markdown and more extensive than the spoken script: headings, definitions, worked examples, short code where the source has code, and figures described in words.
-${input.short ? 'The previous draft was cut off. Write about 400 to 600 words.' : 'Write about 600 to 1,000 words.'}
+${input.short ? 'The previous draft was cut off. Aim for about 400 to 600 words.' : 'Aim for about 600 to 1,000 words.'}
 End with a "Key takeaways" list as the last section, and put nothing after it.
 Wrap math in single dollar signs, like $O(n \\log n)$.
 Stay inside the attached pages and the notes below.
@@ -130,12 +124,12 @@ ${input.script}
 Chapter notes:
 ${input.notes}`;
 
-export const beatsPrompt = (input: { title: string; sentences: string[]; start: number; end: number }) => `${attachedPages(input.start, input.end)}
-Plan the video for the lesson "${input.title}". Its narration is the numbered sentences below.
+export const beatsPrompt = (input: { title: string; sentences: string[]; start: number; end: number; instructions?: string }) => `${attachedPages(input.start, input.end)}
+Plan the video for the lesson "${input.title}". Its narration is the numbered sentences below.${input.instructions ? `\n\nLearner instructions for this new cut:\n${input.instructions}` : ''}
 
 Split the narration into beats. A beat is one idea with one visual, spoken over sentences firstSentence to lastSentence.
 Beats cover every sentence exactly once, in order, without gaps or overlaps.
-Aim for ${SEGMENT_WORDS.min} to ${SEGMENT_WORDS.max} words per beat (6 to 15 seconds), and ${SEGMENTS_PER_LESSON.min} to ${SEGMENTS_PER_LESSON.max} beats in total.
+Aim for about ${SEGMENT_WORDS.min} to ${SEGMENT_WORDS.max} words per beat (about 6 to 15 seconds of speech), and about ${SEGMENTS_PER_LESSON.min} to ${SEGMENTS_PER_LESSON.max} beats in total.
 visual names one template (titleCard, bullets, flow, compare, hubSpoke, chart, timeline, callout) and what it shows. Open with a titleCard. Vary the templates.
 pages lists pages of the attached file (1 to ${input.end - input.start + 1}) the beat draws on, so the visual can use their figures.
 
@@ -160,7 +154,7 @@ Visual idea: ${input.visual}
 Narration spoken while it shows: "${input.narration}"
 The segment lasts ${input.durationInFrames} frames at ${FPS} fps. Every appearAt is below ${input.durationInFrames}; time items to the narration.
 Return title and scene with exactly one template. Ground every label in the attached pages; use their figures when they help.
-Node labels are about 6 words. Bullets are about 12 words.${extra}
+Aim for node labels of about 6 words and bullets of about 12 words.${extra}
 
 ${templateGuide}
 
@@ -176,8 +170,27 @@ export const retryScenePrompt = (input: SceneInput, previous: SegmentLike | null
 export const learnerScenePrompt = (input: SceneInput, current: GeneratedSegment, request?: string) =>
   scenePrompt(
     input,
-    `\n\nExplain this segment in more depth than the current version.${request ? `\nLearner request: ${request}` : ''}\n\nCurrent segment:\n${JSON.stringify(publicSegment(current))}`,
+    `\n\nRedraw this segment for the narration and duration above. It may run longer than the previous cut.${request ? `\nLearner request: ${request}` : ''}\n\nPrevious picture:\n${JSON.stringify(publicSegment(current))}`,
   );
+
+/** Spoken replacement for one segment. A longer narration is allowed. */
+export const regenerateNarrationPrompt = (input: {
+  lessonTitle: string;
+  script: string;
+  title: string;
+  narration: string;
+  request?: string;
+}) => `Rewrite the spoken narration for one segment of the lesson "${input.lessonTitle}".
+Segment title: ${input.title}
+
+Current narration:
+"${input.narration}"
+
+Lesson script, for context:
+${input.script.slice(0, 8_000)}
+
+Write narration that can be spoken aloud. It may be longer than the current version when that teaches the idea more clearly.${input.request ? `\n\nLearner instructions: ${input.request}` : ''}
+Return the new narration only.`;
 
 export const repairPrompt = (segment: SegmentLike, issues: GenerationIssue[]) => `Fix only these problems in one lesson segment. Return the corrected title and scene.
 Do not add coordinates. Use the same template unless a problem says the template itself is invalid.

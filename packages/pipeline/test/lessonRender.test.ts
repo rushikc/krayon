@@ -1,4 +1,4 @@
-import { GenerationError, toGenerationError } from '@krayon/shared';
+import { GenerationError, framesForAudio, toGenerationError } from '@krayon/shared';
 import type { PipelineEmit } from '@krayon/shared';
 import { describe, expect, it } from 'vitest';
 import { createLessonStages } from '../src/lessonRender.js';
@@ -11,11 +11,14 @@ const COURSE = 'c';
 const LESSON = 'c-c1-l1';
 
 /** A runtime with scripted model answers. Scenes for `failing` segments throw SCHEMA_INVALID. */
-const setup = () => {
+const setup = (options?: { tts?: boolean }) => {
   const { docs } = memoryDocs();
   const failing = new Set<string>();
   const sceneCalls = new Map<string, number>();
   const events: PipelineEmit[] = [];
+  const voiceCalls: Array<{ narration: string; userClicked?: boolean }> = [];
+  let voiceFails = false;
+  let wideAppear = false;
   let renders = 0;
 
   docs.set(lessonIndexPath(UID, LESSON), { courseId: COURSE });
@@ -39,6 +42,12 @@ const setup = () => {
       sceneCalls.set(segmentId, (sceneCalls.get(segmentId) ?? 0) + 1);
       await new Promise((resolve) => setTimeout(resolve, 1));
       if (failing.has(segmentId)) throw new GenerationError('SCHEMA_INVALID', [{ path: 'scene.layout.body', message: 'Required' }], 1);
+      if (wideAppear) {
+        return {
+          value: { title: `Title ${segmentId}`, scene: { layout: { type: 'bullets', heading: 'Points', items: [{ text: 'One', appearAt: 99999 }, { text: 'Two', appearAt: 4 }] } } },
+          attempts: 1,
+        };
+      }
       return { value: { title: `Title ${segmentId}`, scene: { layout: { type: 'titleCard', title: `Title ${segmentId}` } } }, attempts: 1 };
     }
     if (request.name === 'review') return { value: { pass: true, score: 9, issues: [] }, attempts: 1 };
@@ -48,7 +57,16 @@ const setup = () => {
   const rt = {
     docs,
     blobs: { get: () => ({ data: new Uint8Array([1]) }) },
-    config: { maxRepairRounds: 0, maxReviewRounds: 1, reviewPassScore: 7, segmentRetries: 2, reviewModel: 'review' },
+    config: { maxRepairRounds: 0, maxReviewRounds: 1, reviewPassScore: 7, segmentRetries: 2, reviewModel: 'review', ttsEnabled: options?.tts === true },
+    tts: {
+      voice: async (_uid: string, narration: string, priority: { userClicked?: boolean }) => {
+        voiceCalls.push({ narration, userClicked: priority.userClicked });
+        if (voiceFails) throw new GenerationError('QUOTA', [{ path: 'audio', message: 'quota' }], 4);
+        return { blobId: `b${voiceCalls.length}`, hash: `h${voiceCalls.length}`, seconds: 20, voice: 'en-US-Chirp3-HD-Charon', rate: 1, format: 'wav' as const };
+      },
+      health: async () => ({ ok: true }),
+      clear: () => undefined,
+    },
     log: quietLog,
     events: { isCancelled: () => false, beginRun: () => 1, endRun: () => undefined },
     sources: {
@@ -72,7 +90,24 @@ const setup = () => {
     assertLive: () => undefined,
   } as unknown as Runtime;
 
-  return { docs, rt, failing, sceneCalls, events, renders: () => renders };
+  return {
+    docs,
+    rt,
+    failing,
+    sceneCalls,
+    events,
+    voiceCalls,
+    renders: () => renders,
+    failVoice: () => {
+      voiceFails = true;
+    },
+    allowVoice: () => {
+      voiceFails = false;
+    },
+    wideAppear: () => {
+      wideAppear = true;
+    },
+  };
 };
 
 const types = (events: PipelineEmit[]) => events.map((event) => event.type);
@@ -129,5 +164,62 @@ describe('lesson render', () => {
     expect([...sceneCalls.values()].every((value) => value === 1)).toBe(true);
     await stages.renderLesson(UID, LESSON, { userClicked: true });
     expect(renders()).toBe(count);
+  });
+
+  it('voices on the lesson priority, retimes from the audio, and reuses it on retry', async () => {
+    const { docs, rt, failing, sceneCalls, voiceCalls, events } = setup({ tts: true });
+    const stages = createLessonStages(rt);
+    failing.add('s02');
+    await stages.renderLesson(UID, LESSON, { userClicked: true });
+    const failed = lessonDetail(docs, UID, LESSON)!;
+    expect(failed.status).toBe('failed');
+    expect(voiceCalls.length).toBe(failed.segmentCount);
+    expect(voiceCalls.every((call) => call.userClicked)).toBe(true);
+    expect(types(events)).toContain('segment.voiced');
+    const frames = framesForAudio(20);
+    let start = 0;
+    for (const segment of failed.segments) {
+      expect(segment.durationInFrames).toBe(frames);
+      expect(segment.startFrame).toBe(start);
+      expect(segment.audio?.seconds).toBe(20);
+      expect(segment.audioUrl).toBe(`/api/audio/${segment.audio?.blobId}`);
+      start += frames;
+    }
+    const voiced = voiceCalls.length;
+    failing.clear();
+    sceneCalls.clear();
+    await stages.renderLesson(UID, LESSON, { userClicked: true });
+    expect(lessonDetail(docs, UID, LESSON)?.status).toBe('ready');
+    expect(voiceCalls).toHaveLength(voiced);
+    expect([...sceneCalls.keys()]).toEqual(['s02']);
+  });
+
+  it('fails the lesson when narration fails and retries only the segments that have no audio', async () => {
+    const { docs, rt, voiceCalls, sceneCalls, failVoice, allowVoice } = setup({ tts: true });
+    const stages = createLessonStages(rt);
+    failVoice();
+    await stages.renderLesson(UID, LESSON, { userClicked: true });
+    const failed = lessonDetail(docs, UID, LESSON)!;
+    expect(failed.status).toBe('failed');
+    expect(failed.segments.every((segment) => segment.voice === 'failed' && !segment.audio)).toBe(true);
+    expect(sceneCalls.size).toBe(0);
+    allowVoice();
+    const before = voiceCalls.length;
+    await stages.renderLesson(UID, LESSON, { userClicked: true });
+    expect(lessonDetail(docs, UID, LESSON)?.status).toBe('ready');
+    expect(voiceCalls.length).toBeGreaterThan(before);
+  });
+
+  it('normalizes an out-of-range appearAt before validation, so there is no repair call', async () => {
+    const { docs, rt, sceneCalls, wideAppear } = setup();
+    wideAppear();
+    await createLessonStages(rt).renderLesson(UID, LESSON, { userClicked: true });
+    const detail = lessonDetail(docs, UID, LESSON)!;
+    expect(detail.status).toBe('ready');
+    expect([...sceneCalls.values()].every((count) => count === 1)).toBe(true);
+    const layout = detail.segments[0]?.segment?.scene.layout;
+    if (!layout || layout.type !== 'bullets') throw new Error('expected bullets');
+    expect(layout.items[0]?.appearAt).toBeLessThan(detail.segments[0]!.durationInFrames);
+    expect((layout.items[1]?.appearAt ?? 0) >= (layout.items[0]?.appearAt ?? 0)).toBe(true);
   });
 });

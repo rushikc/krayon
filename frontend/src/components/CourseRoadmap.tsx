@@ -33,7 +33,16 @@ const lessonPages = (lesson: LessonSummary) => {
 
 function LessonAction({ lesson }: { lesson: LessonSummary }) {
   const session = useStudySession();
-  if (lesson.status === 'writing') return null;
+  if (lesson.status === 'writing') {
+    if (!lesson.statusDetail?.startsWith('Writing')) return null;
+    return (
+      <span
+        className="block h-5 w-5 animate-spin rounded-full border-2 border-ink/20 border-t-crayon motion-reduce:animate-none"
+        role="status"
+        aria-label={lesson.statusDetail}
+      />
+    );
+  }
   if (lesson.status === 'ready') {
     const label = progressLabel(lesson);
     return (
@@ -197,7 +206,16 @@ function ChapterSection({
               ))}
             </ol>
           ) : (
-            !failure && <p className="text-[14px] text-muted">Lessons appear here once this chapter is split.</p>
+            !failure && (
+              <div>
+                <p className="text-[14px] text-muted">Lessons appear here once this chapter is split.</p>
+                {chapter.status === 'writing' && (
+                  <div role="progressbar" aria-label="Chapter progress" className="mt-3 h-3 overflow-hidden rounded-full bg-line">
+                    <div className="crayon-indeterminate h-full w-1/3 rounded-full bg-crayon" />
+                  </div>
+                )}
+              </div>
+            )
           )}
         </div>
       )}

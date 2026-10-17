@@ -8,7 +8,7 @@ import { generationErrorStatus, modelResponseSchemas, segmentModelSchema, toGene
 import { z } from 'zod';
 import { aiBackend, settings } from './config.js';
 import { jobs, pipeline, startRecovery, storage, store } from './context.js';
-import { healthSnapshot } from './health.js';
+import { healthSnapshot, noteTts, startTtsCheck } from './health.js';
 import { currentRequestId, getLogger } from './logging.js';
 import { httpError, installErrorHandler, registerRequestLogging } from './requestLogging.js';
 import { registerCourseRoutes } from './routes/courses.js';
@@ -207,6 +207,8 @@ export const buildApp = async () => {
 
 const entry = process.argv[1] ? path.resolve(process.argv[1]) : '';
 if (entry === fileURLToPath(import.meta.url)) {
+  if (settings.ttsEnabled) startTtsCheck(() => pipeline.ttsHealth());
+  else noteTts({ ok: true, enabled: false });
   const app = await buildApp();
   let closing = false;
   const shutdown = () => {

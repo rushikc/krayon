@@ -4,6 +4,9 @@ import type { CourseState, LessonDetail, LessonProgress, LessonSummary } from '@
 // Set VITE_API_BASE_URL to call an API other than the Vite proxy.
 const BASE = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '');
 
+/** Absolute URL for a backend path, including the optional API base. */
+export const mediaUrl = (path: string) => `${BASE}${path}`;
+
 /** Largest PDF or photo the backend accepts. */
 export const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
 
@@ -67,6 +70,10 @@ export const retryLesson = (lessonId: string) =>
 
 export const regenerateSegment = (lessonId: string, segmentId: string, prompt?: string) =>
   apiJson<{ jobId: string }>(`/api/lessons/${lessonId}/segments/${segmentId}/regenerate`, 'POST', { prompt });
+
+/** Makes a ready lesson's video again. Optional instructions go into the new cut. */
+export const rerenderLesson = (lessonId: string, prompt?: string) =>
+  apiJson<{ jobId: string }>(`/api/lessons/${lessonId}/rerender`, 'POST', { prompt });
 
 /** `keepalive` lets the last save finish while the page unloads. */
 export const saveLessonProgress = (lessonId: string, patch: Partial<Omit<LessonProgress, 'updatedAt'>>, keepalive = false) =>

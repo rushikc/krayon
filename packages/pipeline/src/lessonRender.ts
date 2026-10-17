@@ -1,17 +1,26 @@
 import {
+  FPS,
   GenerationError,
+  LESSON_SECONDS,
+  SEGMENT_FRAMES,
+  audioClamped,
   beatsSchema,
+  framesFor,
+  framesForAudio,
   modelResponseSchemas,
+  normalizeScene,
   reviewSchema,
   sceneModelSchema,
   validateSegment,
+  toModelSchema,
+  wordCount,
   zodIssues,
 } from '@krayon/shared';
-import type { GeneratedSegment, GenerationErrorInfo, GenerationIssue } from '@krayon/shared';
+import type { GeneratedSegment, GenerationErrorInfo, GenerationIssue, SegmentAudio } from '@krayon/shared';
 import { z } from 'zod';
-import { beatCoverageIssues, beatsFromRanges, fallbackBeats, normalizeBeats, splitSentences } from './beats.js';
+import { beatsFromRanges, fallbackBeats, normalizeBeats, splitSentences } from './beats.js';
 import { SAFETY_MESSAGE, classifyStepFailure } from './outcomes.js';
-import { beatsPrompt, learnerScenePrompt, repairPrompt, retryScenePrompt, reviewPrompt, scenePrompt } from './prompts.js';
+import { beatsPrompt, learnerScenePrompt, regenerateNarrationPrompt, repairPrompt, retryScenePrompt, reviewPrompt, scenePrompt } from './prompts.js';
 import type { SceneInput, SegmentLike } from './prompts.js';
 import type { Priority } from './queue.js';
 import { Cancelled, isCancelled } from './runtime.js';
@@ -23,6 +32,10 @@ const SEGMENT_PAGES = 4;
 
 /** Review output is parsed loosely; patchedSegment is validated separately in the fix step. */
 const reviewModelSchema = reviewSchema.extend({ patchedSegment: z.unknown().optional() });
+const narrationSchema = z.object({
+  narration: z.string().min(1).describe('Spoken narration for this one segment. It may be longer than the current version.'),
+});
+const narrationResponseSchema = toModelSchema(narrationSchema);
 
 const sceneIssues = (segment: GeneratedSegment): GenerationIssue[] =>
   validateSegment(segment).map(({ path, message }) => ({ path, message }));
@@ -49,6 +62,8 @@ type SegmentDoc = {
   sourcePages: number[];
   pdfPages: number[];
   status: string;
+  voice?: string;
+  audio?: SegmentAudio | null;
   segment?: GeneratedSegment | null;
   draft?: SegmentLike | null;
   errorInfo?: GenerationErrorInfo | null;
@@ -71,13 +86,14 @@ export const createLessonStages = (rt: Runtime) => {
   const running = new Map<string, Promise<void>>();
   const repairAttempts = () => Math.max(0, config.maxRepairRounds) + 1;
 
-  const assemble = (segmentId: string, doc: SegmentDoc, value: { title: string; scene: GeneratedSegment['scene'] }): GeneratedSegment => ({
-    id: segmentId,
-    title: value.title,
-    durationInFrames: doc.durationInFrames,
-    narration: doc.narration,
-    scene: value.scene,
-  });
+  const assemble = (segmentId: string, doc: SegmentDoc, value: { title: string; scene: GeneratedSegment['scene'] }): GeneratedSegment =>
+    normalizeScene({
+      id: segmentId,
+      title: value.title,
+      durationInFrames: doc.durationInFrames,
+      narration: doc.narration,
+      scene: value.scene,
+    });
 
   const pagesFor = (lesson: LessonDoc, doc: SegmentDoc) => {
     const pages = doc.pdfPages.filter((page) => page >= lesson.pdfPageStart && page <= lesson.pdfPageEnd);
@@ -95,7 +111,7 @@ export const createLessonStages = (rt: Runtime) => {
   };
 
   /** Beats call: sentence ranges over the verbatim script, then timing normalisation. Writes the segment docs. */
-  const planSegments = async (uid: string, courseId: string, lessonId: string, lesson: LessonDoc, priority: Priority) => {
+  const planSegments = async (uid: string, courseId: string, lessonId: string, lesson: LessonDoc, priority: Priority, instructions?: string) => {
     const sentences = splitSentences(lesson.explanationSummary);
     const fields = { courseId, lessonId };
     const toPdfPage = (page: number) => Math.min(lesson.pdfPageEnd, Math.max(lesson.pdfPageStart, lesson.pdfPageStart + page - 1));
@@ -105,10 +121,8 @@ export const createLessonStages = (rt: Runtime) => {
         name: 'beats',
         schema: beatsSchema,
         responseSchema: modelResponseSchemas.beats,
-        prompt: beatsPrompt({ title: lesson.title, sentences, start: lesson.pdfPageStart, end: lesson.pdfPageEnd }),
+        prompt: beatsPrompt({ title: lesson.title, sentences, start: lesson.pdfPageStart, end: lesson.pdfPageEnd, instructions }),
         files: [await rt.sources.slice(uid, lesson.sourceId, lesson.pdfPageStart, lesson.pdfPageEnd)],
-        check: (value) => beatCoverageIssues(value.beats, sentences.length),
-        acceptBest: true,
         long: true,
         priority,
         fields,
@@ -153,6 +167,68 @@ export const createLessonStages = (rt: Runtime) => {
 
   const setSegment = (run: SegmentRun, patch: Record<string, unknown>) =>
     docs.set(segmentPath(run.uid, run.courseId, run.lessonId, run.segmentId), patch, true);
+
+  /** Records narration for segments that do not already have audio. Uses the lesson priority so a clicked lesson jumps the TTS queue. */
+  const voiceSegments = async (uid: string, courseId: string, lessonId: string, priority: Priority) => {
+    if (!config.ttsEnabled) return;
+    const rows = docs.list(segmentsPath(uid, courseId, lessonId)).sort((a, b) => Number(a.data.index) - Number(b.data.index));
+    await Promise.all(
+      rows.map(async (row) => {
+        if (row.data.audio || row.data.status === 'ready') return;
+        const path = segmentPath(uid, courseId, lessonId, row.id);
+        const narration = String(row.data.narration ?? '');
+        docs.set(path, { voice: 'voicing', statusDetail: 'Recording narration' }, true);
+        rt.emitSegment(uid, courseId, lessonId, row.id, 'segment.voicing', { step: 'voice' });
+        try {
+          const audio = await rt.tts.voice(uid, narration, priority);
+          docs.set(path, { audio, voice: 'voiced', statusDetail: null }, true);
+          rt.emitSegment(uid, courseId, lessonId, row.id, 'segment.voiced', { step: 'voice' });
+        } catch (error) {
+          if (isCancelled(error)) throw error;
+          const failure = rt.failureOf(error, { courseId, lessonId, segmentId: row.id });
+          docs.set(path, { status: 'failed', voice: 'failed', statusDetail: null, error: failure.message, errorInfo: failure }, true);
+          rt.emitSegment(uid, courseId, lessonId, row.id, 'segment.voice_failed', {
+            error: failure.message,
+            errorInfo: failure,
+            step: 'voice',
+          });
+        }
+      }),
+    );
+  };
+
+  /** Sets each segment's duration from its audio (or the silent estimate) and rebuilds startFrame. */
+  const retime = (uid: string, courseId: string, lessonId: string) => {
+    const rows = docs.list(segmentsPath(uid, courseId, lessonId)).sort((a, b) => Number(a.data.index) - Number(b.data.index));
+    let start = 0;
+    for (const row of rows) {
+      const narration = String(row.data.narration ?? '');
+      const audio = row.data.audio as SegmentAudio | undefined;
+      const duration = config.ttsEnabled && audio ? framesForAudio(audio.seconds) : framesFor(wordCount(narration));
+      if (config.ttsEnabled && audio && audioClamped(audio.seconds)) {
+        (log.warn ?? log.info)(`Segment audio clamped to ${SEGMENT_FRAMES.sanityMax} frames`, {
+          courseId,
+          lessonId,
+          segmentId: row.id,
+          event: 'segment.audio_long',
+          seconds: audio.seconds,
+        });
+      }
+      const stored = row.data.segment;
+      const segment = stored && typeof stored === 'object' ? { ...(stored as GeneratedSegment), durationInFrames: duration } : stored;
+      docs.set(segmentPath(uid, courseId, lessonId, row.id), { durationInFrames: duration, startFrame: start, segment }, true);
+      start += duration;
+    }
+    docs.set(lessonPath(uid, courseId, lessonId), { durationFrames: start }, true);
+    if (start / FPS > LESSON_SECONDS.max) {
+      (log.warn ?? log.info)(`Lesson is longer than ${LESSON_SECONDS.max} seconds`, {
+        courseId,
+        lessonId,
+        event: 'lesson.long',
+        seconds: Math.round(start / FPS),
+      });
+    }
+  };
 
   /** Scene call (with path-qualified repair), then render + review rounds. Throws on a failure that keeps the segment from playing. */
   const segmentOnce = async (run: SegmentRun, attempt: number): Promise<GeneratedSegment> => {
@@ -341,7 +417,7 @@ export const createLessonStages = (rt: Runtime) => {
   };
 
   /** The lesson's segments, all ready or all settled. Ready only when every segment is ready. */
-  const renderNow = async (uid: string, courseId: string, lessonId: string, priority: Priority) => {
+  const renderNow = async (uid: string, courseId: string, lessonId: string, priority: Priority, instructions?: string) => {
     const path = lessonPath(uid, courseId, lessonId);
     const startedAt = Date.now();
     const epoch = rt.currentEpoch();
@@ -352,11 +428,14 @@ export const createLessonStages = (rt: Runtime) => {
       if (!lesson) throw new Error('Lesson not found');
       docs.set(path, { status: 'rendering', statusDetail: 'Planning the video', error: null, errorInfo: null }, true);
       rt.emitLesson(uid, courseId, lessonId, 'lesson.rendering', { step: 'plan' });
-      if (docs.list(segmentsPath(uid, courseId, lessonId)).length === 0) await planSegments(uid, courseId, lessonId, lesson, priority);
+      if (docs.list(segmentsPath(uid, courseId, lessonId)).length === 0) await planSegments(uid, courseId, lessonId, lesson, priority, instructions);
       rt.assertLive(epoch);
+      await voiceSegments(uid, courseId, lessonId, priority);
+      rt.assertLive(epoch);
+      retime(uid, courseId, lessonId);
       const pending = docs
         .list(segmentsPath(uid, courseId, lessonId))
-        .filter((row) => row.data.status !== 'ready')
+        .filter((row) => row.data.status !== 'ready' && row.data.status !== 'failed')
         .sort((a, b) => Number(a.data.index) - Number(b.data.index));
       const { ready, total } = countReady(uid, courseId, lessonId);
       docs.set(path, { statusDetail: `Rendering ${ready} of ${total} segments` }, true);
@@ -413,12 +492,23 @@ export const createLessonStages = (rt: Runtime) => {
    * Queues a lesson render. Idempotent: a lesson that is ready, still being written, or already rendering is left alone.
    * A failed lesson re-runs only its failed segments.
    */
-  const renderLesson = (uid: string, lessonId: string, options: { userClicked?: boolean; auto?: boolean } = {}) => {
+  const wipeSegments = (uid: string, courseId: string, lessonId: string) => {
+    for (const row of docs.list(segmentsPath(uid, courseId, lessonId))) {
+      const base = segmentPath(uid, courseId, lessonId, row.id);
+      for (const round of docs.list(`${base}/rounds`)) docs.delete(`${base}/rounds/${round.id}`);
+      docs.delete(base);
+    }
+  };
+
+  const renderLesson = (uid: string, lessonId: string, options: { userClicked?: boolean; auto?: boolean; force?: boolean; instructions?: string } = {}) => {
     const found = locateLesson(docs, uid, lessonId);
     if (!found) throw new Error('Lesson not found');
     const { courseId, doc } = found;
     const active = running.get(lessonId);
-    if (active || doc.data.status === 'ready' || doc.data.status === 'writing') return active ?? Promise.resolve();
+    if (active) return active;
+    if (doc.data.status === 'writing') return Promise.resolve();
+    if (!options.force && doc.data.status === 'ready') return Promise.resolve();
+    if (options.force) wipeSegments(uid, courseId, lessonId);
     const stored = doc.data.priority as Priority | undefined;
     const priority: Priority = {
       courseId,
@@ -433,48 +523,88 @@ export const createLessonStages = (rt: Runtime) => {
     }
     docs.set(lessonPath(uid, courseId, lessonId), { status: 'queued', statusDetail: 'Queued', priority, error: null, errorInfo: null }, true);
     rt.emitLesson(uid, courseId, lessonId, 'lesson.queued', { step: 'queued' });
-    const work = renderNow(uid, courseId, lessonId, priority).finally(() => running.delete(lessonId));
+    const work = renderNow(uid, courseId, lessonId, priority, options.instructions).finally(() => running.delete(lessonId));
     running.set(lessonId, work);
     return work;
   };
 
-  /** Learner "explain more" on a ready segment. The old segment stays when the rewrite fails. */
+  /** Rebuilds one ready segment: new narration, new audio, then a new picture. The old cut stays if it fails. */
   const regenerateSegment = async (uid: string, lessonId: string, segmentId: string, request?: string) => {
     const found = locateLesson(docs, uid, lessonId);
     if (!found) throw new Error('Lesson not found');
     const { courseId, doc } = found;
     const path = segmentPath(uid, courseId, lessonId, segmentId);
+    const lessonDoc = lessonPath(uid, courseId, lessonId);
     const prior = docs.get(path)?.data;
     if (!prior) throw new Error('Segment not found');
     if (!prior.segment) {
       await renderLesson(uid, lessonId, { userClicked: true });
       return docs.get(path)?.data.segment as GeneratedSegment | null;
     }
+    const lesson = doc.data as unknown as LessonDoc;
+    const title = String(prior.title ?? 'this segment');
+    const priority: Priority = { courseId, userClicked: true, enqueuedAt: Date.now() };
     const run: SegmentRun = {
       uid,
       courseId,
       lessonId,
       segmentId,
-      lesson: doc.data as unknown as LessonDoc,
-      priority: { courseId, userClicked: true, enqueuedAt: Date.now() },
+      lesson,
+      priority,
       learner: { request },
       epoch: rt.currentEpoch(),
     };
-    try {
-      const next = await segmentOnce(run, 1);
-      rt.emitSegment(uid, courseId, lessonId, segmentId, 'segment.ready', { step: 'regenerated' });
-      rt.emitLesson(uid, courseId, lessonId, 'lesson.ready', { step: 'regenerated' });
-      return next;
-    } catch (error) {
-      const failure = isCancelled(error) ? null : rt.failureOf(error, { courseId, lessonId, segmentId });
+    const restore = (failure: GenerationErrorInfo | null) => {
       docs.set(path, {
         status: prior.status,
         statusDetail: null,
         segment: prior.segment,
+        narration: prior.narration,
+        audio: prior.audio ?? null,
+        durationInFrames: prior.durationInFrames,
+        startFrame: prior.startFrame,
         error: failure?.message ?? null,
         errorInfo: failure,
       }, true);
+      retime(uid, courseId, lessonId);
+      docs.set(lessonDoc, { status: 'ready', statusDetail: null }, true);
+      rt.emitLesson(uid, courseId, lessonId, 'lesson.ready', { step: 'restored' });
       if (failure) rt.emitSegment(uid, courseId, lessonId, segmentId, 'segment.failed', { error: failure.message, errorInfo: failure, step: 'regenerate' });
+    };
+    try {
+      docs.set(path, { status: 'drafting', statusDetail: 'Rewriting the narration', audio: null }, true);
+      const counts = countReady(uid, courseId, lessonId);
+      docs.set(lessonDoc, { status: 'rendering', statusDetail: `Regenerating ${title}`, error: null, errorInfo: null }, true);
+      rt.emitLesson(uid, courseId, lessonId, 'lesson.rendering', { ...counts, detail: `Regenerating ${title}`, step: 'regenerate' });
+      const rewritten = await rt.modelJson({
+        name: 'narration',
+        schema: narrationSchema,
+        responseSchema: narrationResponseSchema,
+        prompt: regenerateNarrationPrompt({
+          lessonTitle: lesson.title,
+          script: lesson.explanationSummary,
+          title,
+          narration: String(prior.narration ?? ''),
+          request,
+        }),
+        priority,
+        fields: { courseId, lessonId, segmentId },
+      });
+      docs.set(path, { narration: rewritten.value.narration, audio: null, statusDetail: 'Recording narration' }, true);
+      if (config.ttsEnabled) {
+        rt.emitSegment(uid, courseId, lessonId, segmentId, 'segment.voicing', { step: 'voice' });
+        const audio = await rt.tts.voice(uid, rewritten.value.narration, priority);
+        docs.set(path, { audio, voice: 'voiced', statusDetail: null }, true);
+        rt.emitSegment(uid, courseId, lessonId, segmentId, 'segment.voiced', { step: 'voice' });
+      }
+      retime(uid, courseId, lessonId);
+      const next = await segmentOnce(run, 1);
+      docs.set(lessonDoc, { status: 'ready', statusDetail: null, error: null, errorInfo: null }, true);
+      rt.emitSegment(uid, courseId, lessonId, segmentId, 'segment.ready', { step: 'regenerated', ...countReady(uid, courseId, lessonId) });
+      rt.emitLesson(uid, courseId, lessonId, 'lesson.ready', { step: 'regenerated', ...countReady(uid, courseId, lessonId) });
+      return next;
+    } catch (error) {
+      if (!isCancelled(error)) restore(rt.failureOf(error, { courseId, lessonId, segmentId }));
       throw error;
     }
   };

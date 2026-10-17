@@ -29,10 +29,9 @@ export type {
 } from './scene.js';
 export {
   FPS,
+  LAYOUT_ITEMS,
   LESSON_SECONDS,
   LESSON_WORDS,
-  LESSON_WORDS_ACCEPTED,
-  LESSON_WORDS_TOLERANCE,
   RENDER_KEYFRAMES_MAX,
   SEGMENTS_PER_LESSON,
   SEGMENT_FRAMES,
@@ -40,8 +39,9 @@ export {
   SEGMENT_SECONDS,
   SEGMENT_WORDS,
   WPM,
+  audioClamped,
   framesFor,
-  scriptWordIssue,
+  framesForAudio,
   speechSeconds,
   wordCount,
 } from './limits.js';
@@ -75,7 +75,7 @@ export {
 } from './generation.js';
 export type { GenerationErrorCode, GenerationErrorInfo, GenerationIssue } from './generation.js';
 export type { ParsedBeats, ParsedSegment, ParsedStructure, ReviewIssue, ReviewResult } from './schemas.js';
-export { validateSegment } from './sceneValidator.js';
+export { normalizeScene, validateSegment } from './sceneValidator.js';
 export { collectKeyframeFrames } from './keyframes.js';
 export { theme } from './theme.js';
 export { courseLessons } from './course.js';
@@ -90,9 +90,11 @@ export type {
   LessonProgress,
   LessonStatus,
   LessonSummary,
+  SegmentAudio,
   SegmentRound,
   SegmentState,
   SegmentStatus,
+  SegmentVoice,
 } from './course.js';
 export { reduceCourse, reduceLesson } from './reduceCourse.js';
 export type { CourseFold } from './reduceCourse.js';

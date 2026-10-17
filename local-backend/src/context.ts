@@ -41,6 +41,11 @@ export const pipeline = createPipeline({
     renderKeyframesMax: settings.renderKeyframesMax,
     renderTimeoutMs: settings.renderTimeoutMs,
     remotionEntry: path.resolve(rootDir, '../packages/shared/dist/remotion/entry.js'),
+    ttsEnabled: settings.ttsEnabled,
+    ttsVoice: settings.ttsVoice,
+    ttsRate: settings.ttsRate,
+    ttsConcurrency: settings.ttsConcurrency,
+    ttsQuotaProject: settings.ttsQuotaProject,
   },
 });
 

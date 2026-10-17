@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { LAYOUT_ITEMS } from './limits.js';
 import {
   beatsSchema,
   chapterTextSchema,
@@ -60,8 +61,38 @@ const clean = (node: unknown): unknown => {
  * Uses the input side of transforms and defaults (optional on input), turns the layout union into
  * `anyOf` branches with their own `required` lists, and drops keys Gemini rejects.
  */
+/** Gemini still sees these caps so it aims for a layout that fits. Parsing does not reject extras; code trims them. */
+const ITEM_CAPS: Record<string, number> = {
+  items: LAYOUT_ITEMS.bullets.max,
+  nodes: LAYOUT_ITEMS.flow.max,
+  points: LAYOUT_ITEMS.compare.max,
+  spokes: LAYOUT_ITEMS.spokes.max,
+  curves: LAYOUT_ITEMS.curves.max,
+  steps: LAYOUT_ITEMS.steps.max,
+};
+
+const capCounts = (node: unknown): unknown => {
+  if (Array.isArray(node)) return node.map(capCounts);
+  if (!node || typeof node !== 'object') return node;
+  const source = node as Json;
+  const out: Json = { ...source };
+  if (source.properties && typeof source.properties === 'object') {
+    out.properties = Object.fromEntries(
+      Object.entries(source.properties as Json).map(([name, child]) => {
+        const next = capCounts(child) as Json;
+        const cap = ITEM_CAPS[name];
+        if (cap && next && typeof next === 'object' && next.type === 'array') return [name, { ...next, maxItems: cap }];
+        return [name, next];
+      }),
+    );
+  }
+  if (Array.isArray(source.anyOf)) out.anyOf = source.anyOf.map(capCounts);
+  if (source.items) out.items = capCounts(source.items);
+  return out;
+};
+
 export const toModelSchema = (schema: z.ZodType): Json =>
-  clean(z.toJSONSchema(schema, { io: 'input', unrepresentable: 'any' })) as Json;
+  capCounts(clean(z.toJSONSchema(schema, { io: 'input', unrepresentable: 'any' }))) as Json;
 
 /** Named response schemas used by the pipeline and POST /api/ai/generate. */
 export const modelResponseSchemas = {

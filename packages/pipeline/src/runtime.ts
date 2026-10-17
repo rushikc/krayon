@@ -20,6 +20,8 @@ import type { SourceFile } from './pdf.js';
 import type { Priority } from './queue.js';
 import { createRenderer } from './render.js';
 import { loadChapter, loadSegment, loadSummary } from './store.js';
+import { createTts } from './tts.js';
+import type { TtsClient } from './tts.js';
 
 export class Cancelled extends Error {
   constructor() {
@@ -41,6 +43,11 @@ export type PipelineConfig = GeminiConfig & {
   renderKeyframesMax: number;
   renderTimeoutMs: number;
   remotionEntry: string;
+  ttsEnabled: boolean;
+  ttsVoice: string;
+  ttsRate: number;
+  ttsConcurrency: number;
+  ttsQuotaProject: string;
 };
 
 export type PipelineDeps = {
@@ -49,6 +56,8 @@ export type PipelineDeps = {
   events: EventBus;
   config: PipelineConfig;
   log: PipelineLogger;
+  /** Test double. Production builds one from config. */
+  tts?: TtsClient;
 };
 
 /** Only the structure pass may attach the whole document; every other call gets page slices. */
@@ -85,6 +94,19 @@ export const createRuntime = (deps: PipelineDeps) => {
     log,
   });
   geminiQueue.setViewedCourse(() => events.viewedCourse());
+  const tts =
+    deps.tts ??
+    createTts(
+      {
+        enabled: config.ttsEnabled,
+        voice: config.ttsVoice,
+        rate: config.ttsRate,
+        concurrency: config.ttsConcurrency,
+        quotaProject: config.ttsQuotaProject,
+      },
+      log,
+      { docs, blobs },
+    );
 
   /** Bumped by reset; work started under an older epoch stops at its next check. */
   let epoch = 0;
@@ -215,6 +237,7 @@ export const createRuntime = (deps: PipelineDeps) => {
   const clear = () => {
     epoch += 1;
     geminiQueue.clear();
+    tts.clear();
     renderer.clear();
     sources.clear();
   };
@@ -228,6 +251,7 @@ export const createRuntime = (deps: PipelineDeps) => {
     log,
     sources,
     renderer,
+    tts,
     modelJson,
     failureOf,
     emit,

@@ -19,7 +19,6 @@ type DoubtPanelProps = {
   onPin: (text: string) => void;
   onNote: (text: string) => void;
   onQuizToggle: (id: string) => void;
-  onQuiz: () => void;
   chapterLabel?: string;
   highlightAttached: boolean;
   onClose: () => void;
@@ -40,7 +39,6 @@ export function DoubtPanel({
   onPin,
   onNote,
   onQuizToggle,
-  onQuiz,
   chapterLabel,
   highlightAttached,
   onClose,
@@ -220,9 +218,6 @@ export function DoubtPanel({
           </button>
           <button type="button" onClick={() => sendQuestion('Give an example')} className={chipClass}>
             Give an example
-          </button>
-          <button type="button" onClick={onQuiz} className={chipClass}>
-            Quiz me
           </button>
         </div>
         <form onSubmit={send} className="relative mt-2">

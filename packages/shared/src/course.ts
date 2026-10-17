@@ -21,6 +21,18 @@ export type LessonStatus = 'writing' | 'outlined' | 'queued' | 'rendering' | 're
 
 export type SegmentStatus = 'pending' | 'drafting' | 'checking' | 'rendering' | 'reviewing' | 'ready' | 'failed';
 
+export type SegmentVoice = 'pending' | 'voicing' | 'voiced' | 'failed';
+
+/** One narration file for a segment. `hash` is sha256 of voice, rate, format, and the spoken text. */
+export type SegmentAudio = {
+  blobId: string;
+  hash: string;
+  seconds: number;
+  voice: string;
+  rate: number;
+  format: 'wav';
+};
+
 export type LessonProgress = {
   watched: boolean;
   completed: boolean;
@@ -96,11 +108,16 @@ export type SegmentState = {
   errorInfo: GenerationErrorInfo | null;
   /** Set when render or review failed but the segment can still play. */
   reviewStatus: 'unreviewed' | null;
+  /** Narration audio. Absent until the voice step finishes, and absent when TTS is off. */
+  audio?: SegmentAudio;
+  voice?: SegmentVoice;
+  /** Browser URL for `audio`, filled by the lesson detail reader. */
+  audioUrl?: string;
 };
 
 export type LessonDetail = LessonSummary & {
   chapterTitle: string;
-  /** Spoken script (reserved for TTS). */
+  /** Spoken script. */
   explanationSummary: string;
   studyDoc: string;
   segments: SegmentState[];

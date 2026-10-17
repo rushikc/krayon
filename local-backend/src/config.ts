@@ -33,6 +33,11 @@ const envSchema = z.object({
   SEGMENT_RETRIES: z.coerce.number().default(2),
   RENDER_KEYFRAMES_MAX: z.coerce.number().default(8),
   RENDER_TIMEOUT_MS: z.coerce.number().default(90_000),
+  TTS_ENABLED: z.string().optional(),
+  TTS_VOICE: z.string().default('en-US-Chirp3-HD-Charon'),
+  TTS_RATE: z.coerce.number().default(1),
+  TTS_CONCURRENCY: z.coerce.number().default(4),
+  TTS_QUOTA_PROJECT: z.string().default('krayon-ai'),
 });
 
 const parsed = envSchema.parse(process.env);
@@ -63,6 +68,11 @@ export const settings = {
   segmentRetries: parsed.SEGMENT_RETRIES,
   renderKeyframesMax: parsed.RENDER_KEYFRAMES_MAX,
   renderTimeoutMs: parsed.RENDER_TIMEOUT_MS,
+  ttsEnabled: flag(parsed.TTS_ENABLED, true),
+  ttsVoice: parsed.TTS_VOICE,
+  ttsRate: parsed.TTS_RATE > 0 ? parsed.TTS_RATE : 1,
+  ttsConcurrency: parsed.TTS_CONCURRENCY > 0 ? Math.floor(parsed.TTS_CONCURRENCY) : 4,
+  ttsQuotaProject: parsed.TTS_QUOTA_PROJECT.trim() || 'krayon-ai',
   maxUploadBytes: 20 * 1024 * 1024,
 };
 

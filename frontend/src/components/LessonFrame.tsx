@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import type { PointerEvent, ReactNode } from 'react';
 import { FPS } from '../remotion/catalog.ts';
-import type { Stamp, Stroke } from '../study/localStudy.tsx';
+import { strokesOnSegment, type Stamp, type Stroke } from '../study/localStudy.tsx';
 import { formatClock } from '../study/time.ts';
 import { cx } from './ui/cx.ts';
 import {
@@ -14,7 +14,6 @@ import {
   IconPause,
   IconPin,
   IconPlay,
-  IconQuiz,
   IconVolume,
 } from './ui/icons.tsx';
 import { TopicArt } from './ui/TopicArt.tsx';
@@ -29,15 +28,22 @@ type LessonFrameProps = {
   activeTool: LessonTool | null;
   drawing: boolean;
   strokes: Stroke[];
+  /** Segment under the playhead. New strokes are stamped with this id. */
+  segmentId: string;
   onToggle: () => void;
   onSeek: (frame: number) => void;
   onTool: (tool: LessonTool) => void;
   onExplain: () => void;
+  /** Top-bar label for onExplain. The curated player keeps "Explain longer". */
+  explainLabel?: string;
   onPin: () => void;
   explaining: boolean;
   onStrokes: (strokes: Stroke[]) => void;
   muted: boolean;
   onMute: () => void;
+  /** 0 to 1. Omit on lessons that have no narration track. */
+  volume?: number;
+  onVolume?: (volume: number) => void;
   pins?: Stamp[];
   heading?: ReactNode;
   onChat?: () => void;
@@ -48,7 +54,6 @@ type LessonFrameProps = {
 const tools: { id: LessonTool; label: string; icon: typeof IconAsk }[] = [
   { id: 'ask', label: 'Ask a doubt', icon: IconAsk },
   { id: 'note', label: 'Note', icon: IconNote },
-  { id: 'quiz', label: 'Quiz', icon: IconQuiz },
 ];
 
 const clockToFrame = (clock: string) => {
@@ -65,15 +70,19 @@ export function LessonFrame({
   activeTool,
   drawing,
   strokes,
+  segmentId,
   onToggle,
   onSeek,
   onTool,
   onExplain,
+  explainLabel,
   onPin,
   explaining,
   onStrokes,
   muted,
   onMute,
+  volume,
+  onVolume,
   pins = [],
   artId,
   fill = false,
@@ -82,10 +91,26 @@ export function LessonFrame({
 }: LessonFrameProps) {
   const frameRef = useRef<HTMLDivElement>(null);
   const tipBase = useId();
+  const gestureTimer = useRef<number | null>(null);
+  const strokeAt = useRef<number | null>(null);
   const [hoverId, setHoverId] = useState<string | null>(null);
   const [focusId, setFocusId] = useState<string | null>(null);
+  const [gesture, setGesture] = useState<'play' | 'pause' | null>(null);
   const openId = focusId ?? hoverId;
   const played = duration > 1 ? Math.min(1, frame / (duration - 1)) : 0;
+
+  const showGesture = (next: 'play' | 'pause') => {
+    setGesture(next);
+    if (gestureTimer.current !== null) window.clearTimeout(gestureTimer.current);
+    gestureTimer.current = window.setTimeout(() => setGesture(null), 600);
+  };
+
+  useEffect(
+    () => () => {
+      if (gestureTimer.current !== null) window.clearTimeout(gestureTimer.current);
+    },
+    [],
+  );
 
   useEffect(() => {
     if (!openId) return;
@@ -100,15 +125,47 @@ export function LessonFrame({
     return () => window.removeEventListener('keydown', onKey, true);
   }, [openId]);
 
-  const draw = (event: PointerEvent<SVGSVGElement>, next: Stroke) => {
+  useEffect(() => {
+    const typing = (target: EventTarget | null) => {
+      if (!(target instanceof Element)) return false;
+      const tag = target.tagName;
+      return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.getAttribute('contenteditable') === 'true';
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.metaKey || event.ctrlKey || event.altKey || event.defaultPrevented) return;
+      if (typing(event.target) || document.querySelector('[role="dialog"]')) return;
+      const step = FPS * 5;
+      if (event.key === 'ArrowRight') {
+        event.preventDefault();
+        onSeek(Math.min(Math.max(0, duration - 1), frame + step));
+      } else if (event.key === 'ArrowLeft') {
+        event.preventDefault();
+        onSeek(Math.max(0, frame - step));
+      } else if ((event.key === ' ' || event.key === 'Spacebar') && !(event.target instanceof Element && (event.target.tagName === 'BUTTON' || event.target.tagName === 'A'))) {
+        if (event.repeat) return;
+        event.preventDefault();
+        onToggle();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [duration, frame, onSeek, onToggle]);
+
+  const pointOf = (event: PointerEvent<SVGSVGElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
-    const point = {
+    return {
       x: (event.clientX - rect.left) / rect.width,
       y: (event.clientY - rect.top) / rect.height,
     };
-    const points = [...next.points, point];
-    const updated = [...strokes.slice(0, -1), { points }];
-    onStrokes(updated);
+  };
+
+  const draw = (event: PointerEvent<SVGSVGElement>) => {
+    const index = strokeAt.current;
+    if (index === null) return;
+    const current = strokes[index];
+    if (!current) return;
+    const point = pointOf(event);
+    onStrokes(strokes.map((stroke, i) => (i === index ? { ...stroke, points: [...stroke.points, point] } : stroke)));
   };
 
   const tipProps = (id: string) => ({
@@ -138,6 +195,25 @@ export function LessonFrame({
       )}
     >
       {fill ? <div className="absolute inset-0">{children}</div> : children}
+      {!drawing && (
+        <button
+          type="button"
+          tabIndex={-1}
+          aria-label={playing ? 'Pause lesson' : 'Play lesson'}
+          className="absolute inset-0 z-[5] cursor-pointer"
+          onClick={() => {
+            showGesture(playing ? 'pause' : 'play');
+            onToggle();
+          }}
+        />
+      )}
+      {gesture && (
+        <div className="pointer-events-none absolute inset-0 z-[15] flex items-center justify-center" aria-hidden="true">
+          <span className="flex h-16 w-16 items-center justify-center rounded-full border-2 border-paper/80 bg-ink/75 text-paper">
+            {gesture === 'pause' ? <IconPause className="h-7 w-7" /> : <IconPlay className="h-7 w-7" />}
+          </span>
+        </div>
+      )}
       <div className="pointer-events-none absolute inset-x-3 top-3 z-20 flex items-center gap-2">
         {heading ? <div className="pointer-events-auto max-w-[min(340px,34%)] shrink-0">{heading}</div> : null}
         <div className="flex min-w-0 flex-1 justify-center">
@@ -146,9 +222,9 @@ export function LessonFrame({
             <IconAsk className="h-3.5 w-3.5" />
             Ask
           </ToolButton>
-          <ToolButton label="Explain longer" onClick={onExplain} disabled={explaining}>
+          <ToolButton label={explainLabel ?? 'Explain longer'} onClick={onExplain} disabled={explaining}>
             <IconArrow className="h-3.5 w-3.5" />
-            {explaining ? 'Redrawing…' : 'Explain longer'}
+            {explaining ? (explainLabel ? 'Regenerating…' : 'Redrawing…') : (explainLabel ?? 'Explain longer')}
           </ToolButton>
           <ToolButton label="Highlight" pressed={drawing} accent={drawing} onClick={() => onTool('highlight')}>
             <IconHighlight className="h-3.5 w-3.5" />
@@ -184,29 +260,17 @@ export function LessonFrame({
         onPointerDown={(event) => {
           if (!drawing) return;
           event.currentTarget.setPointerCapture(event.pointerId);
-          const rect = event.currentTarget.getBoundingClientRect();
-          onStrokes([
-            ...strokes,
-            {
-              points: [
-                {
-                  x: (event.clientX - rect.left) / rect.width,
-                  y: (event.clientY - rect.top) / rect.height,
-                },
-              ],
-            },
-          ]);
+          strokeAt.current = strokes.length;
+          onStrokes([...strokes, { segmentId, points: [pointOf(event)] }]);
         }}
         onPointerMove={(event) => {
           if (!drawing || !event.currentTarget.hasPointerCapture(event.pointerId)) return;
-          const current = strokes[strokes.length - 1];
-          if (!current) return;
-          draw(event, current);
+          draw(event);
         }}
       >
-        {strokes.map((stroke, index) => (
+        {strokesOnSegment(strokes, segmentId).map((stroke, index) => (
           <polyline
-            key={index}
+            key={`${segmentId}-${index}`}
             fill="none"
             stroke="#e4572e"
             strokeWidth="1.4"
@@ -238,10 +302,6 @@ export function LessonFrame({
           aria-valuemax={Math.max(0, duration - 1)}
           aria-valuenow={frame}
           aria-valuetext={`${formatClock(frame)} of ${formatClock(duration)}`}
-          onKeyDown={(event) => {
-            if (event.key === 'ArrowRight') onSeek(Math.min(duration - 1, frame + FPS * 2));
-            if (event.key === 'ArrowLeft') onSeek(Math.max(0, frame - FPS * 2));
-          }}
         >
           <button
             type="button"
@@ -288,6 +348,22 @@ export function LessonFrame({
         >
           {muted ? <IconMuted className="h-5 w-5" /> : <IconVolume className="h-5 w-5" />}
         </button>
+        {onVolume && (
+          <input
+            type="range"
+            min={0}
+            max={1}
+            step={0.05}
+            value={volume ?? 1}
+            aria-label="Volume"
+            aria-valuemin={0}
+            aria-valuemax={1}
+            aria-valuenow={volume ?? 1}
+            aria-valuetext={muted ? 'Muted' : `${Math.round((volume ?? 1) * 100)} percent`}
+            onChange={(event) => onVolume(Number(event.target.value))}
+            className="h-1 w-20 shrink-0 accent-crayon"
+          />
+        )}
         <button
           type="button"
           aria-label="Full screen"

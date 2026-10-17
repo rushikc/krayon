@@ -1,14 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { citedPages, coverageIssues, shiftCitations } from '../src/citations.js';
-import { outlineAdvice, studyDocFinished, trimUnfinished } from '../src/chapters.js';
+import { normalizeOutline, trimUnfinished } from '../src/chapters.js';
 
 describe('study doc endings', () => {
-  it('needs key takeaways and a finished last line', () => {
-    expect(studyDocFinished('## A\ntext.\n## Key takeaways\n- One.')).toBe(true);
-    expect(studyDocFinished('## A\ntext.\n## Key takeaways\n- Flow by effectively ')).toBe(false);
-    expect(studyDocFinished('## A\n*   The judge will provide a ')).toBe(false);
-  });
-
   it('drops only a cut-off last line', () => {
     expect(trimUnfinished('## A\ntext.\n*   The judge will provide a ')).toBe('## A\ntext.');
     expect(trimUnfinished('## A\n- item')).toBe('## A');
@@ -40,28 +34,18 @@ describe('citations', () => {
   });
 });
 
-describe('outlineAdvice', () => {
-  const lessons = (ranges: Array<[number, number]>) => ({ lessons: ranges.map(([pageStart, pageEnd]) => ({ pageStart, pageEnd })) });
-
-  it('accepts an outline that covers the chapter', () => {
-    expect(outlineAdvice(lessons([[1, 5], [5, 10], [11, 15]]), 15, 2, 5)).toEqual([]);
-  });
-
-  it('flags uncovered pages at the start, end, and between lessons', () => {
-    const messages = outlineAdvice(lessons([[1, 9]]), 29, 1, 3).map((issue) => issue.message);
-    expect(messages).toEqual(['Pages 10 to 29 are not in any lesson.']);
-    expect(outlineAdvice(lessons([[5, 10], [20, 29]]), 29, 1, 3).map((issue) => issue.message)).toEqual([
-      'Pages 1 to 4 are not in any lesson.',
-      'Pages 11 to 19 are not in any lesson.',
+describe('normalizeOutline', () => {
+  it('clamps pages, swaps a reversed range, and sorts by start page', () => {
+    const lessons = normalizeOutline(
+      [
+        { title: 'Later', focus: 'b', pageStart: 12, pageEnd: 4 },
+        { title: 'First', focus: 'a', pageStart: 8, pageEnd: 1 },
+      ],
+      10,
+    );
+    expect(lessons.map((lesson) => [lesson.title, lesson.pageStart, lesson.pageEnd])).toEqual([
+      ['First', 1, 8],
+      ['Later', 4, 10],
     ]);
-  });
-
-  it('flags too few lessons', () => {
-    expect(outlineAdvice(lessons([[1, 22]]), 22, 3, 7)[0].message).toContain('split it into about 7');
-  });
-
-  it('asks to combine when there are far more lessons than fit', () => {
-    const many = lessons(Array.from({ length: 19 }, () => [1, 1] as [number, number]));
-    expect(outlineAdvice(many, 22, 2, 5).map((issue) => issue.message).some((message) => message.includes('about 5 fit'))).toBe(true);
   });
 });

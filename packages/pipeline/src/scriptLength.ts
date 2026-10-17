@@ -1,4 +1,4 @@
-import { LESSON_WORDS, LESSON_WORDS_ACCEPTED, wordCount } from '@krayon/shared';
+import { LESSON_WORDS, wordCount } from '@krayon/shared';
 import { splitSentences } from './beats.js';
 
 /** A lesson before its study notes: title, focus, 0-based PDF pages, and spoken script. */
@@ -8,13 +8,16 @@ export type DraftLesson = {
   pageStart: number;
   pageEnd: number;
   script: string;
-  /** Chapter material cannot support LESSON_WORDS.min (single-lesson chapter, still short after expanding). */
+  /** Chapter material cannot support LESSON_WORDS.min. Information only; it does not trigger another model call. */
   shortSource?: boolean;
-  /** Over LESSON_WORDS.max but too short to split into two full lessons: ask the model to tighten it. */
-  needsTighten?: boolean;
 };
 
 const words = (lesson: DraftLesson) => wordCount(lesson.script);
+
+/** A lesson this far under the target is merged into a neighbour. */
+const CLEARLY_SHORT = LESSON_WORDS.min * 0.5;
+/** A lesson this far over the target is split, when both halves still meet the minimum. */
+const CLEARLY_LONG = LESSON_WORDS.max * 1.5;
 
 /** Splits a script at the sentence boundary nearest its middle where both halves keep LESSON_WORDS.min. */
 export const splitScript = (script: string): [string, string] | null => {
@@ -40,17 +43,19 @@ const merge = (a: DraftLesson, b: DraftLesson): DraftLesson => ({
   script: `${a.script.trim()} ${b.script.trim()}`,
 });
 
+type Working = DraftLesson & { keep?: boolean };
+
 /**
- * Fits drafted lessons to the accepted word band without new model calls:
- * - over the band: split at a sentence boundary when both halves keep LESSON_WORDS.min, else mark needsTighten;
- * - under the band: merge into the smaller neighbour (the result is checked again);
- * - a lone lesson that is still short is kept and flagged shortSource.
- * A script inside the band, such as 412 or 680 words, is kept whole.
+ * Adjusts only clear outliers, with no model calls:
+ * - under half of LESSON_WORDS.min: merge into the smaller neighbour;
+ * - over 1.5× LESSON_WORDS.max: split at a sentence when both halves keep LESSON_WORDS.min;
+ * - anything else is kept as written.
+ * A lone lesson still under LESSON_WORDS.min is flagged shortSource.
  */
 export const planLessonSizes = (input: DraftLesson[]): DraftLesson[] => {
-  let lessons: DraftLesson[] = input.map((lesson) => ({ ...lesson, needsTighten: false }));
+  let lessons: Working[] = input.map((lesson) => ({ ...lesson }));
   for (let guard = 0; guard < 50; guard += 1) {
-    const short = lessons.findIndex((lesson) => words(lesson) < LESSON_WORDS_ACCEPTED.min);
+    const short = lessons.findIndex((lesson) => words(lesson) < CLEARLY_SHORT);
     if (short >= 0 && lessons.length > 1) {
       const before = short > 0 ? words(lessons[short - 1]!) : Number.POSITIVE_INFINITY;
       const after = short < lessons.length - 1 ? words(lessons[short + 1]!) : Number.POSITIVE_INFINITY;
@@ -58,32 +63,20 @@ export const planLessonSizes = (input: DraftLesson[]): DraftLesson[] => {
       lessons = [...lessons.slice(0, at), merge(lessons[at]!, lessons[at + 1]!), ...lessons.slice(at + 2)];
       continue;
     }
-    const long = lessons.findIndex((lesson) => words(lesson) > LESSON_WORDS_ACCEPTED.max && !lesson.needsTighten);
+    const long = lessons.findIndex((lesson) => words(lesson) > CLEARLY_LONG && !lesson.keep);
     if (long < 0) break;
     const lesson = lessons[long]!;
     const halves = splitScript(lesson.script);
     if (!halves) {
-      lessons[long] = { ...lesson, needsTighten: true };
+      lessons[long] = { ...lesson, keep: true };
       continue;
     }
     const middle = Math.floor((lesson.pageStart + lesson.pageEnd) / 2);
-    const first: DraftLesson = { ...lesson, title: `${lesson.title} (part 1)`, script: halves[0], pageEnd: Math.max(lesson.pageStart, middle) };
-    const second: DraftLesson = { ...lesson, title: `${lesson.title} (part 2)`, script: halves[1], pageStart: Math.min(lesson.pageEnd, middle) };
+    const first: Working = { ...lesson, title: `${lesson.title} (part 1)`, script: halves[0], pageEnd: Math.max(lesson.pageStart, middle), keep: false };
+    const second: Working = { ...lesson, title: `${lesson.title} (part 2)`, script: halves[1], pageStart: Math.min(lesson.pageEnd, middle), keep: false };
     lessons = [...lessons.slice(0, long), first, second, ...lessons.slice(long + 1)];
   }
-  if (lessons.length === 1 && words(lessons[0]!) < LESSON_WORDS_ACCEPTED.min) lessons[0] = { ...lessons[0]!, shortSource: true };
-  return lessons;
-};
-
-/** Last resort after tightening failed: keep whole sentences up to the top of the accepted band. */
-export const truncateScript = (script: string) => {
-  const kept: string[] = [];
-  let total = 0;
-  for (const sentence of splitSentences(script)) {
-    const count = wordCount(sentence);
-    if (total + count > LESSON_WORDS_ACCEPTED.max) break;
-    kept.push(sentence);
-    total += count;
-  }
-  return kept.join(' ');
+  const planned = lessons.map(({ keep: _keep, ...lesson }) => lesson);
+  if (planned.length === 1 && words(planned[0]!) < LESSON_WORDS.min) planned[0] = { ...planned[0]!, shortSource: true };
+  return planned;
 };

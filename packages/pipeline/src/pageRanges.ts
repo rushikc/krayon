@@ -168,32 +168,46 @@ export const toPdfRanges = (raw: RawChapter[], total: number, texts: string[], r
   return ranges;
 };
 
-/** Path-qualified problems: ranges must be in bounds, ordered, contiguous, non-overlapping, and cover every page. */
-export const validateRanges = (ranges: PdfRange[], total: number): GenerationIssue[] => {
-  const issues: GenerationIssue[] = [];
-  if (ranges.length === 0) return [{ path: 'chapters', message: 'At least one chapter is required.' }];
-  if (!ranges.some((range) => !range.skip)) issues.push({ path: 'chapters', message: 'Every chapter is marked skip; mark the real chapters skip=false.' });
-  ranges.forEach((range, index) => {
-    const at = `chapters[${index}]`;
-    if (range.pdfPageStart < 0 || range.pdfPageStart > total - 1) {
-      issues.push({ path: `${at}.pdfPageStart`, message: `Must be a page of the file (1 to ${total}).` });
+/**
+ * Makes ranges contiguous inside [0, total-1] without another model call.
+ * Sorts, clamps, swaps a reversed range, snaps each start to the previous end + 1,
+ * and closes a gap by extending the previous chapter (including the pages before the first and after the last).
+ */
+export const normalizeRanges = (ranges: PdfRange[], total: number): PdfRange[] => {
+  if (total <= 0 || ranges.length === 0) return [];
+  const lastPage = total - 1;
+  const clamped = ranges
+    .map((range) => {
+      let start = Math.min(lastPage, Math.max(0, Math.round(range.pdfPageStart)));
+      let end = Math.min(lastPage, Math.max(0, Math.round(range.pdfPageEnd)));
+      if (end < start) [start, end] = [end, start];
+      return { ...range, pdfPageStart: start, pdfPageEnd: end };
+    })
+    .sort((a, b) => a.pdfPageStart - b.pdfPageStart || a.pdfPageEnd - b.pdfPageEnd);
+  const out: PdfRange[] = [];
+  for (const range of clamped) {
+    const previous = out[out.length - 1];
+    if (!previous) {
+      out.push({ ...range, pdfPageStart: 0 });
+      continue;
     }
-    if (range.pdfPageEnd < range.pdfPageStart) {
-      issues.push({ path: `${at}.pdfPageEnd`, message: `Ends before it starts (${range.pdfPageStart + 1} to ${range.pdfPageEnd + 1}); two chapters start on the same page.` });
-    }
-    const previous = ranges[index - 1];
-    if (index === 0 && range.pdfPageStart !== 0) issues.push({ path: `${at}.pdfPageStart`, message: 'Pages before the first chapter are not covered.' });
-    if (previous && range.pdfPageStart <= previous.pdfPageEnd) {
-      issues.push({ path: `${at}.pdfPageStart`, message: `Overlaps "${previous.title}" (ends on page ${previous.pdfPageEnd + 1}).` });
-    } else if (previous && range.pdfPageStart > previous.pdfPageEnd + 1) {
-      issues.push({ path: `${at}.pdfPageStart`, message: `Leaves pages ${previous.pdfPageEnd + 2} to ${range.pdfPageStart} uncovered.` });
-    }
-  });
-  const last = ranges[ranges.length - 1];
-  if (last && last.pdfPageEnd !== total - 1) {
-    issues.push({ path: `chapters[${ranges.length - 1}].pdfPageEnd`, message: `The last chapter must end on page ${total}.` });
+    if (range.pdfPageStart > previous.pdfPageEnd + 1) previous.pdfPageEnd = range.pdfPageStart - 1;
+    const start = previous.pdfPageEnd + 1;
+    if (start > lastPage) continue;
+    out.push({ ...range, pdfPageStart: start, pdfPageEnd: Math.max(start, range.pdfPageEnd) });
   }
-  return issues;
+  const tail = out[out.length - 1];
+  if (tail && tail.pdfPageEnd < lastPage) tail.pdfPageEnd = lastPage;
+  return out;
+};
+
+/** Broken structure only: no chapters, or every chapter skipped. Overlaps and gaps are fixed by normalizeRanges. */
+export const validateRanges = (ranges: PdfRange[], _total: number): GenerationIssue[] => {
+  if (ranges.length === 0) return [{ path: 'chapters', message: 'At least one chapter is required.' }];
+  if (!ranges.some((range) => !range.skip)) {
+    return [{ path: 'chapters', message: 'Every chapter is marked skip; mark the real chapters skip=false.' }];
+  }
+  return [];
 };
 
 /** Splits start..end into consecutive sub-ranges of at most `size` pages. */

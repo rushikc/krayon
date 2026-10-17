@@ -13,7 +13,7 @@ import { COMPOSITION_HEIGHT, COMPOSITION_WIDTH, FPS } from '../remotion/catalog.
 import { TopicLesson } from '../remotion/TopicLesson.tsx';
 import { topicLessonDuration } from '../remotion/topicLessonTiming.ts';
 import { chapterIndexAtFrame, curatedChapters } from '../study/chapters.ts';
-import { lessonKey, topicKey, useLocalStudy } from '../study/localStudy.tsx';
+import { lessonKey, strokesOnSegment, topicKey, useLocalStudy } from '../study/localStudy.tsx';
 import { formatClock } from '../study/time.ts';
 
 export function LessonPage() {
@@ -36,7 +36,7 @@ function CuratedLesson() {
   const [frame, setFrame] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [muted, setMuted] = useState(false);
-  const [panelOpen, setPanelOpen] = useState(false);
+  const [panelOpen, setPanelOpen] = useState(true);
   const [tool, setTool] = useState<LessonTool | null>(null);
   const home = prefix || '/';
   const base = home === '/' ? '' : home;
@@ -175,7 +175,7 @@ function CuratedLesson() {
       <div className="flex h-full min-h-0 flex-col">
         <div
           className={`grid min-h-0 flex-1 ${
-            panelOpen ? 'grid-cols-[minmax(0,1fr)_440px] gap-3' : 'grid-cols-1'
+            panelOpen ? 'grid-cols-[minmax(0,1fr)_528px] gap-3' : 'grid-cols-1'
           }`}
         >
           <div className="h-full min-h-0 min-w-0">
@@ -212,6 +212,7 @@ function CuratedLesson() {
               activeTool={tool}
               drawing={tool === 'highlight'}
               strokes={marks.strokes}
+              segmentId={active.id}
               pins={marks.pins}
               artId={topic.id}
               explaining={false}
@@ -266,7 +267,7 @@ function CuratedLesson() {
             paused={!playing}
             timeLabel={formatClock(frame, FPS)}
             chapterLabel={`Ch ${String(activeIndex + 1).padStart(2, '0')}`}
-            highlightAttached={marks.strokes.length > 0}
+            highlightAttached={strokesOnSegment(marks.strokes, active.id).length > 0}
             onClose={closePanel}
             answer={answer}
             marks={marks}
@@ -301,7 +302,6 @@ function CuratedLesson() {
                 notes: [...current.notes, { id: `${Date.now()}`, timestamp: formatClock(frame, FPS), text }],
               }));
             }}
-            onQuiz={() => setTool('quiz')}
             onQuizToggle={(id) => {
               patchMarks(lessonKey(topic.id, subtopic.id), (current) => {
                 const quizIds = current.quizIds.includes(id)

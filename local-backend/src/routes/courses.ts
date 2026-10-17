@@ -19,6 +19,7 @@ import { adcFailure } from '../health.js';
 import { acquireJob, jobConflict, lockKey, releaseJob } from '../locks.js';
 import { currentRequestId, getLogger } from '../logging.js';
 import { httpError } from '../requestLogging.js';
+import { sendBytes } from './bytes.js';
 import { auth } from '../services/auth.js';
 
 const log = getLogger('krayon.app');
@@ -56,6 +57,9 @@ export const registerCourseRoutes = (app: FastifyInstance) => {
   });
   jobs.register('renderLesson', async (payload) => {
     await pipeline.renderLesson(str(payload.uid), str(payload.lessonId));
+  });
+  jobs.register('rerenderLesson', async (payload) => {
+    await pipeline.rerenderLesson(str(payload.uid), str(payload.lessonId), typeof payload.prompt === 'string' ? payload.prompt : undefined);
   });
   jobs.register('regenerate', async (payload) => {
     const key = str(payload.lockKey);
@@ -174,6 +178,17 @@ export const registerCourseRoutes = (app: FastifyInstance) => {
   };
   app.post('/api/lessons/:id/render', render);
   app.post('/api/lessons/:id/retry', render);
+  app.post('/api/lessons/:id/rerender', async (request, reply) => {
+    const user = auth.currentUser(request.headers['x-user-id'] as string | undefined);
+    const { lessonId, courseId } = lessonOf(user.uid, (request.params as { id: string }).id);
+    const body = regenerateBody.safeParse(request.body ?? {});
+    if (!body.success) throw httpError(422, 'Invalid regenerate request');
+    const before = loadSummary(store, user.uid, courseId, lessonId);
+    if (before?.status === 'rendering' || before?.status === 'queued' || before?.status === 'writing') {
+      return reply.code(409).send({ error: 'This lesson is already being made.' });
+    }
+    return { jobId: jobs.submit(user.uid, 'rerenderLesson', { uid: user.uid, lessonId, prompt: body.data.prompt }) };
+  });
 
   app.post('/api/lessons/:id/segments/:segmentId/regenerate', async (request, reply) => {
     const user = auth.currentUser(request.headers['x-user-id']);
@@ -220,6 +235,15 @@ export const registerCourseRoutes = (app: FastifyInstance) => {
       log.warning(`Lesson chat failed: ${status} ${info.code}`, { event: 'ai.chat', lessonId, status, code: info.code });
       return reply.code(status).send({ detail: info.message, ...info, requestId: currentRequestId() });
     }
+  });
+
+  app.get('/api/audio/:blobId', async (request, reply) => {
+    const user = auth.currentUser(request.headers['x-user-id']);
+    const { blobId } = request.params as { blobId: string };
+    const found = storage.get(user.uid, safeId(blobId, 'audio'));
+    if (!found) throw httpError(404, 'Not found');
+    const range = request.headers.range;
+    return sendBytes(reply, Buffer.from(found.data), typeof range === 'string' ? range : undefined, 'audio/wav');
   });
 
   app.get('/api/renders/:blobId', async (request, reply) => {

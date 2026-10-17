@@ -147,6 +147,10 @@ export const createPipeline = (deps: PipelineDeps) => {
   /** Render (or Retry) a lesson the learner clicked. Ready and in-flight lessons are left as they are. */
   const renderLesson = (uid: string, lessonId: string) => lessons.renderLesson(uid, lessonId, { userClicked: true });
 
+  /** Makes a ready lesson's video again from the script. Optional instructions are added to the beat plan. */
+  const rerenderLesson = (uid: string, lessonId: string, instructions?: string) =>
+    lessons.renderLesson(uid, lessonId, { userClicked: true, force: true, instructions });
+
   /** Answers a learner question from the lesson context: current segment, script, study notes, chapter text. */
   const ask = async (uid: string, lessonId: string, question: string, frame: number) => {
     const context = chatContext(docs, uid, lessonId, frame);
@@ -205,11 +209,13 @@ export const createPipeline = (deps: PipelineDeps) => {
     retryCourse,
     retryChapter,
     renderLesson,
+    rerenderLesson,
     retryLesson: renderLesson,
     regenerateSegment: lessons.regenerateSegment,
     ask,
     generateNamed,
     clearCaches,
+    ttsHealth: () => rt.tts.health(),
   };
 };
 

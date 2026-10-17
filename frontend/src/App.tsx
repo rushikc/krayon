@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { BrowserRouter, Route, Routes } from 'react-router-dom';
+import { ErrorBoundary } from './components/ErrorBoundary.tsx';
 import { apiFetch } from './lib/api.ts';
 import { HomePage } from './pages/HomePage.tsx';
 import { LessonPage } from './pages/LessonPage.tsx';
@@ -43,18 +44,20 @@ export default function App() {
         <LocalStudyProvider>
           <UploadProvider>
             <HealthBanner />
-            <Routes>
-              <Route path="/" element={<HomePage />} />
-              <Route path="/study" element={<RoadmapPage />} />
-              <Route path="/study/:lessonId" element={<LessonPage />} />
-              <Route path="/topics/:topicId" element={<RoadmapPage />} />
-              <Route path="/topics/:topicId/:subtopicId" element={<LessonPage />} />
-              <Route path="/preview/:paletteId" element={<PalettePreview />}>
-                <Route index element={<HomePage />} />
-                <Route path="topics/:topicId" element={<RoadmapPage />} />
-                <Route path="topics/:topicId/:subtopicId" element={<LessonPage />} />
-              </Route>
-            </Routes>
+            <ErrorBoundary>
+              <Routes>
+                <Route path="/" element={<HomePage />} />
+                <Route path="/study" element={<RoadmapPage />} />
+                <Route path="/study/:lessonId" element={<LessonPage />} />
+                <Route path="/topics/:topicId" element={<RoadmapPage />} />
+                <Route path="/topics/:topicId/:subtopicId" element={<LessonPage />} />
+                <Route path="/preview/:paletteId" element={<PalettePreview />}>
+                  <Route index element={<HomePage />} />
+                  <Route path="topics/:topicId" element={<RoadmapPage />} />
+                  <Route path="topics/:topicId/:subtopicId" element={<LessonPage />} />
+                </Route>
+              </Routes>
+            </ErrorBoundary>
           </UploadProvider>
         </LocalStudyProvider>
       </StudySessionProvider>

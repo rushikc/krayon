@@ -8,8 +8,10 @@ import type {
   LessonDetail,
   LessonProgress,
   LessonSummary,
+  SegmentAudio,
   SegmentRound,
   SegmentState,
+  SegmentVoice,
 } from '@krayon/shared';
 
 export const coursePath = (uid: string, courseId: string) => `users/${uid}/courses/${courseId}`;
@@ -152,8 +154,17 @@ export const segmentState = (docs: DocStore, uid: string, courseId: string, less
     error: str(data.error),
     errorInfo: (data.errorInfo as GenerationErrorInfo | null) ?? null,
     reviewStatus: data.reviewStatus === 'unreviewed' ? 'unreviewed' : null,
+    audio: isAudio(data.audio) ? data.audio : undefined,
+    voice: isVoice(data.voice) ? data.voice : undefined,
+    audioUrl: isAudio(data.audio) ? `/api/audio/${data.audio.blobId}` : undefined,
   };
 };
+
+const isVoice = (value: unknown): value is SegmentVoice =>
+  value === 'pending' || value === 'voicing' || value === 'voiced' || value === 'failed';
+
+const isAudio = (value: unknown): value is SegmentAudio =>
+  Boolean(value) && typeof value === 'object' && typeof (value as SegmentAudio).blobId === 'string' && typeof (value as SegmentAudio).seconds === 'number';
 
 export const loadSegment = (docs: DocStore, uid: string, courseId: string, lessonId: string, segmentId: string) => {
   const doc = docs.get(segmentPath(uid, courseId, lessonId, segmentId));

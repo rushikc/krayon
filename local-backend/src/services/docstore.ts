@@ -104,7 +104,7 @@ export class LocalDocStore implements DocStore {
     };
     const counts = { jobs: 0, chapters: 0, lessons: 0, segments: 0 };
     for (const row of rows) {
-      const data = JSON.parse(row.data) as { status?: string; stage?: string };
+      const data = JSON.parse(row.data) as { status?: string; stage?: string; voice?: string };
       const at = `${row.collection}/${row.id}`;
       if (row.collection === 'jobs') {
         if (data.status === 'queued' || data.status === 'running') {
@@ -120,10 +120,14 @@ export class LocalDocStore implements DocStore {
         }
         if (data.status === 'writing' || data.status === 'pending') mark(row.collection);
       } else if (row.collection.endsWith('/segments')) {
+        const patch: Record<string, unknown> = {};
         if (data.status && !['pending', 'ready', 'failed'].includes(data.status)) {
-          this.set(at, { status: 'pending', statusDetail: null }, true);
+          patch.status = 'pending';
+          patch.statusDetail = null;
           counts.segments += 1;
         }
+        if (data.voice === 'voicing') patch.voice = 'pending';
+        if (Object.keys(patch).length > 0) this.set(at, patch, true);
       } else if (row.collection.endsWith('/lessons')) {
         if (data.status === 'rendering' || data.status === 'queued') {
           this.set(at, { status: 'queued', statusDetail: 'Queued' }, true);

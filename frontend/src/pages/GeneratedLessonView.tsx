@@ -1,4 +1,5 @@
 import { Player, type PlayerRef } from '@remotion/player';
+import { prefetch } from 'remotion';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import type { GeneratedSegment, LessonDetail, LessonProgress } from '@krayon/shared';
@@ -13,12 +14,12 @@ import { CrayonProgress } from '../components/ui/CrayonProgress.tsx';
 import { IconArrow, IconBack } from '../components/ui/icons.tsx';
 import { Markdown } from '../components/ui/Markdown.tsx';
 import { Shell } from '../components/ui/Shell.tsx';
-import { ApiError, askLesson, getLesson, regenerateSegment, renderUrl, saveLessonProgress } from '../lib/api.ts';
+import { ApiError, askLesson, getLesson, mediaUrl, regenerateSegment, renderUrl, rerenderLesson, saveLessonProgress } from '../lib/api.ts';
 import { COMPOSITION_HEIGHT, COMPOSITION_WIDTH, FPS } from '../remotion/catalog.ts';
 import { GeneratedLesson } from '../remotion/GeneratedLesson.tsx';
 import { generatedDuration } from '../remotion/scene.ts';
 import { lessonFailures } from '../study/failures.ts';
-import { useLocalStudy } from '../study/localStudy.tsx';
+import { strokesOnSegment, useLocalStudy } from '../study/localStudy.tsx';
 import { useStudySession } from '../study/studyState.ts';
 import { formatClock } from '../study/time.ts';
 
@@ -27,20 +28,79 @@ const WATCHED_AT = 0.9;
 
 const messageOf = (error: unknown) => (error instanceof Error ? error.message : 'The request failed.');
 
-/** Every segment in play order, or null until all of them are rendered. */
+/** Every segment in play order. A lesson that is redoing one segment keeps its pictures on screen. */
 const playableSegments = (lesson: LessonDetail): GeneratedSegment[] | null => {
-  if (lesson.status !== 'ready' || lesson.segments.length === 0) return null;
+  if (lesson.segments.length === 0) return null;
+  if (lesson.status !== 'ready' && lesson.status !== 'rendering') return null;
   const segments = lesson.segments.map((item) => item.segment);
   return segments.every((item): item is GeneratedSegment => item !== null) ? segments : null;
 };
 
-const segmentIndexAt = (segments: GeneratedSegment[], frame: number) => {
-  let start = 0;
-  for (let index = 0; index < segments.length; index += 1) {
-    start += segments[index].durationInFrames;
-    if (frame < start) return index;
-  }
-  return Math.max(0, segments.length - 1);
+const segmentIndexAt = (segments: { startFrame: number; durationInFrames: number }[], frame: number) => {
+  const index = segments.findIndex((item) => frame >= item.startFrame && frame < item.startFrame + item.durationInFrames);
+  return index >= 0 ? index : Math.max(0, segments.length - 1);
+};
+
+const VOLUME_KEY = 'krayon.volume';
+
+const storedVolume = () => {
+  const raw = Number(localStorage.getItem(VOLUME_KEY));
+  return Number.isFinite(raw) && raw >= 0 && raw <= 1 ? raw : 1;
+};
+
+/** Prefetches each segment's narration and frees the blob URLs when the lesson or the set of files changes. */
+const useSegmentAudio = (lessonId: string, clips: { id: string; audioUrl?: string; hash?: string }[]) => {
+  const [urls, setUrls] = useState<Record<string, string> | null>(null);
+  const [progress, setProgress] = useState(0);
+  const key = clips.map((clip) => `${clip.id}:${clip.hash ?? ''}:${clip.audioUrl ?? ''}`).join('|');
+  useEffect(() => {
+    const wanted = clips.filter((clip): clip is { id: string; audioUrl: string; hash?: string } => Boolean(clip.audioUrl));
+    if (wanted.length === 0) {
+      setUrls({});
+      setProgress(1);
+      return;
+    }
+    let cancelled = false;
+    const freed = new Set<() => void>();
+    const release = (free: () => void) => {
+      if (freed.has(free)) return;
+      freed.add(free);
+      free();
+    };
+    const handles: Array<{ free: () => void }> = [];
+    setUrls(null);
+    setProgress(0);
+    let finished = 0;
+    const loaded: Record<string, string> = {};
+    void Promise.all(
+      wanted.map(async (clip) => {
+        const handle = prefetch(mediaUrl(clip.audioUrl));
+        handles.push(handle);
+        try {
+          const src = await handle.waitUntilDone();
+          if (cancelled) {
+            release(handle.free);
+            return;
+          }
+          loaded[clip.id] = src;
+        } catch {
+          if (!cancelled) loaded[clip.id] = mediaUrl(clip.audioUrl);
+        } finally {
+          finished += 1;
+          if (!cancelled) setProgress(finished / wanted.length);
+        }
+      }),
+    ).then(() => {
+      if (!cancelled) setUrls({ ...loaded });
+    });
+    return () => {
+      cancelled = true;
+      for (const handle of handles) release(handle.free);
+    };
+    // `key` is the clip identity. `clips` is rebuilt every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lessonId, key]);
+  return { urls, progress, ready: urls !== null };
 };
 
 const segmentLabel = (status: string) =>
@@ -68,10 +128,14 @@ export function GeneratedLessonView({ lessonId }: { lessonId: string }) {
   const [frame, setFrame] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [muted, setMuted] = useState(false);
-  const [panelOpen, setPanelOpen] = useState(false);
+  const [volume, setVolume] = useState(storedVolume);
+  const [panelOpen, setPanelOpen] = useState(true);
   const [tool, setTool] = useState<LessonTool | null>(null);
   const [thinking, setThinking] = useState(false);
   const [explainingId, setExplainingId] = useState<string | null>(null);
+  const [regenOpen, setRegenOpen] = useState(false);
+  const [instructions, setInstructions] = useState('');
+  const [rebuilding, setRebuilding] = useState(false);
   const playerRef = useRef<PlayerRef>(null);
   const pending = useRef<number | null>(null);
   const frameRef = useRef(0);
@@ -109,7 +173,10 @@ export function GeneratedLessonView({ lessonId }: { lessonId: string }) {
       session.listen((event) => {
         if (event.lessonId !== lessonId) return;
         setDetail((current) => (current ? reduceLesson(current, event) : current));
-        if (event.type === 'lesson.ready' || event.type === 'lesson.failed') load();
+        if (event.type === 'lesson.ready' || event.type === 'lesson.failed') {
+          setRebuilding(false);
+          load();
+        }
         if (event.segmentId && (event.type === 'segment.ready' || event.type === 'segment.failed')) {
           setExplainingId((current) => {
             if (current !== event.segmentId) return current;
@@ -128,14 +195,24 @@ export function GeneratedLessonView({ lessonId }: { lessonId: string }) {
     if (summaryStatus && detailStatus && summaryStatus !== detailStatus) load();
   }, [summaryStatus, detailStatus, load]);
 
-  const segments = useMemo(() => (detail ? playableSegments(detail) : null), [detail]);
+  const segments = useMemo(() => (rebuilding || !detail ? null : playableSegments(detail)), [detail, rebuilding]);
+  const clips = useMemo(
+    () => (detail?.segments ?? []).map((item) => ({ id: item.id, audioUrl: item.audioUrl, hash: item.audio?.hash })),
+    [detail],
+  );
+  const narrationAudio = useSegmentAudio(lessonId, clips);
   const duration = segments ? generatedDuration(segments) : 0;
-  const inputProps = useMemo(() => (segments ? { segments } : null), [segments]);
+  const inputProps = useMemo(
+    () => (segments && narrationAudio.urls ? { segments, audio: narrationAudio.urls } : null),
+    [segments, narrationAudio.urls],
+  );
   const saved = detail?.progress;
-  const resumeAt = saved && !saved.completed && saved.positionFrame < duration - FPS ? saved.positionFrame : 0;
-  const playerKey = segments?.map((item) => `${item.id}:${item.durationInFrames}:${item.scene.layout.type}`).join('|') ?? '';
-  const hasPlayer = segments !== null;
-  const activeIndex = segments ? segmentIndexAt(segments, frame) : 0;
+  const savedFrame = saved && !saved.completed ? Math.min(saved.positionFrame, Math.max(0, duration - 1)) : 0;
+  const resumeAt = duration > 0 && savedFrame < duration - FPS ? savedFrame : 0;
+  const playerKey =
+    detail?.segments.map((item) => `${item.id}:${item.durationInFrames}:${item.segment?.scene.layout.type ?? ''}:${item.audio?.hash ?? ''}`).join('|') ?? '';
+  const hasPlayer = segments !== null && narrationAudio.ready;
+  const activeIndex = detail ? segmentIndexAt(detail.segments, frame) : 0;
   const activeState = detail?.segments[activeIndex];
 
   const save = useCallback(
@@ -188,7 +265,7 @@ export function GeneratedLessonView({ lessonId }: { lessonId: string }) {
       player.removeEventListener('pause', onPause);
       player.removeEventListener('ended', onEnded);
     };
-  }, [segments, duration, save]);
+  }, [segments, duration, save, hasPlayer]);
 
   useEffect(() => {
     if (!playing) return;
@@ -221,6 +298,18 @@ export function GeneratedLessonView({ lessonId }: { lessonId: string }) {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [navigate]);
+
+  useEffect(() => {
+    localStorage.setItem(VOLUME_KEY, String(volume));
+  }, [volume]);
+
+  useEffect(() => {
+    const player = playerRef.current;
+    if (!player) return;
+    player.setVolume(volume);
+    if (muted || volume === 0) player.mute();
+    else player.unmute();
+  }, [muted, volume, playerKey, hasPlayer]);
 
   if (!detail) {
     return (
@@ -266,14 +355,46 @@ export function GeneratedLessonView({ lessonId }: { lessonId: string }) {
     playerRef.current?.seekTo(clamped);
     setFrame(clamped);
   };
-  const explain = () => {
-    if (!activeState || explainingId) return;
+  const openRegen = () => {
+    if (!activeState || explainingId || rebuilding) return;
     playerRef.current?.pause();
+    setInstructions('');
+    setRegenOpen(true);
+  };
+  const regenerateCurrent = () => {
+    if (!activeState) return;
+    const segment = activeState;
+    const prompt = instructions.trim();
+    setRegenOpen(false);
     setNotice(null);
-    setExplainingId(activeState.id);
-    regenerateSegment(lessonId, activeState.id).catch((error) => {
+    setExplainingId(segment.id);
+    playerRef.current?.pause();
+    setDetail((current) => (current ? { ...current, status: 'rendering', statusDetail: `Regenerating ${segment.title}` } : current));
+    regenerateSegment(lessonId, segment.id, prompt || undefined).catch((error) => {
       setExplainingId(null);
       setNotice(messageOf(error));
+    });
+  };
+  const regenerateAll = () => {
+    const prompt = instructions.trim();
+    setRegenOpen(false);
+    setNotice(null);
+    setRebuilding(true);
+    playerRef.current?.pause();
+    setDetail((current) =>
+      current
+        ? {
+            ...current,
+            status: 'rendering',
+            statusDetail: 'Planning the video',
+            segments: current.segments.map((item) => ({ ...item, segment: null, status: 'pending' })),
+          }
+        : current,
+    );
+    rerenderLesson(lessonId, prompt || undefined).catch((error) => {
+      setRebuilding(false);
+      setNotice(messageOf(error));
+      load();
     });
   };
   const ask = (question: string) => {
@@ -296,17 +417,12 @@ export function GeneratedLessonView({ lessonId }: { lessonId: string }) {
     setPanelOpen(true);
     setTool((current) => (panelOpen && current === nextTool ? null : nextTool));
   };
-  const toggleMute = () => {
-    const player = playerRef.current;
-    if (!player) return;
-    if (player.isMuted()) {
-      player.unmute();
-      setMuted(false);
-    } else {
-      player.mute();
-      setMuted(true);
-    }
+  const toggleMute = () => setMuted((current) => !current);
+  const changeVolume = (next: number) => {
+    setVolume(next);
+    setMuted(next === 0);
   };
+
   const closePanel = () => {
     setPanelOpen(false);
     setTool((current) => (current === 'highlight' ? current : null));
@@ -427,10 +543,15 @@ export function GeneratedLessonView({ lessonId }: { lessonId: string }) {
           </div>
         )}
 
-        <div className={`grid min-h-0 flex-1 ${panelOpen && segments ? 'grid-cols-[minmax(0,1fr)_400px] gap-3' : 'grid-cols-1'}`}>
-          <div className="h-full min-h-0 overflow-y-auto bg-paper">
-            {segments && inputProps ? (
-              <div className="h-full min-h-0">
+        <div className={`grid min-h-0 flex-1 ${panelOpen && segments ? 'grid-cols-[minmax(0,1fr)_480px] gap-3' : 'grid-cols-1'}`}>
+          <div className="h-full min-h-0 min-w-0 overflow-y-auto bg-paper">
+            {segments && !narrationAudio.ready ? (
+              <div className="flex h-full flex-col items-center justify-center gap-3 text-ink">
+                <p className="font-serif text-[28px]">Loading audio…</p>
+                <p className="text-[15px] text-muted">{Math.round(narrationAudio.progress * 100)}%</p>
+              </div>
+            ) : segments && inputProps ? (
+              <div className="relative h-full min-h-0">
                 <LessonFrame
                   fill
                   heading={heading}
@@ -441,7 +562,9 @@ export function GeneratedLessonView({ lessonId }: { lessonId: string }) {
                   activeTool={tool}
                   drawing={tool === 'highlight'}
                   strokes={marks.strokes}
-                  explaining={explainingId !== null}
+                  segmentId={activeState?.id ?? ''}
+                  explainLabel="Regenerate segment"
+                  explaining={explainingId !== null || rebuilding}
                   onToggle={() => {
                     const player = playerRef.current;
                     if (!player) return;
@@ -450,9 +573,11 @@ export function GeneratedLessonView({ lessonId }: { lessonId: string }) {
                   }}
                   onSeek={seekTo}
                   onTool={chooseTool}
-                  onExplain={explain}
+                  onExplain={openRegen}
                   muted={muted}
                   onMute={toggleMute}
+                  volume={muted ? 0 : volume}
+                  onVolume={changeVolume}
                   pins={marks.pins}
                   onPin={() => patchMarks(marksKey, (current) => ({ ...current, pins: [...current.pins, stamp(narration)] }))}
                   onStrokes={(strokes) => patchMarks(marksKey, (current) => ({ ...current, strokes }))}
@@ -472,6 +597,16 @@ export function GeneratedLessonView({ lessonId }: { lessonId: string }) {
                     style={{ width: '100%', height: '100%' }}
                   />
                 </LessonFrame>
+                {detail.status === 'rendering' && (
+                  <div className="pointer-events-none absolute inset-x-0 bottom-24 z-30 flex justify-center px-6">
+                    <div className="w-full max-w-md rounded-2xl border-2 border-ink bg-paper px-4 py-3 shadow-[3px_3px_0_var(--color-ink)]">
+                      <p className="font-serif text-[18px] text-ink">{detail.statusDetail ?? 'Rendering this segment'}</p>
+                      <div role="progressbar" aria-label="Rendering this segment" className="mt-3 h-3 overflow-hidden rounded-full bg-line">
+                        <div className="crayon-indeterminate h-full w-1/3 rounded-full bg-crayon" />
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             ) : (
               waiting
@@ -553,17 +688,16 @@ export function GeneratedLessonView({ lessonId }: { lessonId: string }) {
               <DoubtPanel
                 paused={!playing}
                 timeLabel={formatClock(frame, FPS)}
-                highlightAttached={marks.strokes.length > 0}
+                highlightAttached={strokesOnSegment(marks.strokes, activeState?.id ?? '').length > 0}
                 onClose={closePanel}
                 marks={marks}
                 tool={tool}
                 prompts={prompts}
                 thinking={thinking}
                 onAsk={ask}
-                onExplain={explain}
+                onExplain={openRegen}
                 onPin={(text) => patchMarks(marksKey, (current) => ({ ...current, pins: [...current.pins, stamp(text)] }))}
                 onNote={(text) => patchMarks(marksKey, (current) => ({ ...current, notes: [...current.notes, stamp(text)] }))}
-                onQuiz={() => setTool('quiz')}
                 onQuizToggle={(id) => {
                   patchMarks(marksKey, (current) => {
                     const quizIds = current.quizIds.includes(id)
@@ -581,6 +715,46 @@ export function GeneratedLessonView({ lessonId }: { lessonId: string }) {
           )}
         </div>
       </div>
+      {regenOpen && activeState && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 px-6" role="presentation">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="regen-title"
+            className="w-full max-w-lg rounded-[20px] border-[2.5px] border-ink bg-paper p-5 shadow-[4px_4px_0_var(--color-ink)]"
+          >
+            <h2 id="regen-title" className="font-serif text-[24px] leading-tight text-ink">
+              Regenerate segment
+            </h2>
+            <p className="mt-2 text-[15px] text-muted">
+              This can make a longer narration and records the audio again. The current segment is {activeState.title}.
+            </p>
+            <label htmlFor="regen-instructions" className="mt-4 block text-[14px] font-medium text-ink">
+              Custom instructions
+            </label>
+            <textarea
+              id="regen-instructions"
+              value={instructions}
+              onChange={(event) => setInstructions(event.target.value)}
+              rows={3}
+              placeholder="Custom instructions"
+              className="mt-1.5 w-full resize-none rounded-2xl border-2 border-ink bg-paper px-3 py-2 text-[15px] text-ink"
+            />
+            <div className="mt-4 flex flex-wrap items-center gap-2">
+              <Button variant="secondary" onClick={() => setRegenOpen(false)}>
+                Cancel
+              </Button>
+              <Button className="flex-col gap-0 py-2 leading-tight" onClick={regenerateCurrent}>
+                <span>Regenerate only this segment</span>
+                <span className="text-[13px] font-normal">{activeState.title}</span>
+              </Button>
+              <Button variant="secondary" onClick={regenerateAll}>
+                Regenerate the entire video
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </Shell>
   );
 }

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { FPS, LESSON_WORDS, LESSON_WORDS_ACCEPTED, SEGMENT_FRAMES, wordCount } from './limits.js';
+import { FPS, LAYOUT_ITEMS, LESSON_WORDS, SEGMENT_FRAMES } from './limits.js';
 import type { GeneratedSegment, SceneLayout } from './scene.js';
 
 const optionalText = z
@@ -36,7 +36,7 @@ const titleCardLayout = z.object({
 const bulletsLayout = z.object({
   type: z.literal('bullets'),
   heading: z.string().min(1),
-  items: z.array(timedText).min(1).max(5),
+  items: z.array(timedText).min(LAYOUT_ITEMS.bullets.min),
 });
 
 const flowLayout = z.object({
@@ -46,7 +46,7 @@ const flowLayout = z.object({
     .enum(['horizontal', 'vertical'])
     .nullish()
     .transform((value) => value ?? 'horizontal'),
-  nodes: z.array(titledNode).min(2).max(6),
+  nodes: z.array(titledNode).min(LAYOUT_ITEMS.flow.min),
   edges: z
     .array(
       z.object({
@@ -60,7 +60,7 @@ const flowLayout = z.object({
 
 const compareSide = z.object({
   title: z.string().min(1),
-  points: z.array(timedText).min(1).max(5),
+  points: z.array(timedText).min(LAYOUT_ITEMS.compare.min),
 });
 
 const compareLayout = z.object({
@@ -76,7 +76,7 @@ const hubSpokeLayout = z.object({
     id: z.string().min(1),
     label: z.string().min(1),
   }),
-  spokes: z.array(titledNode).min(3).max(6),
+  spokes: z.array(titledNode).min(LAYOUT_ITEMS.spokes.min),
 });
 
 const chartLayout = z.object({
@@ -94,8 +94,7 @@ const chartLayout = z.object({
         appearAt,
       }),
     )
-    .min(1)
-    .max(4),
+    .min(LAYOUT_ITEMS.curves.min),
   markers: z
     .array(
       z.object({
@@ -122,8 +121,7 @@ const timelineLayout = z.object({
         appearAt,
       }),
     )
-    .min(2)
-    .max(6),
+    .min(LAYOUT_ITEMS.steps.min),
 });
 
 const calloutKinds = ['definition', 'example', 'keyPoint'] as const;
@@ -155,9 +153,10 @@ export const segmentSchema = z.object({
   title: z.string().min(1),
   durationInFrames: z
     .number()
-    .min(SEGMENT_FRAMES.min)
-    .max(SEGMENT_FRAMES.max)
-    .describe(`Length at ${FPS} fps, between ${SEGMENT_FRAMES.min} and ${SEGMENT_FRAMES.max}.`),
+    .int()
+    .positive()
+    .max(SEGMENT_FRAMES.sanityMax)
+    .describe(`Length at ${FPS} fps. A positive integer, at most ${SEGMENT_FRAMES.sanityMax} frames.`),
   narration: z.string().default('').describe('The spoken narration for this segment.'),
   scene: sceneSchema,
 });
@@ -188,6 +187,16 @@ export const applySegmentDefaults = (raw: unknown): unknown => {
     if (blank(layout.title) && title) layout.title = title;
     if (!calloutKinds.includes(layout.kind as (typeof calloutKinds)[number])) layout.kind = 'keyPoint';
   }
+  const take = (value: unknown, max: number) => (Array.isArray(value) ? value.slice(0, max) : value);
+  if (layout.type === 'bullets') layout.items = take(layout.items, LAYOUT_ITEMS.bullets.max);
+  if (layout.type === 'flow') layout.nodes = take(layout.nodes, LAYOUT_ITEMS.flow.max);
+  if (layout.type === 'compare') {
+    if (isRecord(layout.left)) layout.left = { ...layout.left, points: take(layout.left.points, LAYOUT_ITEMS.compare.max) };
+    if (isRecord(layout.right)) layout.right = { ...layout.right, points: take(layout.right.points, LAYOUT_ITEMS.compare.max) };
+  }
+  if (layout.type === 'hubSpoke') layout.spokes = take(layout.spokes, LAYOUT_ITEMS.spokes.max);
+  if (layout.type === 'chart') layout.curves = take(layout.curves, LAYOUT_ITEMS.curves.max);
+  if (layout.type === 'timeline') layout.steps = take(layout.steps, LAYOUT_ITEMS.steps.max);
   return { ...raw, scene: { ...raw.scene, layout } };
 };
 
@@ -280,24 +289,13 @@ export const chatSchema = z.object({
   answer: z.string().min(1).describe('Markdown answer to the learner.'),
 });
 
-/** A lesson as stored. The script must meet LESSON_WORDS unless the source material is short. */
-export const storedLessonSchema = z
-  .object({
-    title: z.string().min(1),
-    explanationSummary: z.string().min(1),
-    studyDoc: z.string(),
-    shortSource: z.boolean().default(false),
-  })
-  .superRefine((value, context) => {
-    const words = wordCount(value.explanationSummary);
-    if (words > LESSON_WORDS_ACCEPTED.max || (!value.shortSource && words < LESSON_WORDS_ACCEPTED.min)) {
-      context.addIssue({
-        code: 'custom',
-        path: ['explanationSummary'],
-        message: `Has ${words} words; needs ${LESSON_WORDS.min} to ${LESSON_WORDS.max}.`,
-      });
-    }
-  });
+/** A lesson as stored. Length is a prompt target; only a missing title or script is rejected. */
+export const storedLessonSchema = z.object({
+  title: z.string().trim().min(1),
+  explanationSummary: z.string().trim().min(1),
+  studyDoc: z.string(),
+  shortSource: z.boolean().default(false),
+});
 
 export const reviewIssueSchema = z.object({
   frame: z.number(),

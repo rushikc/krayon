@@ -1,7 +1,15 @@
 import type { z } from 'zod';
 
 /** Why a model call did not produce a usable value. */
-export type GenerationErrorCode = 'SCHEMA_INVALID' | 'NOT_JSON' | 'MAX_TOKENS' | 'UPSTREAM' | 'TIMEOUT';
+export type GenerationErrorCode =
+  | 'SCHEMA_INVALID'
+  | 'NOT_JSON'
+  | 'MAX_TOKENS'
+  | 'UPSTREAM'
+  | 'TIMEOUT'
+  | 'QUOTA'
+  | 'AUTH'
+  | 'INVALID';
 
 export type GenerationIssue = { path: string; message: string };
 
@@ -45,7 +53,8 @@ export const issuesText = (issues: GenerationIssue[], limit = 5) =>
     .join('; ') + (issues.length > limit ? `; and ${issues.length - limit} more` : '');
 
 /** 422 when the model answered but the answer is unusable, 502 when the upstream call failed. */
-export const generationErrorStatus = (code: GenerationErrorCode) => (code === 'SCHEMA_INVALID' || code === 'NOT_JSON' ? 422 : 502);
+export const generationErrorStatus = (code: GenerationErrorCode) =>
+  code === 'SCHEMA_INVALID' || code === 'NOT_JSON' || code === 'INVALID' ? 422 : 502;
 
 /** Classifies an exception from a model call (after transport retries). */
 export const generationErrorCode = (error: unknown): GenerationErrorCode => {

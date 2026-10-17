@@ -106,7 +106,7 @@ export const registerRequestLogging = (app: FastifyInstance) => {
   app.addHook('onSend', async (request, reply, payload) => {
     const target = request as RequestWithRaw;
     const type = String(reply.getHeader('content-type') ?? '');
-    if (type.startsWith('image/') || type.startsWith('application/pdf')) {
+    if (type.startsWith('image/') || type.startsWith('application/pdf') || type.startsWith('audio/')) {
       const size = Buffer.isBuffer(payload) ? payload.length : typeof payload === 'string' ? Buffer.byteLength(payload) : 0;
       target.responseBody = Buffer.from(JSON.stringify({ bytes: size, content_type: type }));
       return payload;

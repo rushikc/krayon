@@ -4,8 +4,13 @@ import type { SourceFile, Topic } from '../data/topics.ts';
 import { apiFetch, apiJson } from '../lib/api.ts';
 
 export type Stroke = {
+  segmentId: string;
   points: { x: number; y: number }[];
 };
+
+/** Strokes drawn on one segment. Marks saved before segments were recorded have no id and stay hidden. */
+export const strokesOnSegment = (strokes: Stroke[], segmentId: string) =>
+  strokes.filter((stroke) => stroke.segmentId === segmentId);
 
 export type Stamp = {
   id: string;

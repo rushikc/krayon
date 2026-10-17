@@ -41,6 +41,9 @@ export const chartLabelCapacity = () => charsAt(180, 16, 1);
 export const timelineLabelCapacity = (count: number) =>
   charsAt(Math.max(80, CONTENT_WIDTH / Math.max(1, count) - 16), 16, 2);
 
+/** Characters that still fit after the template has stepped the font down to `minSize`. */
+export const minFontCapacity = (width: number, minSize: number, lines = 1) => charsAt(width, minSize, lines);
+
 export type Box = { x: number; y: number; w: number; h: number };
 
 export const boxEdgePoint = (box: Box, towardX: number, towardY: number) => {

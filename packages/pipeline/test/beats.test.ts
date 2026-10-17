@@ -1,4 +1,4 @@
-import { LESSON_SECONDS, SEGMENTS_PER_LESSON, SEGMENT_FRAMES, SEGMENT_WORDS, framesFor, wordCount } from '@krayon/shared';
+import { SEGMENT_FRAMES, SEGMENT_WORDS, framesFor, wordCount } from '@krayon/shared';
 import { describe, expect, it } from 'vitest';
 import { beatCoverageIssues, beatsFromRanges, fallbackBeats, normalizeBeats, splitSentences } from '../src/beats.js';
 import type { Beat } from '../src/beats.js';
@@ -54,8 +54,6 @@ describe('normalizeBeats', () => {
 
     expect(timed.map((item) => item.narration).join(' ')).toBe([...text.slice(0, 6), ...text.slice(6, 8), 'Tiny.', ...text.slice(8)].join(' '));
     expect(timed.every((item) => item.words <= SEGMENT_WORDS.max)).toBe(true);
-    expect(timed.length).toBeGreaterThanOrEqual(SEGMENTS_PER_LESSON.min);
-    expect(timed.length).toBeLessThanOrEqual(SEGMENTS_PER_LESSON.max);
     let start = 0;
     for (const item of timed) {
       expect(item.startFrame).toBe(start);
@@ -75,22 +73,20 @@ describe('normalizeBeats', () => {
     expect(timed.map((item) => item.narration).join(' ')).toBe(long);
   });
 
-  it('keeps a 660-word lesson inside LESSON_SECONDS', () => {
+  it('does not force a 660-word lesson down to 30 beats or 5 minutes', () => {
     const text = sentences(44, 15);
     expect(wordCount(text.join(' '))).toBe(660);
     const timed = normalizeBeats(fallbackBeats(text));
-    const last = timed[timed.length - 1]!;
-    expect(last.startFrame + last.durationInFrames).toBeLessThanOrEqual(LESSON_SECONDS.max * 30);
-    expect(timed.length).toBeLessThanOrEqual(SEGMENTS_PER_LESSON.max);
+    expect(timed.length).toBe(44);
     expect(timed.every((item) => item.durationInFrames >= SEGMENT_FRAMES.min && item.durationInFrames <= SEGMENT_FRAMES.max)).toBe(true);
+    expect(timed.map((item) => item.narration).join(' ')).toBe(text.join(' '));
   });
 
-  it('fits a 693-word lesson to the clock, including many very short sentences', () => {
+  it('keeps a long lesson verbatim, including many very short sentences', () => {
     const within = (text: string[], input: Beat[]) => {
       expect(wordCount(text.join(' '))).toBe(693);
       const timed = normalizeBeats(input);
-      const last = timed[timed.length - 1]!;
-      expect(last.startFrame + last.durationInFrames).toBeLessThanOrEqual(LESSON_SECONDS.max * 30);
+      expect(timed.every((item) => item.words <= SEGMENT_WORDS.max)).toBe(true);
       expect(timed.every((item) => item.durationInFrames >= SEGMENT_FRAMES.min && item.durationInFrames <= SEGMENT_FRAMES.max)).toBe(true);
       expect(timed.map((item) => item.narration).join(' ')).toBe(text.join(' '));
     };
