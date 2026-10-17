@@ -3,12 +3,13 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ChapterStrip } from '../components/ChapterStrip.tsx';
 import { DoubtPanel } from '../components/DoubtPanel.tsx';
+import { FailureNotes } from '../components/FailureNotes.tsx';
+import { topicFailures } from '../study/failures.ts';
+import { Markdown } from '../components/ui/Markdown.tsx';
 import { LessonDesk } from '../components/LessonDesk.tsx';
 import { LessonFrame } from '../components/LessonFrame.tsx';
 import type { LessonTool } from '../components/LessonFrame.tsx';
 import { Card } from '../components/ui/Card.tsx';
-import { buttonClass } from '../components/ui/Button.tsx';
-import { HandUnderline } from '../components/ui/HandUnderline.tsx';
 import { IconArrow, IconBack } from '../components/ui/icons.tsx';
 import { Shell } from '../components/ui/Shell.tsx';
 import {
@@ -55,7 +56,7 @@ export function GeneratedLessonView({ topicId }: { topicId: string }) {
   const [frame, setFrame] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [muted, setMuted] = useState(false);
-  const [panelOpen, setPanelOpen] = useState(true);
+  const [panelOpen, setPanelOpen] = useState(false);
   const [tool, setTool] = useState<LessonTool | null>(null);
   const marksKey = `study:${topicId}`;
   const marks = lessonMarks(marksKey);
@@ -118,7 +119,7 @@ export function GeneratedLessonView({ topicId }: { topicId: string }) {
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && !document.querySelector('[role="dialog"]')) {
+      if (event.key === 'Escape' && !document.fullscreenElement && !document.querySelector('[role="dialog"]')) {
         navigate('/study');
       }
     };
@@ -182,49 +183,60 @@ export function GeneratedLessonView({ topicId }: { topicId: string }) {
     setPanelOpen(false);
     setTool((current) => (current === 'highlight' ? current : null));
   };
-  const lessonDone =
-    !!lesson && lesson.segments.length > 0 && lesson.segments.every((item) => marks.watchedIds.includes(item.id));
+  const openChat = () => {
+    if (document.fullscreenElement) void document.exitFullscreen();
+    chooseTool('ask');
+  };
+  const failures = topicFailures(session, topic);
+  const statusText =
+    session.error ??
+    topicRuntime?.segments[session.regeneratingId ?? '']?.statusDetail ??
+    topicRuntime?.statusDetail ??
+    session.statusDetail;
+  const stageHeading = (
+    <div className="flex min-w-0 items-center gap-1.5 rounded-full border-2 border-ink bg-paper py-0.5 pr-1.5 pl-0.5 shadow-[2px_2px_0_var(--color-ink)]">
+      <Link
+        to="/study"
+        aria-label="Back to roadmap"
+        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-ink"
+      >
+        <IconBack className="h-4 w-4" />
+      </Link>
+      <span className="min-w-0 truncate font-serif text-[15px] leading-none text-ink">{topic.title}</span>
+      {ordered.length > 0 && (
+        <span className="shrink-0 text-[12px] text-muted">
+          {stepIndex + 1}/{ordered.length}
+        </span>
+      )}
+      {nextTopic && (
+        <Link
+          to={`/study/${nextTopic.id}`}
+          aria-label={`Next step: ${nextTopic.title}`}
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-ink"
+        >
+          <IconArrow className="h-3.5 w-3.5" />
+        </Link>
+      )}
+    </div>
+  );
 
   return (
-    <Shell>
-      <div className="mt-2">
-        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
-          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-0.5">
-            <Link
-              to="/study"
-              aria-label="Back to roadmap"
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border-2 border-ink bg-paper"
-            >
-              <IconBack className="h-4 w-4" />
-            </Link>
-            <h1 className="min-w-0 font-serif text-2xl leading-none text-ink sm:truncate sm:text-3xl">
-              <HandUnderline>{topic.title}</HandUnderline>
-            </h1>
-            <p className="w-full pl-11 text-[13px] text-muted sm:w-auto sm:pl-0 sm:text-[14px]">
-              {session.fileName ?? 'Your notes'}
-              {ordered.length > 0 ? ` · Step ${stepIndex + 1} of ${ordered.length}` : ''}
-            </p>
+    <Shell fill bare>
+      <div className="flex h-full min-h-0 flex-col">
+        {(failures.length > 0 || statusText) && (
+          <div className="shrink-0 bg-paper px-4 py-2">
+            <FailureNotes items={failures} />
+            {statusText && (
+              <p className={`text-[15px] ${session.error ? 'text-crayon-text' : 'text-muted'}`}>{statusText}</p>
+            )}
           </div>
-          {nextTopic && lessonDone && (
-            <Link to={`/study/${nextTopic.id}`} className={buttonClass('secondary', 'shrink-0 !px-3 !py-1 !text-[13px]')}>
-              Next step
-              <IconArrow className="h-3.5 w-3.5" />
-            </Link>
-          )}
-          {nextTopic && !lessonDone && (
-            <button type="button" disabled className={buttonClass('secondary', 'shrink-0 !px-3 !py-1 !text-[13px]')}>
-              Next step
-            </button>
-          )}
-        </div>
-        {(session.error || session.regeneratingId || topicRuntime?.statusDetail) && (
-          <p className={`mt-3 text-[15px] ${session.error ? 'text-crayon-text' : 'text-muted'}`}>
-            {session.error ?? topicRuntime?.segments[session.regeneratingId ?? '']?.statusDetail ?? topicRuntime?.statusDetail ?? session.statusDetail}
-          </p>
         )}
 
-        <div className={`mt-5 grid items-start gap-4 ${panelOpen ? 'lg:grid-cols-[minmax(0,1fr)_320px]' : ''}`}>
-          <div className="min-w-0">
+        <div
+          className={`grid min-h-0 flex-1 ${panelOpen ? 'grid-cols-[minmax(0,1fr)_440px] gap-3' : 'grid-cols-1'}`}
+        >
+          <div className="h-full min-h-0 overflow-y-auto">
+            <div className="h-full min-h-0">
             {loading && (
               <Card className="p-6">
                 <p className="text-[16px] text-ink">{loadingDetail}</p>
@@ -240,6 +252,9 @@ export function GeneratedLessonView({ topicId }: { topicId: string }) {
             )}
             {!loading && active && (
               <LessonFrame
+                fill
+                heading={stageHeading}
+                onChat={panelOpen ? undefined : openChat}
                 chapters={chapters}
                 frame={frame}
                 duration={duration}
@@ -259,7 +274,6 @@ export function GeneratedLessonView({ topicId }: { topicId: string }) {
                 onExplain={explain}
                 muted={muted}
                 onMute={toggleMute}
-                onFullscreen={() => playerRef.current?.requestFullscreen()}
                 onPin={() => {
                   patchMarks(marksKey, (current) => ({
                     ...current,
@@ -288,7 +302,7 @@ export function GeneratedLessonView({ topicId }: { topicId: string }) {
                     fps={FPS}
                     controls={false}
                     acknowledgeRemotionLicense
-                    style={{ width: '100%' }}
+                    style={{ width: '100%', height: '100%' }}
                   />
                 ) : (
                   <Player
@@ -300,13 +314,14 @@ export function GeneratedLessonView({ topicId }: { topicId: string }) {
                     fps={FPS}
                     controls={false}
                     acknowledgeRemotionLicense
-                    style={{ width: '100%' }}
+                    style={{ width: '100%', height: '100%' }}
                   />
                 )}
               </LessonFrame>
             )}
+            </div>
             {!loading && (
-              <>
+              <div className="bg-paper px-6 py-4">
                 <ChapterStrip
                   chapters={chapters}
                   activeIndex={activeIndex}
@@ -333,21 +348,16 @@ export function GeneratedLessonView({ topicId }: { topicId: string }) {
                           duration: session.lessons[nextTopic.id]
                             ? formatLength(generatedDuration(session.lessons[nextTopic.id].segments))
                             : '',
-                          locked: !lessonDone,
                           href: `/study/${nextTopic.id}`,
                           artId: nextTopic.id,
                         }
                       : null
                   }
                 />
-              </>
-            )}
             {lesson?.studyDoc && (
               <Card id="study-doc" className="mt-4 p-4">
                 <h2 className="font-serif text-2xl text-ink">Study doc</h2>
-                <pre className="mt-2 font-sans text-[15px] leading-relaxed whitespace-pre-wrap text-ink">
-                  {lesson.studyDoc}
-                </pre>
+                <Markdown className="mt-3 text-[15px] leading-relaxed">{lesson.studyDoc}</Markdown>
               </Card>
             )}
             {import.meta.env.DEV && lesson && (
@@ -360,6 +370,9 @@ export function GeneratedLessonView({ topicId }: { topicId: string }) {
                       <div key={item.id}>
                         <p className="text-[14px] text-ink">
                           Segment {index + 1}: {item.title}
+                          {topicRuntime?.segments[item.id]?.status === 'unreviewed' ? (
+                            <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-[12px] text-amber-950">unreviewed</span>
+                          ) : null}
                         </p>
                         <p className="text-[13px] text-muted">
                           {item.debug?.repairRounds ?? 0} repair rounds · {item.debug?.issues.length ?? 0} issues
@@ -379,6 +392,7 @@ export function GeneratedLessonView({ topicId }: { topicId: string }) {
                               Round {round.n}
                               {round.score !== null ? ` · score ${round.score}` : ''}
                               {round.pass === null ? '' : round.pass ? ' · pass' : ' · fail'}
+                              {round.fixed === true ? ' · fixed' : round.fixed === false ? ' · kept' : ''}
                             </p>
                             {round.issues.length > 0 && (
                               <ul className="mt-1 grid gap-1">
@@ -411,55 +425,59 @@ export function GeneratedLessonView({ topicId }: { topicId: string }) {
                 </div>
               </details>
             )}
+              </div>
+            )}
           </div>
-          {!loading && panelOpen && (
-            <DoubtPanel
-              paused={!playing}
-              timeLabel={formatClock(frame, FPS)}
-              chapterLabel={`Chapter ${String(activeIndex + 1).padStart(2, '0')}`}
-              highlightAttached={marks.strokes.length > 0}
-              onClose={closePanel}
-              answer={answer}
-              marks={marks}
-              tool={tool}
-              prompts={prompts}
-              onAsk={(question) => {
-                patchMarks(marksKey, (current) => ({
-                  ...current,
-                  doubts: [
-                    ...current.doubts,
-                    { role: 'user', text: question },
-                    { role: 'krayon', text: answer },
-                  ],
-                }));
-              }}
-              onExplain={explain}
-              onPin={(text) => {
-                patchMarks(marksKey, (current) => ({
-                  ...current,
-                  pins: [...current.pins, { id: `${Date.now()}`, timestamp: formatClock(frame, FPS), text }],
-                }));
-              }}
-              onNote={(text) => {
-                patchMarks(marksKey, (current) => ({
-                  ...current,
-                  notes: [...current.notes, { id: `${Date.now()}`, timestamp: formatClock(frame, FPS), text }],
-                }));
-              }}
-              onQuiz={() => setTool('quiz')}
-              onQuizToggle={(id) => {
-                patchMarks(marksKey, (current) => {
-                  const quizIds = current.quizIds.includes(id)
-                    ? current.quizIds.filter((item) => item !== id)
-                    : [...current.quizIds, id];
-                  return {
+          {panelOpen && (
+            <div className="flex h-full min-h-0 flex-col py-3 pr-3">
+              <DoubtPanel
+                paused={!playing}
+                timeLabel={formatClock(frame, FPS)}
+                chapterLabel={`Chapter ${String(activeIndex + 1).padStart(2, '0')}`}
+                highlightAttached={marks.strokes.length > 0}
+                onClose={closePanel}
+                answer={answer}
+                marks={marks}
+                tool={tool}
+                prompts={prompts}
+                onAsk={(question) => {
+                  patchMarks(marksKey, (current) => ({
                     ...current,
-                    quizIds,
-                    quizReady: prompts.length > 0 && prompts.every((prompt) => quizIds.includes(prompt.id)),
-                  };
-                });
-              }}
-            />
+                    doubts: [
+                      ...current.doubts,
+                      { role: 'user', text: question },
+                      { role: 'krayon', text: answer },
+                    ],
+                  }));
+                }}
+                onExplain={explain}
+                onPin={(text) => {
+                  patchMarks(marksKey, (current) => ({
+                    ...current,
+                    pins: [...current.pins, { id: `${Date.now()}`, timestamp: formatClock(frame, FPS), text }],
+                  }));
+                }}
+                onNote={(text) => {
+                  patchMarks(marksKey, (current) => ({
+                    ...current,
+                    notes: [...current.notes, { id: `${Date.now()}`, timestamp: formatClock(frame, FPS), text }],
+                  }));
+                }}
+                onQuiz={() => setTool('quiz')}
+                onQuizToggle={(id) => {
+                  patchMarks(marksKey, (current) => {
+                    const quizIds = current.quizIds.includes(id)
+                      ? current.quizIds.filter((item) => item !== id)
+                      : [...current.quizIds, id];
+                    return {
+                      ...current,
+                      quizIds,
+                      quizReady: prompts.length > 0 && prompts.every((prompt) => quizIds.includes(prompt.id)),
+                    };
+                  });
+                }}
+              />
+            </div>
           )}
         </div>
       </div>

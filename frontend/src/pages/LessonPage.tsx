@@ -5,8 +5,6 @@ import { GeneratedLessonView } from './GeneratedLessonView.tsx';
 import { DoubtPanel } from '../components/DoubtPanel.tsx';
 import { LessonFrame } from '../components/LessonFrame.tsx';
 import type { LessonTool } from '../components/LessonFrame.tsx';
-import { buttonClass } from '../components/ui/Button.tsx';
-import { HandUnderline } from '../components/ui/HandUnderline.tsx';
 import { IconArrow, IconBack } from '../components/ui/icons.tsx';
 import { Shell } from '../components/ui/Shell.tsx';
 import { getTopic } from '../data/topics.ts';
@@ -30,7 +28,7 @@ function CuratedLesson() {
   const { topicId, subtopicId } = useParams();
   const navigate = useNavigate();
   const { prefix, colors } = usePalette();
-  const { doneIds, lessonMarks, patchMarks, markSubtopicDone, touchTopic } = useLocalStudy();
+  const { lessonMarks, patchMarks, markSubtopicDone, touchTopic } = useLocalStudy();
   const topic = topicId ? getTopic(topicId) : undefined;
   const subtopic = topic?.subtopics.find((item) => item.id === subtopicId);
   const playerRef = useRef<PlayerRef>(null);
@@ -38,7 +36,7 @@ function CuratedLesson() {
   const [frame, setFrame] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [muted, setMuted] = useState(false);
-  const [panelOpen, setPanelOpen] = useState(true);
+  const [panelOpen, setPanelOpen] = useState(false);
   const [tool, setTool] = useState<LessonTool | null>(null);
   const home = prefix || '/';
   const base = home === '/' ? '' : home;
@@ -110,7 +108,7 @@ function CuratedLesson() {
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape' || event.defaultPrevented || document.querySelector('[role="dialog"]')) return;
+      if (event.key !== 'Escape' || event.defaultPrevented || document.fullscreenElement || document.querySelector('[role="dialog"]')) return;
       if (topic) navigate(`${base}/topics/${topic.id}`);
     };
     window.addEventListener('keydown', onKey);
@@ -123,8 +121,6 @@ function CuratedLesson() {
 
   const index = topic.subtopics.findIndex((item) => item.id === subtopic.id);
   const next = topic.subtopics[index + 1];
-  const done = doneIds(topicKey(topic.id));
-  const nextLocked = !!next && !done.includes(subtopic.id);
   const answer = marks.expanded ? subtopic.beats.join(' ') : (active.title === subtopic.title ? subtopic.beats[0] : active.title);
 
   const prompts = subtopic.beats.map((text, beatIndex) => ({ id: `beat-${beatIndex}`, text }));
@@ -169,45 +165,47 @@ function CuratedLesson() {
     setPanelOpen(false);
     setTool((current) => (current === 'highlight' ? current : null));
   };
+  const openChat = () => {
+    if (document.fullscreenElement) void document.exitFullscreen();
+    chooseTool('ask');
+  };
 
   return (
-    <Shell fill>
+    <Shell fill bare>
       <div className="flex h-full min-h-0 flex-col">
-        <div className="flex h-14 shrink-0 items-center gap-3">
-          <Link
-            to={`${base}/topics/${topic.id}`}
-            aria-label={`Back to ${topic.title}`}
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-2 border-ink bg-paper"
-          >
-            <IconBack className="h-4 w-4" />
-          </Link>
-          <h1 className="min-w-0 truncate font-serif text-[24px] leading-none text-ink">
-            <HandUnderline>{subtopic.title}</HandUnderline>
-          </h1>
-          <p className="shrink-0 text-[14px] text-muted">
-            {topic.title} · Step {index + 1} of {topic.subtopics.length}
-          </p>
-          {next && !nextLocked && (
-            <Link to={`${base}/topics/${topic.id}/${next.id}`} className={buttonClass('secondary', 'ml-auto shrink-0 !px-3 !py-1 !text-[13px]')}>
-              Next step
-              <IconArrow className="h-3.5 w-3.5" />
-            </Link>
-          )}
-          {next && nextLocked && (
-            <button type="button" disabled className={buttonClass('secondary', 'ml-auto shrink-0 !px-3 !py-1 !text-[13px]')}>
-              Next step
-            </button>
-          )}
-        </div>
-
         <div
-          className={`grid min-h-0 flex-1 items-stretch gap-5 ${
-            panelOpen ? 'min-[1024px]:grid-cols-[minmax(0,1fr)_380px] min-[1280px]:grid-cols-[minmax(0,1fr)_440px]' : ''
+          className={`grid min-h-0 flex-1 ${
+            panelOpen ? 'grid-cols-[minmax(0,1fr)_440px] gap-3' : 'grid-cols-1'
           }`}
         >
-          <div className="h-full min-h-0 min-w-0 [container-type:size]">
+          <div className="h-full min-h-0 min-w-0">
             <LessonFrame
               fill
+              heading={
+                <div className="flex min-w-0 items-center gap-1.5 rounded-full border-2 border-ink bg-paper py-0.5 pr-1.5 pl-0.5 shadow-[2px_2px_0_var(--color-ink)]">
+                  <Link
+                    to={`${base}/topics/${topic.id}`}
+                    aria-label={`Back to ${topic.title}`}
+                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-ink"
+                  >
+                    <IconBack className="h-4 w-4" />
+                  </Link>
+                  <span className="min-w-0 truncate font-serif text-[15px] leading-none text-ink">{subtopic.title}</span>
+                  <span className="shrink-0 text-[12px] text-muted">
+                    {index + 1}/{topic.subtopics.length}
+                  </span>
+                  {next && (
+                    <Link
+                      to={`${base}/topics/${topic.id}/${next.id}`}
+                      aria-label={`Next step: ${next.title}`}
+                      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-ink"
+                    >
+                      <IconArrow className="h-3.5 w-3.5" />
+                    </Link>
+                  )}
+                </div>
+              }
+              onChat={panelOpen ? undefined : openChat}
               chapters={chapters}
               frame={frame}
               duration={duration}
@@ -244,7 +242,6 @@ function CuratedLesson() {
               onPin={() => savePin(answer)}
               muted={muted}
               onMute={toggleMute}
-              onFullscreen={() => playerRef.current?.requestFullscreen()}
               onStrokes={(strokes) => {
                 patchMarks(lessonKey(topic.id, subtopic.id), (current) => ({ ...current, strokes }));
               }}
@@ -265,6 +262,7 @@ function CuratedLesson() {
             </LessonFrame>
           </div>
           {panelOpen && (
+          <div className="flex h-full min-h-0 flex-col py-3 pr-3">
           <DoubtPanel
             topicId={topic.id}
             paused={!playing}
@@ -319,6 +317,7 @@ function CuratedLesson() {
               });
             }}
           />
+          </div>
           )}
         </div>
       </div>

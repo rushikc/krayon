@@ -3,8 +3,25 @@ import { AddDocsPopup } from '../AddDocsPopup.tsx';
 import { useUpload } from '../../study/uploadState.tsx';
 import { Header } from './Header.tsx';
 
-export function Shell({ children, fill = false }: { children: ReactNode; fill?: boolean }) {
+export function Shell({
+  children,
+  fill = false,
+  bare = false,
+}: {
+  children: ReactNode;
+  fill?: boolean;
+  bare?: boolean;
+}) {
   const { open, closeUpload } = useUpload();
+
+  if (fill && bare) {
+    return (
+      <div className="flex h-dvh flex-col overflow-hidden bg-chalk">
+        <div className="flex min-h-0 flex-1 flex-col">{children}</div>
+        {open && <AddDocsPopup onClose={closeUpload} />}
+      </div>
+    );
+  }
 
   if (fill) {
     return (

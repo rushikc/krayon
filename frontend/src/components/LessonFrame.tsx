@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import type { PointerEvent, ReactNode } from 'react';
 import { FPS } from '../remotion/catalog.ts';
 import type { Chapter } from '../study/chapters.ts';
@@ -41,8 +41,9 @@ type LessonFrameProps = {
   onStrokes: (strokes: Stroke[]) => void;
   muted: boolean;
   onMute: () => void;
-  onFullscreen: () => void;
   pins?: Stamp[];
+  heading?: ReactNode;
+  onChat?: () => void;
   watchedIds?: string[];
   artId?: string;
   fill?: boolean;
@@ -78,12 +79,14 @@ export function LessonFrame({
   onStrokes,
   muted,
   onMute,
-  onFullscreen,
   pins = [],
   watchedIds = [],
   artId,
   fill = false,
+  heading,
+  onChat,
 }: LessonFrameProps) {
+  const frameRef = useRef<HTMLDivElement>(null);
   const tipBase = useId();
   const [hoverId, setHoverId] = useState<string | null>(null);
   const [focusId, setFocusId] = useState<string | null>(null);
@@ -122,16 +125,29 @@ export function LessonFrame({
     'aria-describedby': openId === id ? `${tipBase}-${id}` : undefined,
   });
 
+  const toggleFullscreen = () => {
+    const node = frameRef.current;
+    if (!node) return;
+    if (document.fullscreenElement === node) {
+      void document.exitFullscreen();
+      return;
+    }
+    void node.requestFullscreen();
+  };
+
   return (
     <div
+      ref={frameRef}
       className={cx(
-        'relative overflow-hidden rounded-[18px] border-[2.5px] border-ink bg-chalk shadow-[5px_5px_0_var(--color-ink)]',
-        fill ? 'aspect-video w-[min(100cqw,calc(100cqh*1.778))]' : 'w-full',
+        'relative overflow-hidden bg-chalk',
+        fill ? 'h-full w-full' : 'w-full rounded-[18px] border-[2.5px] border-ink shadow-[5px_5px_0_var(--color-ink)]',
       )}
     >
       {fill ? <div className="absolute inset-0">{children}</div> : children}
-      <div className="pointer-events-none absolute inset-x-3 top-3 z-20 flex justify-center">
-        <div className="pointer-events-auto flex h-8 max-w-full items-center gap-0.5 overflow-x-auto rounded-full border-2 border-ink bg-paper px-1 shadow-[2px_2px_0_var(--color-ink)]">
+      <div className="pointer-events-none absolute inset-x-3 top-3 z-20 flex items-center gap-2">
+        {heading ? <div className="pointer-events-auto max-w-[min(340px,34%)] shrink-0">{heading}</div> : null}
+        <div className="flex min-w-0 flex-1 justify-center">
+        <div className="pointer-events-auto flex h-8 min-w-0 max-w-full items-center gap-0.5 overflow-x-auto rounded-full border-2 border-ink bg-paper px-1 shadow-[2px_2px_0_var(--color-ink)]">
           <ToolButton label="Ask a doubt" pressed={activeTool === 'ask'} onClick={() => onTool('ask')}>
             <IconAsk className="h-3.5 w-3.5" />
             Ask
@@ -161,6 +177,7 @@ export function LessonFrame({
                 {tool.label}
               </ToolButton>
             ))}
+        </div>
         </div>
       </div>
       <svg
@@ -317,12 +334,22 @@ export function LessonFrame({
         <button
           type="button"
           aria-label="Full screen"
-          onClick={onFullscreen}
+          onClick={toggleFullscreen}
           className="flex h-8 w-8 shrink-0 items-center justify-center text-paper"
         >
           <IconFullscreen className="h-5 w-5" />
         </button>
       </div>
+      {onChat && (
+        <button
+          type="button"
+          aria-label="Open chat"
+          onClick={onChat}
+          className="absolute right-4 bottom-16 z-30 flex h-14 w-14 items-center justify-center rounded-full border-2 border-ink bg-crayon text-white shadow-[3px_3px_0_var(--color-ink)]"
+        >
+          <IconAsk className="h-7 w-7" />
+        </button>
+      )}
     </div>
   );
 }
