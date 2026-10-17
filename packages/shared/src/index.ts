@@ -52,6 +52,8 @@ export type {
   TopicPhase,
   TopicState,
 } from './course.js';
+export { reduceCourse } from './reduceCourse.js';
+export type { CourseFold } from './reduceCourse.js';
 export { pipelineEventTypes } from './events.js';
 export type { ClientMessage, PipelineEvent, PipelineEventType, ServerMessage } from './events.js';
 export type {
