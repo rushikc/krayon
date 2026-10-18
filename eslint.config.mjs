@@ -1,7 +1,7 @@
 import tseslint from 'typescript-eslint';
 
 export default tseslint.config({
-  files: ['packages/*/src/**/*.ts', 'local-backend/src/**/*.ts'],
+  files: ['packages/*/src/**/*.ts', 'local-backend/src/**/*.ts', 'backend/src/**/*.ts'],
   languageOptions: {
     parser: tseslint.parser,
     parserOptions: {

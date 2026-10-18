@@ -1,17 +1,50 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /users/{uid}/{document=**} {
-      allow read: if request.auth != null && request.auth.uid == uid;
+    function signedIn() {
+      return request.auth != null;
+    }
+    function owns(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    match /courseIndex/{id} {
+      allow read: if signedIn();
       allow write: if false;
     }
+    match /chapterIndex/{id} {
+      allow read: if signedIn();
+      allow write: if false;
+    }
+    match /lessonIndex/{id} {
+      allow read: if signedIn();
+      allow write: if false;
+    }
+    match /courseViews/{id} {
+      allow read: if signedIn();
+      allow write: if false;
+    }
+
+    match /users/{uid}/courses/{document=**} {
+      allow read: if signedIn();
+      allow write: if false;
+    }
+    match /users/{uid}/progress/{document=**} {
+      allow read, write: if owns(uid);
+    }
+    match /users/{uid}/state/{docId} {
+      allow read: if owns(uid);
+      allow write: if owns(uid) && docId != 'viewing';
+    }
     match /users/{uid}/state/viewing {
-      allow read: if request.auth != null && request.auth.uid == uid;
-      allow create, update: if request.auth != null
-        && request.auth.uid == uid
+      allow read: if owns(uid);
+      allow create, update: if owns(uid)
         && request.resource.data.keys().hasOnly(['courseId', 'updatedAt'])
         && request.resource.data.courseId is string
         && request.resource.data.updatedAt is number;
+    }
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }

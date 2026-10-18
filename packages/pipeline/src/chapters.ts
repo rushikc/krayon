@@ -24,6 +24,7 @@ import {
   studyDocPrompt,
 } from './prompts.js';
 import type { Priority } from './queue.js';
+import { renewLease } from './handlers/claim.js';
 import { isCancelled } from './runtime.js';
 import type { Runtime } from './runtime.js';
 import { planLessonSizes } from './scriptLength.js';
@@ -31,11 +32,13 @@ import type { DraftLesson } from './scriptLength.js';
 import {
   assembleCourse,
   chapterIdFor,
-  chapterIndexPath,
+  noteChapter,
   chapterPath,
   chaptersPath,
   coursePath,
+  noteCourse,
   lessonIdFor,
+  noteLesson,
   lessonIndexPath,
   lessonPath,
   lessonsPath,
@@ -114,7 +117,7 @@ export const createChapterStages = (rt: Runtime) => {
     if (!course) throw new Error('Course not found');
     const sources = (course.data.sources as Array<{ id: string; content_type: string }>) ?? [];
     const startedAt = Date.now();
-    await docs.set(coursePath(uid, courseId), { status: 'structure', stage: 'structure', error: null, errorInfo: null }, { merge: true });
+    await noteCourse(docs, uid, courseId, { status: 'structure', stage: 'structure', error: null, errorInfo: null });
     await rt.emit({ type: 'structure.started', courseId, flow: 'structure', step: 'started' });
     const fields = { courseId };
     try {
@@ -175,9 +178,9 @@ export const createChapterStages = (rt: Runtime) => {
           error: null,
           errorInfo: null,
         });
-        await docs.set(chapterIndexPath(uid, chapterId), { courseId });
+        await noteChapter(docs, uid, courseId, chapterId);
       }
-      await docs.set(coursePath(uid, courseId), { title, category, pageCount: pageTotal, stage: 'chapters', status: 'writing' }, { merge: true });
+      await noteCourse(docs, uid, courseId, { title, category, pageCount: pageTotal, stage: 'chapters', status: 'writing' });
       log.info('Structure ready', { ...fields, event: 'structure.ready', duration_ms: Date.now() - startedAt, chapters: ranges.length });
       await rt.emit({
         type: 'structure.ready',
@@ -193,7 +196,7 @@ export const createChapterStages = (rt: Runtime) => {
       if (isCancelled(error)) throw error;
       const failure = rt.failureOf(error, fields);
       log.error(`Structure failed: ${failure.code} ${failure.message}`, { ...fields, event: 'structure.failed', code: failure.code });
-      await docs.set(coursePath(uid, courseId), { status: 'failed', error: failure.message, errorInfo: failure }, { merge: true });
+      await noteCourse(docs, uid, courseId, { status: 'failed', error: failure.message, errorInfo: failure });
       await rt.emit({ type: 'structure.failed', courseId, error: failure.message, errorInfo: failure, flow: 'structure', step: 'failed' });
       return false;
     }
@@ -317,7 +320,8 @@ export const createChapterStages = (rt: Runtime) => {
     const fields = { courseId, chapterId };
     const chapter = { id: chapterId, ...(found.data as unknown as ChapterDoc) };
     const detail = async (statusDetail: string) => {
-      await docs.set(path, { status: 'writing', statusDetail, leaseUntil: Date.now() + 15 * 60 * 1000 }, { merge: true });
+      await renewLease(docs, path);
+      await docs.set(path, { status: 'writing', statusDetail }, { merge: true });
       await rt.emitChapter(uid, courseId, chapterId, 'chapter.writing', { detail: statusDetail, step: 'writing' });
     };
     /** One roadmap row per lesson, as soon as its title is known and again as its script or notes finish. */
@@ -356,7 +360,7 @@ export const createChapterStages = (rt: Runtime) => {
         },
         { merge: true },
       );
-      await docs.set(lessonIndexPath(uid, lessonId), { courseId, chapterId });
+      await noteLesson(docs, uid, courseId, chapterId, lessonId);
       await rt.emitLesson(uid, courseId, lessonId, 'lesson.writing', { step: 'writing' });
     };
     const dropExtraWriting = async (count: number) => {
@@ -364,7 +368,7 @@ export const createChapterStages = (rt: Runtime) => {
         if (row.data.chapterId !== chapterId || row.data.status !== 'writing') continue;
         if (Number(row.data.index) < count) continue;
         await docs.delete(lessonPath(uid, courseId, row.id));
-        await docs.delete(lessonIndexPath(uid, row.id));
+        await docs.delete(lessonIndexPath(row.id));
       }
     };
     await docs.set(path, { error: null, errorInfo: null }, { merge: true });
@@ -488,7 +492,7 @@ export const createChapterStages = (rt: Runtime) => {
           error: null,
           errorInfo: null,
         });
-        await docs.set(lessonIndexPath(uid, lessonId), { courseId, chapterId });
+        await noteLesson(docs, uid, courseId, chapterId, lessonId);
         await rt.emitLesson(uid, courseId, lessonId, 'lesson.outlined', { step: 'outlined' });
       }
 

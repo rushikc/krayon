@@ -116,6 +116,7 @@ export type SegmentState = {
 };
 
 export type LessonDetail = LessonSummary & {
+  ownerUid?: string;
   chapterTitle: string;
   /** Spoken script. */
   explanationSummary: string;
@@ -126,6 +127,8 @@ export type LessonDetail = LessonSummary & {
 export type CourseState = {
   id: string;
   owner: string;
+  /** Same as owner. Present so clients can build Firestore paths. */
+  ownerUid?: string;
   status: CourseStatus;
   stage: CourseStage;
   title: string | null;

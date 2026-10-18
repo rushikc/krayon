@@ -1,36 +1,44 @@
 # Krayon on GCP
 
-Three Cloud Run services in `asia-south1`. Vertex stays `global`. The browser calls `krayon-api` directly (`VITE_API_BASE_URL`). Firebase Hosting does not rewrite `/api`.
+The public site has no login screen. On load the browser signs in anonymously. If that fails it shows "Couldn't connect, retry". Courses are shared: any visitor can list, open, play, render, retry, and regenerate. Progress and study notes stay on the visitor (`users/{visitorUid}/progress` and `users/{visitorUid}/state`). Blobs stay under the uploader (`users/{ownerUid}/...`).
+
+Three Cloud Run services in `asia-south1`. Vertex stays `global`. The browser calls `krayon-api` directly. Firebase Hosting does not rewrite `/api`.
 
 ```text
-frontend  -->  krayon-api (Fastify, no Chrome)
-                 |  Cloud Tasks (OIDC)
-                 v
-              krayon-worker  --HTTP + ID token-->  krayon-renderer (Chrome, 2 vCPU, 4 GiB)
-                 |
-                 +--> Firestore, GCS, Vertex Gemini, Cloud TTS
+anonymous browser --> krayon-api (public)
+                        | Cloud Tasks, OIDC as krayon-tasks
+                        v
+                     krayon-worker --> krayon-renderer (private)
+                        |
+                        +--> Firestore, GCS, Vertex Gemini, Cloud TTS
 ```
 
-`local-backend/` is the same pipeline on a laptop. It is never deployed.
+`local-backend/` runs the same pipeline. Caps default to 0 there, so local use stays unlimited.
 
-## Media
+## Indexes
 
-Each narration is one WAV at `users/{uid}/audio/{sha256}.wav`. That object is the TTS cache. Keyframe PNGs live at `users/{uid}/keyframes/{lessonId}/{segmentId}/a{attempt}-r{round}-{frame}.png`. Page text, slices and source PDFs use the keys in `packages/pipeline/src/keys.ts`.
+`courseIndex/{courseId}`, `chapterIndex/{chapterId}`, and `lessonIndex/{lessonId}` are the lookup. Each stores `ownerUid`. The API resolves the owner, then reads and writes course docs under that uid. `GET /api/courses/:id` writes `courseViews/{courseId}.lastViewedAt`. A course viewed in the last two minutes uses the `ai-user` queue. Startup recovery copies existing course, chapter, and lesson docs (and leftover per-user indexes) into these indexes.
 
-REST ids are `base64url(key)`. `GET /api/audio/:id` requires `Authorization`. `GET /api/renders/:id` accepts `?token=` because an `<img>` cannot send a header. App Check is skipped only on that route. Cloud Run request logs will contain the token. Our own logs redact it.
+## Caps
+
+`usage/{YYYY-MM-DD}` (Asia/Kolkata) is one transaction. Defaults are 0 (off). The demo env is uploads 2 per visitor, courses 10, lesson renders 40, regenerates 40, asks 300. Over the cap the API returns `429 { code: 'demo_limit', message: 'Demo limit reached for today, try again tomorrow.' }`. A render that is already ready, queued, or rendering does not count and does not dispatch again.
 
 ## Tasks
 
-Queues: `ai-user` (6), `ai-auto` (4), `ai-background` (2), `tts` (4). No render queue. `dispatchDeadline` 1800s, `maxAttempts` 3. The worker timeout is at least 1800s.
+Task ids are `[A-Za-z0-9_-]{1,500}` and include the owner, the course or lesson or segment, the stage, and the generation. Longer ids are hashed. `courseGen`, `chapterGen`, and `renderGen` live on the entity. A retry bumps the gen inside the claim. A claim treats `failed` as finished only when the task gen is not newer. Retry resets failed and voice-failed segments to pending and leaves ready ones. Rerender passes `force` and replans.
 
-`course.structure` opens the first `CHAPTER_CONCURRENCY` (3) `chapter.write` tasks. Each settled chapter claims the next pending chapter. Only chapter 1 lesson 1 auto-renders (`lesson.plan` on `ai-auto`). Then `segment.voice` (tts), `lesson.retime`, `segment.build` (stills inline), `lesson.finalize`. `segment.narrate` regenerates one segment and does not join fan-in.
+Queues: `ai-user`, `ai-auto`, `ai-background`, `tts`. Deadline is 1800s on the task. `maxAttempts` 3. The worker timeout is 1800s. On the last attempt the worker marks the segment, lesson, or chapter failed, runs fan-in, and returns 2xx. A failed enqueue is HTTP 503.
 
-A handler claims a lease of about 15 minutes and skips work whose output is already stored. Fan-in recounts `segmentsSettled`, `segmentsReady` and `segmentsVoiced` inside a transaction. A `GenerationError` marks the entity failed and the worker returns 2xx. Infrastructure errors return 5xx. The last retry returns 2xx. `POST /tasks/sweep` every 5 minutes requeues leases that have expired.
+The sweeper (`POST /tasks/sweep`, every 5 minutes) redispatches chapters, lessons, and segments whose lease expired or whose `updatedAt` is older than `STALE_MINUTES` (15), with a new gen. A lesson that is rendering renews its lease while it plans.
 
-## Concurrency
+## IAM and deploy order
 
-Gemini 5, chapters 3, render 2, TTS 4. Queue caps are the other limit. Backoff handles Vertex 429s.
+Scripts in `backend/scripts/` only print commands.
 
-## Firestore
-
-Clients may read their own `users/{uid}/**` and write only `users/{uid}/state/viewing`. Study notes and progress stay on the API. Storage rules deny all client access; the API streams bytes. The GCP UI listens to Firestore. Locally it uses `/ws`.
+1. Enable APIs (`00-enable-apis.sh`).
+2. Firestore in `asia-south1`. Enable Anonymous auth (console: Authentication → Sign-in method → Anonymous) and create a reCAPTCHA Enterprise key for App Check (`05-firestore-and-auth.sh`).
+3. Queues (`10-queues.sh`). No `--max-dispatch-deadline`.
+4. Service accounts (`20-service-accounts.sh`). API: datastore, cloudtasks.enqueuer, objectViewer on the bucket, `serviceAccountUser` on `krayon-tasks`. Worker: datastore, objectAdmin on the bucket, aiplatform, serviceusage consumer, cloudtasks.enqueuer, `serviceAccountUser` on `krayon-tasks`, `run.invoker` on the renderer. Renderer: no extra roles. `krayon-tasks`: `run.invoker` on the worker.
+5. Build with `backend/cloudbuild.*.yaml` (no `--source .`). Deploy the API with `--allow-unauthenticated`, the worker and renderer with `--no-allow-unauthenticated` (`30-deploy-run.sh`). Read the URLs, then redeploy with `WORKER_URL`, `RENDERER_URL`, and `CORS_ORIGINS`.
+6. Scheduler audience is `WORKER_URL` (`40-scheduler.sh`).
+7. Deploy Hosting. Set `VITE_BACKEND=gcp`, `VITE_API_BASE_URL`, and `VITE_RECAPTCHA_SITE_KEY`. `APP_CHECK_ENFORCE` defaults to false.

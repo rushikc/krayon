@@ -1,5 +1,5 @@
 import type { AuthProvider, BlobStorage, Coordination, DocStore, EventBus, JobQueue } from '@krayon/shared';
-import type { Pipeline } from '@krayon/pipeline';
+import type { Pipeline, UsageCaps } from '@krayon/pipeline';
 
 export type ApiLogger = {
   info: (message: string, fields?: Record<string, unknown>) => void;
@@ -18,6 +18,8 @@ export type ApiDeps = {
   log: ApiLogger;
   requestId: () => string | undefined;
   maxUploadBytes: number;
+  corsOrigins: string[];
+  caps: UsageCaps;
   adcFailure: () => Promise<string | null>;
   health: () => Record<string, unknown>;
 };

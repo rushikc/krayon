@@ -9,8 +9,9 @@ COPY packages ./packages
 RUN npm ci --ignore-scripts \
   && npm run build -w @krayon/shared \
   && npm run build -w @krayon/renderer \
-  && npx remotion browser ensure
-ENV SERVE_URL=
+  && npx remotion browser ensure \
+  && node --input-type=module -e "import { bundle } from '@remotion/bundler'; await bundle({ entryPoint: 'packages/shared/dist/remotion/entry.js', outDir: '/app/bundle' });"
+ENV SERVE_URL=/app/bundle
 ENV NODE_ENV=production
 # 2 vCPU, 4 GiB, concurrency = RENDER_CONCURRENCY, min-instances 0 are set on Cloud Run.
 CMD ["node", "packages/renderer/dist/server.js"]

@@ -3,7 +3,8 @@ import { renderStills } from './runStill.js';
 
 const port = Number(process.env.PORT || 8080);
 
-const server = createServer(async (req, res) => {
+const server = createServer((req, res) => {
+  void (async () => {
   if (req.method === 'GET' && req.url === '/health') {
     res.writeHead(200, { 'content-type': 'application/json' });
     res.end(JSON.stringify({ ok: true }));
@@ -25,6 +26,7 @@ const server = createServer(async (req, res) => {
     res.writeHead(500, { 'content-type': 'application/json' });
     res.end(JSON.stringify({ detail: error instanceof Error ? error.message : 'Render failed' }));
   }
+  })();
 });
 
 server.listen(port, '0.0.0.0');

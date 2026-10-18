@@ -1,7 +1,5 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import cors from '@fastify/cors';
-import multipart from '@fastify/multipart';
 import Fastify from 'fastify';
 import { registerKrayonApi } from '@krayon/api';
 import { aiBackend, settings } from './config.js';
@@ -18,17 +16,9 @@ const log = getLogger('krayon.app');
 export const buildApp = async (ctx: KrayonContext) => {
   const { coordination, events, jobs, pipeline, startRecovery, storage, store } = ctx;
   const app = Fastify({ logger: false, bodyLimit: 25 * 1024 * 1024, maxParamLength: 512 });
-  await app.register(cors, {
-    origin: settings.corsOrigins,
-    methods: ['GET', 'HEAD', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['*'],
-    exposedHeaders: ['X-Request-ID'],
-  });
-  await app.register(multipart, { limits: { fileSize: 25 * 1024 * 1024, files: 12 } });
   registerRequestLogging(app);
   installErrorHandler(app);
-  jobs.register('ingest', (payload) => ({ received: payload }));
-  registerKrayonApi(app, {
+  await registerKrayonApi(app, {
     docs: store,
     blobs: storage,
     jobs,
@@ -39,6 +29,8 @@ export const buildApp = async (ctx: KrayonContext) => {
     log,
     requestId: currentRequestId,
     maxUploadBytes: settings.maxUploadBytes,
+    corsOrigins: settings.corsOrigins,
+    caps: settings.caps,
     adcFailure: ctx.adcFailure ?? (async () => null),
     health: () => ({
       ...healthSnapshot(),

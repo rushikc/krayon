@@ -1,5 +1,5 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
-import { GeminiNotConfigured, lessonDetail, loadSummary, locateLesson, saveProgress } from '@krayon/pipeline';
+import { GeminiNotConfigured, lessonDetail, loadSummary, locateLesson, reserveUsage, saveProgress } from '@krayon/pipeline';
 import { z } from 'zod';
 import type { ApiDeps } from '../deps.js';
 import { authHeader } from '../user.js';
@@ -23,6 +23,10 @@ const lessonOf = async (deps: ApiDeps, uid: string, id: string) => {
   const found = await locateLesson(deps.docs, uid, lessonId);
   if (!found) throw httpError(404, 'Not found');
   return { lessonId, ...found };
+};
+
+const guard = async (deps: ApiDeps, kind: 'render' | 'regenerate' | 'ask', uid: string) => {
+  await reserveUsage(deps.docs, kind, deps.caps, uid);
 };
 
 const leasePath = (lessonId: string, segmentId: string) => `regen/${lessonId}/${segmentId}`;
@@ -61,28 +65,34 @@ export const getLesson = (deps: ApiDeps) => async (request: FastifyRequest) => {
 /** Render and Retry are idempotent: a ready lesson is returned with jobId null. */
 export const renderLesson = (deps: ApiDeps) => async (request: FastifyRequest) => {
   const user = userOf(deps, request);
-  const { lessonId, courseId } = await lessonOf(deps, user.uid, (request.params as { id: string }).id);
-  const before = await loadSummary(deps.docs, user.uid, courseId, lessonId);
-  const jobId = before?.status === 'ready' ? null : deps.jobs.submit(user.uid, 'renderLesson', { uid: user.uid, lessonId });
-  return { jobId, lesson: await loadSummary(deps.docs, user.uid, courseId, lessonId) };
+  const { lessonId, courseId, ownerUid, doc } = await lessonOf(deps, user.uid, (request.params as { id: string }).id);
+  const status = String(doc.data.status ?? '');
+  const lesson = () => loadSummary(deps.docs, ownerUid, courseId, lessonId, user.uid);
+  if (status === 'ready') return { jobId: null, lesson: await lesson() };
+  if (status === 'queued' || status === 'rendering') return { jobId: String(doc.data.jobId ?? 'inflight'), lesson: await lesson() };
+  await guard(deps, 'render', user.uid);
+  const jobId = await deps.jobs.submit(ownerUid, 'renderLesson', { uid: ownerUid, courseId, lessonId });
+  await deps.docs.set(`users/${ownerUid}/courses/${courseId}/lessons/${lessonId}`, { jobId }, { merge: true });
+  return { jobId, lesson: await lesson() };
 };
 
 export const rerenderLesson = (deps: ApiDeps) => async (request: FastifyRequest, reply: FastifyReply) => {
   const user = userOf(deps, request);
-  const { lessonId, courseId } = await lessonOf(deps, user.uid, (request.params as { id: string }).id);
+  const { lessonId, courseId, ownerUid, doc } = await lessonOf(deps, user.uid, (request.params as { id: string }).id);
   const body = regenerateBody.safeParse(request.body ?? {});
   if (!body.success) throw httpError(422, 'Invalid regenerate request');
-  const before = await loadSummary(deps.docs, user.uid, courseId, lessonId);
-  if (before?.status === 'rendering' || before?.status === 'queued' || before?.status === 'writing') {
+  const status = String(doc.data.status ?? '');
+  if (status === 'rendering' || status === 'queued' || status === 'writing') {
     return reply.code(409).send({ error: 'This lesson is already being made.' });
   }
-  return { jobId: deps.jobs.submit(user.uid, 'rerenderLesson', { uid: user.uid, lessonId, prompt: body.data.prompt }) };
+  await guard(deps, 'render', user.uid);
+  return { jobId: await deps.jobs.submit(ownerUid, 'rerenderLesson', { uid: ownerUid, courseId, lessonId, prompt: body.data.prompt, force: true }) };
 };
 
 export const regenerateSegment = (deps: ApiDeps) => async (request: FastifyRequest, reply: FastifyReply) => {
   const user = userOf(deps, request);
   const params = request.params as { id: string; segmentId: string };
-  const { lessonId, doc } = await lessonOf(deps, user.uid, params.id);
+  const { lessonId, ownerUid, doc } = await lessonOf(deps, user.uid, params.id);
   const segmentId = safeId(params.segmentId, 'segment');
   const detail = await lessonDetail(deps.docs, user.uid, lessonId);
   if (!detail?.segments.some((segment) => segment.id === segmentId)) throw httpError(404, 'Not found');
@@ -94,10 +104,11 @@ export const regenerateSegment = (deps: ApiDeps) => async (request: FastifyReque
   if (!(await deps.coordination.acquireLease(path, user.uid, LEASE_MS))) {
     return reply.code(409).send({ error: 'busy', reason: 'Already regenerating' });
   }
+  await guard(deps, 'regenerate', user.uid);
   try {
     return {
-      jobId: deps.jobs.submit(user.uid, 'regenerate', {
-        uid: user.uid,
+      jobId: await deps.jobs.submit(ownerUid, 'regenerate', {
+        uid: ownerUid,
         lessonId,
         segmentId,
         prompt: body.data.prompt,
@@ -123,6 +134,7 @@ export const askLesson = (deps: ApiDeps) => async (request: FastifyRequest, repl
   const { lessonId } = await lessonOf(deps, user.uid, (request.params as { id: string }).id);
   const body = askBody.safeParse(request.body ?? {});
   if (!body.success) throw httpError(422, 'Ask a question.');
+  await guard(deps, 'ask', user.uid);
   try {
     return await deps.pipeline.ask(user.uid, lessonId, body.data.question, body.data.frame);
   } catch (error) {

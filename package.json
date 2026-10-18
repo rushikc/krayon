@@ -21,7 +21,7 @@
     "build": "npm run build -w @krayon/shared && npm run build -w @krayon/pipeline && npm run build -w @krayon/api && npm run build -w local-backend && npm run build -w frontend",
     "test": "npm run test -w @krayon/shared && npm run test -w @krayon/pipeline && npm run test:backend:quick",
     "test:emulators": "echo 'Opt-in only. Not run from this task. When the Firestore adapter suite exists: firebase emulators:exec --only firestore,storage npm run test -w @krayon/pipeline'",
-    "lint": "eslint packages/shared/src packages/pipeline/src packages/api/src local-backend/src",
+    "lint": "eslint packages/shared/src packages/pipeline/src packages/api/src packages/renderer/src local-backend/src backend/src",
     "test:backend": "npm run test -w local-backend",
     "test:backend:quick": "npm run test:quick -w local-backend"
   },

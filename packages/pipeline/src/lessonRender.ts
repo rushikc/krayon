@@ -24,6 +24,7 @@ import { SAFETY_MESSAGE, classifyStepFailure } from './outcomes.js';
 import { beatsPrompt, learnerScenePrompt, regenerateNarrationPrompt, repairPrompt, retryScenePrompt, reviewPrompt, scenePrompt } from './prompts.js';
 import type { SceneInput, SegmentLike } from './prompts.js';
 import type { Priority } from './queue.js';
+import { renewLease } from './handlers/claim.js';
 import { Cancelled, isCancelled } from './runtime.js';
 import type { Runtime } from './runtime.js';
 import { lessonPath, locateLesson, roundPath, segmentIdFor, segmentPath, segmentsPath } from './store.js';
@@ -257,6 +258,7 @@ export const createLessonStages = (rt: Runtime) => {
         ? retryScenePrompt(input, previous, (doc.errorInfo?.issues ?? []).slice(0, 10))
         : scenePrompt(input);
 
+    await renewLease(docs, segmentPath(uid, courseId, lessonId, segmentId));
     await setSegment(run, { status: 'drafting', statusDetail: 'Designing the visual' });
     await rt.emitSegment(uid, courseId, lessonId, segmentId, 'segment.check', { step: 'draft' });
     let current: GeneratedSegment;
@@ -283,6 +285,7 @@ export const createLessonStages = (rt: Runtime) => {
       throw error;
     }
     await setSegment(run, { status: 'checking', statusDetail: 'Checking the segment', segment: run.learner ? doc.segment : current, draft: null });
+    await rt.emitSegment(uid, courseId, lessonId, segmentId, 'segment.check', { step: 'check' });
 
     let best = current;
     let bestScore = -1;
@@ -291,11 +294,14 @@ export const createLessonStages = (rt: Runtime) => {
     for (let round = 1; round <= config.maxReviewRounds; round += 1) {
       if (rt.events.isCancelled(courseId, lessonId, segmentId)) throw new Cancelled();
       try {
+        await renewLease(docs, segmentPath(uid, courseId, lessonId, segmentId));
         await setSegment(run, { status: 'rendering', statusDetail: 'Rendering keyframes' });
         await rt.emitSegment(uid, courseId, lessonId, segmentId, 'segment.render', { round, step: 'render' });
         const rendered = await rt.renderer.renderKeyframes(uid, current, priority, fields);
         const detail = `Reviewing, round ${round} of ${config.maxReviewRounds}`;
+        await renewLease(docs, segmentPath(uid, courseId, lessonId, segmentId));
         await setSegment(run, { status: 'reviewing', statusDetail: detail });
+        await rt.emitSegment(uid, courseId, lessonId, segmentId, 'segment.review', { round, detail, step: 'reviewing' });
         const keyframes = [];
         for (const id of rendered.keyframeIds) {
           const key = mediaKey(id);
@@ -624,6 +630,7 @@ export const createLessonStages = (rt: Runtime) => {
     if (!row || row.data.audio || row.data.status === 'ready') return;
     if (!config.ttsEnabled) return;
     const narration = String(row.data.narration ?? '');
+    await renewLease(docs, path);
     await docs.set(path, { voice: 'voicing', statusDetail: 'Recording narration' }, { merge: true });
     await rt.emitSegment(uid, courseId, lessonId, segmentId, 'segment.voicing', { step: 'voice' });
     try {

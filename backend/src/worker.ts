@@ -44,7 +44,11 @@ app.post('/tasks/:kind', async (request, reply) => {
     return { ok: true };
   } catch (error) {
     logger.error('task failed', { kind, retry, error: error instanceof Error ? error.message : String(error) });
-    if (retry >= 2) return { ok: false, failed: true };
+    const attempts = Number(process.env.TASK_MAX_ATTEMPTS || 3);
+    if (retry + 1 >= attempts) {
+      await runtime.pipeline.failTask({ kind, payload, queue: 'ai-background' });
+      return { ok: false, failed: true };
+    }
     return reply.code(500).send({ detail: error instanceof Error ? error.message : 'Task failed' });
   }
 });

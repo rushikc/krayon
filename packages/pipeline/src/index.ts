@@ -20,3 +20,5 @@ export { audioKey, keyframeKey, looseUploadKey, pageTextKey, sliceKey, sourceKey
 export { setGeminiConcurrency } from './gemini.js';
 export { createRenderer } from './render.js';
 export { recoverStale } from './recovery.js';
+export { DemoLimitError, reserveUsage, usageDay, capsOff } from './usage.js';
+export type { UsageCaps } from './usage.js';

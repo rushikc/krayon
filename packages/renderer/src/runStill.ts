@@ -32,10 +32,10 @@ export const renderStills = async (input: {
   const url = await bundleUrl();
   const composition = await selectComposition({
     serveUrl: url,
-    id: 'GeneratedLesson',
-    inputProps: { segments: [input.segment], audio: {} },
+    id: 'SegmentStill',
+    inputProps: { segment: input.segment },
   });
-  const frames = collectKeyframeFrames(input.segment, 4);
+  const frames = collectKeyframeFrames(input.segment, Number(process.env.RENDER_KEYFRAMES_MAX || 8));
   if (frames.length === 0) frames.push(0);
   const keys: string[] = [];
   const pngs: string[] = [];

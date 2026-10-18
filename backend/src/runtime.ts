@@ -2,7 +2,7 @@ import path from 'node:path';
 import { initializeApp } from 'firebase-admin/app';
 import { pipelineEnvSchema } from '@krayon/api';
 import { createPipeline } from '@krayon/pipeline';
-import type { EventBus, JobQueue, PipelineEmit, PipelineEvent, TaskKind } from '@krayon/shared';
+import type { EventBus, JobQueue, PipelineEmit, PipelineEvent } from '@krayon/shared';
 import { createCloudTasksDispatcher } from './adapters/cloudTasksDispatcher.js';
 import { createFirestoreCoordination } from './adapters/firestoreCoordination.js';
 import { createFirestoreDocStore } from './adapters/firestoreDocStore.js';
@@ -10,16 +10,6 @@ import { createGcsBlobStorage } from './adapters/gcsBlobStorage.js';
 import { createHttpRenderer } from './adapters/httpRenderer.js';
 import { logger } from './adapters/cloudLogging.js';
 import { notifier } from './adapters/notifier.js';
-
-const jobKind: Record<string, TaskKind> = {
-  course: 'course.structure',
-  resumeCourse: 'course.structure',
-  retryCourse: 'course.structure',
-  retryChapter: 'chapter.write',
-  renderLesson: 'lesson.plan',
-  rerenderLesson: 'lesson.plan',
-  regenerate: 'segment.narrate',
-};
 
 /** One process-wide Firebase app, Firestore, and the shared pipeline. */
 export const createGcpRuntime = () => {
@@ -57,32 +47,6 @@ export const createGcpRuntime = () => {
     },
     setViewedCourse() {
       return undefined;
-    },
-  };
-  const jobs: JobQueue = {
-    register() {
-      return undefined;
-    },
-    submit(_owner, kind, payload) {
-      const taskKind = jobKind[kind] ?? 'course.structure';
-      const courseId = String(payload.courseId ?? payload.lessonId ?? '');
-      const id = `${kind}-${courseId}-${Date.now()}`;
-      void dispatcher.dispatch({
-        kind: taskKind,
-        queue: taskKind === 'segment.voice' ? 'tts' : 'ai-user',
-        dedupeKey: id,
-        payload: {
-          uid: String(payload.uid ?? _owner),
-          courseId: String(payload.courseId ?? ''),
-          chapterId: typeof payload.chapterId === 'string' ? payload.chapterId : undefined,
-          lessonId: typeof payload.lessonId === 'string' ? payload.lessonId : undefined,
-          segmentId: typeof payload.segmentId === 'string' ? payload.segmentId : undefined,
-          prompt: typeof payload.prompt === 'string' ? payload.prompt : undefined,
-          gen: kind === 'rerenderLesson' ? Date.now() : undefined,
-          priority: { userClicked: kind !== 'course', enqueuedAt: Date.now() },
-        },
-      });
-      return id;
     },
   };
   const httpRenderer = createHttpRenderer(blobs);
@@ -139,5 +103,51 @@ export const createGcpRuntime = () => {
       geminiMaxConcurrency: env.GEMINI_MAX_CONCURRENCY,
     },
   });
+  const unavailable = () => Object.assign(new Error('Could not queue the work. Try again in a moment.'), { statusCode: 503 });
+  const jobs: JobQueue = {
+    register() {
+      return undefined;
+    },
+    async submit(owner, kind, payload) {
+      const uid = String(payload.uid ?? owner);
+      const courseId = String(payload.courseId ?? '');
+      const lessonId = typeof payload.lessonId === 'string' ? payload.lessonId : '';
+      const chapterId = typeof payload.chapterId === 'string' ? payload.chapterId : '';
+      try {
+        if (kind === 'retryCourse') {
+          await pipeline.retryCourse(uid, courseId);
+          return `retry-${courseId}`;
+        }
+        if (kind === 'retryChapter') {
+          await pipeline.retryChapter(uid, chapterId);
+          return `retry-${chapterId}`;
+        }
+        if (kind === 'renderLesson') return (await pipeline.renderLesson(uid, lessonId)).taskId;
+        if (kind === 'rerenderLesson') {
+          return (await pipeline.rerenderLesson(uid, lessonId, typeof payload.prompt === 'string' ? payload.prompt : undefined)).taskId;
+        }
+        if (kind === 'regenerate') {
+          const segmentId = String(payload.segmentId ?? '');
+          const queued = await dispatcher.dispatch({
+            kind: 'segment.narrate',
+            queue: 'ai-user',
+            dedupeKey: `narrate-${uid}-${lessonId}-${segmentId}-${Date.now()}`,
+            payload: { uid, courseId, lessonId, segmentId, prompt: typeof payload.prompt === 'string' ? payload.prompt : undefined },
+          });
+          return queued.taskId;
+        }
+        const queued = await dispatcher.dispatch({
+          kind: 'course.structure',
+          queue: 'ai-user',
+          dedupeKey: `course-${uid}-${courseId}`,
+          payload: { uid, courseId, priority: { userClicked: true, enqueuedAt: Date.now() } },
+        });
+        return queued.taskId;
+      } catch (error) {
+        if (typeof (error as { statusCode?: number }).statusCode === 'number') throw error;
+        throw unavailable();
+      }
+    },
+  };
   return { docs, blobs, jobs, events, coordination, pipeline, dispatcher };
 };

@@ -11,7 +11,14 @@ const applyWhere = (query: Query, where?: Where[]) => {
 };
 
 /** Firestore documents at the same paths the local store uses. `jobs/{id}` stays top-level. */
-export const createFirestoreDocStore = (db: Firestore = getFirestore()): DocStore => ({
+let settingsApplied = false;
+
+export const createFirestoreDocStore = (db: Firestore = getFirestore()): DocStore => {
+  if (!settingsApplied) {
+    db.settings({ ignoreUndefinedProperties: true });
+    settingsApplied = true;
+  }
+  return {
   async get(path) {
     const snap = await db.doc(path).get();
     if (!snap.exists) return null;
@@ -92,4 +99,5 @@ export const createFirestoreDocStore = (db: Firestore = getFirestore()): DocStor
     }
     return n;
   },
-});
+  };
+};

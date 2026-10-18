@@ -49,14 +49,32 @@ Copy `frontend/.env.example` to `frontend/.env` and fill in the Firebase web con
 
 ## Deploy
 
-Hosting is the `krayon-ai` site. From the repo root, after a production build:
+Site id and URLs are passed at deploy time. They are never committed. Scripts under `backend/scripts/` print commands; they do not run them. IAM and deploy order live in `backend/architecture.md`.
+
+Put production frontend env in `frontend/.env.production` (gitignored): `VITE_BACKEND=gcp`, `VITE_API_BASE_URL=<api-url>`, Firebase web config, and `VITE_RECAPTCHA_SITE_KEY` as needed.
+
+From the repo root:
 
 ```bash
-cd frontend && npm run build
-cd .. && firebase deploy --only hosting
+# Hosting. Optional --create also prints hosting:sites:create.
+sh backend/scripts/50-deploy-hosting.sh --site <site-id>
+
+# Cloud Run. --site derives default Hosting origins; --origins wins if both are set.
+sh backend/scripts/30-deploy-run.sh --site <site-id>
+# or: sh backend/scripts/30-deploy-run.sh --origins https://<site-id>.web.app,https://<site-id>.firebaseapp.com
+# Second pass: --worker-url <worker-url> --renderer-url <renderer-url>
+
+# After the worker URL is known:
+sh backend/scripts/40-scheduler.sh --worker-url <worker-url>
 ```
 
-Live app: [https://krayon-ai.web.app](https://krayon-ai.web.app)
+### Values set outside git
+
+- `CORS_ORIGINS` — Cloud Run env on `krayon-api` (embedded in the commands printed by `30-deploy-run.sh --origins …`).
+- `VITE_API_BASE_URL` — `frontend/.env.production` (gitignored) before `npm run build -w frontend`.
+- Cloud Run API URL — also ends up in the built JS bundle (`frontend/dist`). That is expected: the browser needs it at runtime, so it is public anyway. It must not appear in tracked files.
+- Browser origins for Auth and App Check — Firebase Console → Authentication → Authorized domains, and the reCAPTCHA Enterprise key domains (`<site-id>.web.app`, `<site-id>.firebaseapp.com`).
+
 ## Backends
 
 `local-backend/` is a local mock. It is never deployed. It stands in for Firestore, Cloud Storage, Cloud Tasks, and Firebase Auth so the generation pipeline can run on a laptop, and it calls Gemini on Vertex from that laptop.

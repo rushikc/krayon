@@ -87,6 +87,8 @@ export type TaskPayload = {
   epoch?: number;
   jobId?: string;
   prompt?: string;
+  /** Rerender wipes segments. A retry leaves ready segments alone. */
+  force?: boolean;
 };
 
 export type TaskRequest = {
@@ -203,7 +205,7 @@ export type JobHandler = (payload: Record<string, unknown>) => Promise<unknown> 
 
 export interface JobQueue {
   register(kind: string, handler: JobHandler): void;
-  submit(owner: string, kind: string, payload: Record<string, unknown>): string;
+  submit(owner: string, kind: string, payload: Record<string, unknown>): string | Promise<string>;
 }
 
 /** Temporary header stub. Firebase Auth uses AuthVerifier. */

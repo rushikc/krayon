@@ -55,11 +55,16 @@ function LessonAction({ lesson }: { lesson: LessonSummary }) {
   if (lesson.status === 'queued' || lesson.status === 'rendering') {
     const counted = lesson.status === 'rendering' && lesson.segmentCount > 0;
     return (
-      <div className="w-[180px] shrink-0">
-        <p className="mb-1 text-right text-[13px] font-medium text-ink tabular-nums">
-          {counted ? `Rendering ${lesson.segmentsReady}/${lesson.segmentCount}` : lesson.status === 'queued' ? 'Queued' : 'Planning the video'}
-        </p>
-        <CrayonProgress value={counted ? renderPercent(lesson) : 4} label={`${lesson.title} video progress`} />
+      <div className="flex items-center gap-3">
+        <div className="w-[180px] shrink-0">
+          <p className="mb-1 text-right text-[13px] font-medium text-ink tabular-nums">
+            {counted ? `Rendering ${lesson.segmentsReady}/${lesson.segmentCount}` : lesson.status === 'queued' ? 'Queued' : 'Planning the video'}
+          </p>
+          <CrayonProgress value={counted ? renderPercent(lesson) : 4} label={`${lesson.title} video progress`} />
+        </div>
+        <Link to={`/study/${lesson.id}`} className={buttonClass('secondary', small)}>
+          View steps
+        </Link>
       </div>
     );
   }

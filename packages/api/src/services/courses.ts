@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import '@fastify/multipart';
-import { assembleCourse, coursePath, listCourses as loadCourses, locateChapter, sourceKey } from '@krayon/pipeline';
+import { assembleCourse, courseViewPath, listCourses as loadCourses, locateChapter, locateCourse, noteCourse, reserveUsage, sourceKey, DemoLimitError } from '@krayon/pipeline';
 import type { ApiDeps } from '../deps.js';
 import { authHeader } from '../user.js';
 import { httpError } from '../errors.js';
@@ -15,6 +15,15 @@ export const safeId = (value: string, label: string) => {
 };
 
 const userOf = (deps: ApiDeps, request: FastifyRequest) => deps.auth.currentUser(authHeader(request));
+
+const guard = async (deps: ApiDeps, kind: 'upload' | 'course' | 'render' | 'regenerate' | 'ask', uid: string) => {
+  try {
+    await reserveUsage(deps.docs, kind, deps.caps, uid);
+  } catch (error) {
+    if (error instanceof DemoLimitError) throw error;
+    throw error;
+  }
+};
 
 export const registerCourseJobs = (deps: ApiDeps) => {
   const str = (value: unknown) => String(value ?? '');
@@ -42,6 +51,8 @@ export const createCourse = (deps: ApiDeps) => async (request: FastifyRequest, r
     files.push(file);
   }
   if (files.length === 0) throw httpError(422, 'file is required');
+  await guard(deps, 'upload', user.uid);
+  await guard(deps, 'course', user.uid);
   const adcError = await deps.adcFailure();
   if (adcError) {
     reply.code(503).send({ detail: adcError });
@@ -59,16 +70,17 @@ export const createCourse = (deps: ApiDeps) => async (request: FastifyRequest, r
     await deps.docs.set(`users/${user.uid}/uploads/${key.split('/').pop()}`, source);
     sources.push(source);
   }
-  await deps.docs.set(coursePath(user.uid, courseId), {
+  await noteCourse(deps.docs, user.uid, courseId, {
     owner: user.uid,
     status: 'created',
     stage: 'structure',
     fileNames: sources.map((source) => source.name),
     sources,
     error: null,
+    createdAt: Date.now(),
   });
   deps.events.emit({ type: 'course.created', courseId, flow: 'course', step: 'created' });
-  const jobId = deps.jobs.submit(user.uid, 'course', { uid: user.uid, courseId });
+  const jobId = await deps.jobs.submit(user.uid, 'course', { uid: user.uid, courseId });
   return { courseId, jobId };
 };
 
@@ -77,15 +89,20 @@ export const listCourses = (deps: ApiDeps) => async (request: FastifyRequest) =>
   return { courses: await loadCourses(deps.docs, user.uid) };
 };
 
-const courseOf = async (deps: ApiDeps, uid: string, id: string) => {
-  const course = await assembleCourse(deps.docs, uid, safeId(id, 'course'));
+const courseOf = async (deps: ApiDeps, viewerUid: string, id: string) => {
+  const courseId = safeId(id, 'course');
+  const located = await locateCourse(deps.docs, courseId);
+  if (!located) throw httpError(404, 'Not found');
+  const course = await assembleCourse(deps.docs, located.ownerUid, courseId, viewerUid);
   if (!course) throw httpError(404, 'Not found');
-  return course;
+  return { ...course, ownerUid: located.ownerUid };
 };
 
 export const getCourse = (deps: ApiDeps) => async (request: FastifyRequest) => {
   const user = userOf(deps, request);
-  return courseOf(deps, user.uid, (request.params as { id: string }).id);
+  const course = await courseOf(deps, user.uid, (request.params as { id: string }).id);
+  await deps.docs.set(courseViewPath(course.id), { lastViewedAt: Date.now() }, { merge: true });
+  return course;
 };
 
 export const getChapters = (deps: ApiDeps) => async (request: FastifyRequest) => {
@@ -96,7 +113,7 @@ export const getChapters = (deps: ApiDeps) => async (request: FastifyRequest) =>
 export const retryCourse = (deps: ApiDeps) => async (request: FastifyRequest) => {
   const user = userOf(deps, request);
   const course = await courseOf(deps, user.uid, (request.params as { id: string }).id);
-  return { jobId: deps.jobs.submit(user.uid, 'retryCourse', { uid: user.uid, courseId: course.id }) };
+  return { jobId: await deps.jobs.submit(user.uid, 'retryCourse', { uid: course.ownerUid, courseId: course.id }) };
 };
 
 export const retryChapter = (deps: ApiDeps) => async (request: FastifyRequest, reply: FastifyReply) => {
@@ -105,5 +122,5 @@ export const retryChapter = (deps: ApiDeps) => async (request: FastifyRequest, r
   const found = await locateChapter(deps.docs, user.uid, chapterId);
   if (!found) throw httpError(404, 'Not found');
   if (found.doc.data.status === 'writing') return reply.code(409).send({ error: 'busy', reason: 'Still writing' });
-  return { jobId: deps.jobs.submit(user.uid, 'retryChapter', { uid: user.uid, chapterId }) };
+  return { jobId: await deps.jobs.submit(user.uid, 'retryChapter', { uid: found.ownerUid, courseId: found.courseId, chapterId }) };
 };

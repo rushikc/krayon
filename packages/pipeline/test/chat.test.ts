@@ -5,7 +5,7 @@ import { memoryDocs } from './helpers.js';
 
 const setup = async () => {
   const { docs } = memoryDocs();
-  await docs.set(lessonIndexPath('u', 'c-c1-l1'), { courseId: 'c' });
+  await docs.set(lessonIndexPath('c-c1-l1'), { ownerUid: 'u', courseId: 'c', chapterId: 'c1' });
   await docs.set(chapterPath('u', 'c', 'c-c1'), { title: 'Getting Started', chapterText: 'Chapter text about the 3n+1 problem.' });
   await docs.set(lessonPath('u', 'c', 'c-c1-l1'), {
     courseId: 'c',

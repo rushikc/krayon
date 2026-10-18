@@ -35,3 +35,7 @@ Open generated lessons on the same page as curated ones.
 ## How
 
 Follow the repo git safety protocol. In parallel, inspect `git status`, `git diff` (staged and unstaged), and recent `git log`. Stage the plan's files by path. Commit with a HEREDOC. Then run `git status` to confirm the commit, and that unrelated local changes are still unstaged.
+
+## Lint, build, and tests
+
+During implementation, run lint/build only once at the end. Fix all errors in that one pass. Do not re-run the full test suite. The user will run tests.

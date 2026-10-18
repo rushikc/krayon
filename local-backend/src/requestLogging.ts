@@ -168,12 +168,18 @@ export const installErrorHandler = (app: FastifyInstance) => {
   app.setErrorHandler((error: unknown, request, reply: FastifyReply) => {
     const status = (error as { statusCode?: number; message?: string }).statusCode ?? 500;
     const message = error instanceof Error ? error.message : 'Request failed';
+    if (status === 503) {
+      log.error(`Dispatch failed on ${request.method} ${request.url}`, { event: 'error' }, error);
+      reply.status(503).send({ detail: message || 'Could not queue the work. Try again in a moment.' });
+      return;
+    }
     if (status >= 500) {
       log.error(`Unhandled exception on ${request.method} ${request.url}`, { event: 'error' }, error);
       reply.status(500).send({ detail: 'Internal server error', requestId: currentRequestId() });
       return;
     }
-    reply.status(status).send({ detail: message || 'Request failed' });
+    const code = (error as { code?: string }).code;
+    reply.status(status).send(code === 'demo_limit' ? { code, message } : { detail: message || 'Request failed' });
   });
   app.setNotFoundHandler((_request, reply) => {
     reply.status(404).send({ detail: 'Not found' });

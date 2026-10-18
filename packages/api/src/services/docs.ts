@@ -3,10 +3,16 @@ import type { ApiDeps } from '../deps.js';
 import { authHeader } from '../user.js';
 import { httpError } from '../errors.js';
 
+/** Study and progress only. Course and lesson docs are not writable through this API. */
 const scoped = (uid: string, rawPath: string) => {
   if (rawPath.includes('..') || rawPath.includes('\\')) throw httpError(400, 'Invalid path');
   const cleaned = rawPath.replace(/^\/+|\/+$/g, '');
-  if (!cleaned.startsWith(`users/${uid}/`)) throw httpError(403, `Paths must start with users/${uid}/`);
+  const state = `users/${uid}/state`;
+  const progress = `users/${uid}/progress`;
+  const allowed = cleaned === state || cleaned.startsWith(`${state}/`) || cleaned === progress || cleaned.startsWith(`${progress}/`);
+  if (!allowed) {
+    throw httpError(403, 'Only your study state and progress can be read or written here');
+  }
   return cleaned;
 };
 

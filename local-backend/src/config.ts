@@ -38,6 +38,11 @@ const envSchema = z.object({
   TTS_RATE: z.coerce.number().default(1),
   TTS_CONCURRENCY: z.coerce.number().default(4),
   TTS_QUOTA_PROJECT: z.string().default('krayon-ai'),
+  CAP_UPLOADS_PER_VISITOR_DAY: z.coerce.number().default(0),
+  CAP_COURSES_GLOBAL_DAY: z.coerce.number().default(0),
+  CAP_LESSON_RENDERS_GLOBAL_DAY: z.coerce.number().default(0),
+  CAP_REGENERATES_GLOBAL_DAY: z.coerce.number().default(0),
+  CAP_ASK_GLOBAL_DAY: z.coerce.number().default(0),
 });
 
 const parsed = envSchema.parse(process.env);
@@ -72,6 +77,13 @@ export const settings = {
   ttsConcurrency: parsed.TTS_CONCURRENCY > 0 ? Math.floor(parsed.TTS_CONCURRENCY) : 4,
   ttsQuotaProject: parsed.TTS_QUOTA_PROJECT.trim() || 'krayon-ai',
   maxUploadBytes: 20 * 1024 * 1024,
+  caps: {
+    uploadsPerVisitorDay: parsed.CAP_UPLOADS_PER_VISITOR_DAY,
+    coursesGlobalDay: parsed.CAP_COURSES_GLOBAL_DAY,
+    lessonRendersGlobalDay: parsed.CAP_LESSON_RENDERS_GLOBAL_DAY,
+    regeneratesGlobalDay: parsed.CAP_REGENERATES_GLOBAL_DAY,
+    askGlobalDay: parsed.CAP_ASK_GLOBAL_DAY,
+  },
 };
 
 export type AiBackend = 'vertex' | 'gemini-api-key' | 'none';

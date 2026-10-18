@@ -42,11 +42,13 @@ export const connectCourse = (courseId: string, handlers: Handlers): CourseSocke
   const start = async () => {
     if (started || closed) return;
     started = true;
-    const { collection, doc, getFirestore, onSnapshot, setDoc } = await import('firebase/firestore');
+    const { collection, doc, getDoc, getFirestore, onSnapshot, setDoc } = await import('firebase/firestore');
     if (closed) return;
     const db = getFirestore();
-    const uid = currentUid();
-    const coursePath = `users/${uid}/courses/${courseId}`;
+    const viewer = currentUid();
+    const index = await getDoc(doc(db, `courseIndex/${courseId}`));
+    const owner = String(index.data()?.ownerUid ?? viewer);
+    const coursePath = `users/${owner}/courses/${courseId}`;
     let courseDoc: DocRecord | null = null;
     let chapters: DocRecord[] = [];
     let lessons: DocRecord[] = [];
@@ -57,7 +59,7 @@ export const connectCourse = (courseId: string, handlers: Handlers): CourseSocke
     const publish = () => {
       if (!courseDoc) return;
       handlers.onSnapshot(
-        courseFrom(uid, courseId, courseDoc, chapters, lessons, (lessonId) => progressFrom(progress.get(lessonId)?.data)),
+        courseFrom(owner, courseId, courseDoc, chapters, lessons, (lessonId) => progressFrom(progress.get(lessonId)?.data)),
       );
     };
 
@@ -70,19 +72,19 @@ export const connectCourse = (courseId: string, handlers: Handlers): CourseSocke
 
     stops.push(
       onSnapshot(doc(db, coursePath), (row) => {
-        courseDoc = row.exists() ? asRecord(row.id, row.ref.path, row.data(), row.updateTime?.toMillis() ?? 0) : null;
+        courseDoc = row.exists() ? asRecord(row.id, row.ref.path, row.data(), Number(row.data().updatedAt ?? 0)) : null;
         publish();
       }),
     );
     stops.push(
       onSnapshot(collection(db, `${coursePath}/chapters`), (snap) => {
-        chapters = snap.docs.map((row) => asRecord(row.id, row.ref.path, row.data(), row.updateTime?.toMillis() ?? 0));
+        chapters = snap.docs.map((row) => asRecord(row.id, row.ref.path, row.data(), Number(row.data().updatedAt ?? 0)));
         publish();
       }),
     );
     stops.push(
       onSnapshot(collection(db, `${coursePath}/lessons`), (snap) => {
-        lessons = snap.docs.map((row) => asRecord(row.id, row.ref.path, row.data(), row.updateTime?.toMillis() ?? 0));
+        lessons = snap.docs.map((row) => asRecord(row.id, row.ref.path, row.data(), Number(row.data().updatedAt ?? 0)));
         const ids = new Set(lessons.map((row) => row.id));
         for (const [lessonId, stop] of segmentStops) {
           if (!ids.has(lessonId)) {
@@ -113,9 +115,9 @@ export const connectCourse = (courseId: string, handlers: Handlers): CourseSocke
       }),
     );
     stops.push(
-      onSnapshot(collection(db, `users/${uid}/progress`), (snap) => {
+      onSnapshot(collection(db, `users/${viewer}/progress`), (snap) => {
         progress.clear();
-        for (const row of snap.docs) progress.set(row.id, asRecord(row.id, row.ref.path, row.data(), row.updateTime?.toMillis() ?? 0));
+        for (const row of snap.docs) progress.set(row.id, asRecord(row.id, row.ref.path, row.data(), Number(row.data().updatedAt ?? 0)));
         publish();
       }),
     );
@@ -123,7 +125,7 @@ export const connectCourse = (courseId: string, handlers: Handlers): CourseSocke
       for (const stop of segmentStops.values()) stop();
     });
 
-    if (uid) void setDoc(doc(db, `users/${uid}/state/viewing`), { courseId, updatedAt: Date.now() }, { merge: true });
+    if (viewer) void setDoc(doc(db, `users/${viewer}/state/viewing`), { courseId, updatedAt: Date.now() }, { merge: true });
   };
 
   const unsubAuth = onAuthStateChanged(auth, (user) => {

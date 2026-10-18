@@ -1,4 +1,4 @@
-import { registerKrayonApi } from '@krayon/api';
+import { pipelineEnvSchema, registerKrayonApi } from '@krayon/api';
 import type { AuthUser } from '@krayon/shared';
 import Fastify from 'fastify';
 import { createFirebaseAuthVerifier } from './adapters/firebaseAuthVerifier.js';
@@ -10,6 +10,7 @@ import { createGcpRuntime } from './runtime.js';
  * Firebase Hosting does not rewrite /api.
  */
 const runtime = createGcpRuntime();
+const env = pipelineEnvSchema.parse(process.env);
 const verifier = createFirebaseAuthVerifier();
 const verified = new Map<string, AuthUser>();
 
@@ -20,7 +21,7 @@ const app = Fastify({
 });
 
 app.addHook('onRequest', async (request) => {
-  if (!request.url.startsWith('/api/')) return;
+  if (request.method === 'OPTIONS' || !request.url.startsWith('/api/')) return;
   const renders = request.method === 'GET' && request.url.startsWith('/api/renders/');
   const user = await verifier.verify(
     {
@@ -35,7 +36,7 @@ app.addHook('onRequest', async (request) => {
   verified.set(key, user);
 });
 
-registerKrayonApi(app, {
+await registerKrayonApi(app, {
   docs: runtime.docs,
   blobs: runtime.blobs,
   jobs: runtime.jobs,
@@ -51,6 +52,14 @@ registerKrayonApi(app, {
   log: logger,
   requestId: () => undefined,
   maxUploadBytes: 20 * 1024 * 1024,
+  corsOrigins: env.CORS_ORIGINS.split(',').map((origin) => origin.trim()).filter(Boolean),
+  caps: {
+    uploadsPerVisitorDay: env.CAP_UPLOADS_PER_VISITOR_DAY,
+    coursesGlobalDay: env.CAP_COURSES_GLOBAL_DAY,
+    lessonRendersGlobalDay: env.CAP_LESSON_RENDERS_GLOBAL_DAY,
+    regeneratesGlobalDay: env.CAP_REGENERATES_GLOBAL_DAY,
+    askGlobalDay: env.CAP_ASK_GLOBAL_DAY,
+  },
   adcFailure: async () => null,
   health: () => ({ ok: true }),
 });

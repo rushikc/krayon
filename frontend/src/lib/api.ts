@@ -47,8 +47,10 @@ export const apiFetch = async <T>(path: string, init?: RequestInit): Promise<T> 
   if (!response.ok) {
     let message = `Backend error ${response.status}`;
     try {
-      const body = (await response.json()) as { detail?: unknown; reason?: unknown };
-      if (typeof body.detail === 'string') message = body.detail;
+      const body = (await response.json()) as { detail?: unknown; reason?: unknown; message?: unknown; code?: unknown };
+      if (body.code === 'demo_limit' && typeof body.message === 'string') message = body.message;
+      else if (typeof body.detail === 'string') message = body.detail;
+      else if (typeof body.message === 'string') message = body.message;
       else if (typeof body.reason === 'string') message = body.reason;
     } catch {
       /* not JSON */

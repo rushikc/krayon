@@ -25,12 +25,15 @@ if (import.meta.env.DEV) {
     import.meta.env.VITE_APPCHECK_DEBUG_TOKEN || true
 }
 
-export const appCheck = initializeAppCheck(firebaseApp, {
-  provider: new ReCaptchaEnterpriseProvider(
-    import.meta.env.VITE_RECAPTCHA_SITE_KEY || 'debug-placeholder-site-key',
-  ),
-  isTokenAutoRefreshEnabled: true,
-})
+const siteKey = import.meta.env.VITE_RECAPTCHA_SITE_KEY
+if (!siteKey) console.warn('App Check skipped: VITE_RECAPTCHA_SITE_KEY is not set.')
+
+export const appCheck = siteKey
+  ? initializeAppCheck(firebaseApp, {
+      provider: new ReCaptchaEnterpriseProvider(siteKey),
+      isTokenAutoRefreshEnabled: true,
+    })
+  : null
 
 void isSupported().then((supported) => {
   if (supported) getAnalytics(firebaseApp)
@@ -48,14 +51,35 @@ export const idToken = async () => {
 }
 
 export const appCheckToken = async () => {
-  if (!isGcpBackend) return ''
+  if (!isGcpBackend || !appCheck) return ''
   const result = await getToken(appCheck, false)
   return result.token
 }
 
+const connectListeners = new Set<(failed: boolean) => void>()
+
+/** GCP anonymous sign-in failed. The UI shows a retry, never a login form. */
+export const watchConnect = (listener: (failed: boolean) => void) => {
+  connectListeners.add(listener)
+  return () => {
+    connectListeners.delete(listener)
+  }
+}
+
+export const retryConnect = () => {
+  if (!isGcpBackend) return
+  void signInAnonymously(auth)
+    .then(() => {
+      for (const listener of connectListeners) listener(false)
+    })
+    .catch(() => {
+      for (const listener of connectListeners) listener(true)
+    })
+}
+
 if (isGcpBackend) {
   onAuthStateChanged(auth, (user) => {
-    if (!user) void signInAnonymously(auth)
+    if (!user) retryConnect()
   })
   onIdTokenChanged(auth, (user) => {
     if (!user) {

@@ -1,6 +1,6 @@
 #!/bin/sh
 # Prints the commands. Does not run them.
-# No render queue. Every queue: dispatch deadline 1800s, max attempts 3.
+# Deadline is set on each task (1800s), not on the queue.
 set -eu
 PROJECT="${PROJECT:-krayon-ai}"
 REGION="${REGION:-asia-south1}"
@@ -12,7 +12,7 @@ queue() {
   name="$1"
   max="$2"
   echo "gcloud tasks queues create ${name} --project ${PROJECT} --location ${REGION} --max-dispatches-per-second 5 --max-concurrent-dispatches ${max} --max-attempts 3 --max-retry-duration 3600s"
-  echo "gcloud tasks queues update ${name} --project ${PROJECT} --location ${REGION} --max-concurrent-dispatches ${max} --max-attempts 3 --max-dispatch-deadline 1800s"
+  echo "gcloud tasks queues update ${name} --project ${PROJECT} --location ${REGION} --max-concurrent-dispatches ${max} --max-attempts 3"
 }
 queue ai-user "$MAX_AI_USER"
 queue ai-auto "$MAX_AI_AUTO"

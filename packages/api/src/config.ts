@@ -22,6 +22,14 @@ export const pipelineEnvSchema = z.object({
   TTS_RATE: z.coerce.number().default(1),
   TTS_CONCURRENCY: z.coerce.number().default(4),
   TTS_QUOTA_PROJECT: z.string().default('krayon-ai'),
+  CORS_ORIGINS: z.string().default('http://localhost:5173'),
+  CAP_UPLOADS_PER_VISITOR_DAY: z.coerce.number().default(0),
+  CAP_COURSES_GLOBAL_DAY: z.coerce.number().default(0),
+  CAP_LESSON_RENDERS_GLOBAL_DAY: z.coerce.number().default(0),
+  CAP_REGENERATES_GLOBAL_DAY: z.coerce.number().default(0),
+  CAP_ASK_GLOBAL_DAY: z.coerce.number().default(0),
+  TASK_MAX_ATTEMPTS: z.coerce.number().default(3),
+  STALE_MINUTES: z.coerce.number().default(15),
 });
 
 export type PipelineEnv = z.infer<typeof pipelineEnvSchema>;

@@ -24,8 +24,9 @@ client_secret*.json
 *.p12
 *.pfx
 
-# Firebase CLI cache and debug logs
+# Firebase CLI cache, debug logs, and print-script temp hosting config
 .firebase/
+firebase.deploy.local.json
 *-debug.log
 .runtimeconfig.json
 

@@ -4,13 +4,13 @@ import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { chapterPath, lessonPath, noteChapter, noteCourse, noteLesson } from '@krayon/pipeline';
 import { afterAll, beforeAll, expect, it } from 'vitest';
+import { LocalDocStore } from '../src/services/docstore.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DESKTOP = path.join(process.env.HOME ?? '', 'Desktop');
 const SAMPLE_PDF = path.join(DESKTOP, 'Software-Client-Server-and-REST-APIs', 'Client-Server-and-REST-APIs-Lecture-Handout-CS230.pdf');
-const SAMPLE_JPG = path.join(DESKTOP, 'Economics-Supply-and-Demand', 'Handwritten-Notes-Supply-Demand-Basics.jpg');
-const AI = process.env.AI !== '0';
 
 let proc: ChildProcess | undefined;
 let base = '';
@@ -119,9 +119,9 @@ it('upload valid PDF', async () => {
   expect(result.body.content_type).toBe('application/pdf');
 });
 
-it('upload stored as doc', async () => {
+it('upload is not readable through the docs API', async () => {
   const result = await req('GET', `/api/docs/users/local-user/uploads/${upload.id}`);
-  expect(result.status).toBe(200);
+  expect(result.status).toBe(403);
 });
 
 it('upload oversize -> 413', async () => {
@@ -140,7 +140,7 @@ it('upload empty file -> 400', async () => {
 });
 
 it('doc put, get, merge, replace, list, delete', async () => {
-  const d = '/api/docs/users/local-user/smoke';
+  const d = '/api/docs/users/local-user/state';
   expect((await req('PUT', `${d}/a`, { x: 1, y: 2 })).status).toBe(200);
   const got = await req('GET', `${d}/a`);
   expect(got.status).toBe(200);
@@ -165,93 +165,18 @@ it('doc put, get, merge, replace, list, delete', async () => {
   await req('DELETE', `${d}/b`);
 });
 
-it('job ingest -> done', async () => {
-  const created = await req('POST', '/api/jobs', { kind: 'ingest', payload: { uploadId: upload.id } });
-  expect(created.status).toBe(200);
-  let status = '';
-  for (let attempt = 0; attempt < 50; attempt += 1) {
-    const job = await req('GET', `/api/jobs/${created.body.id}`);
-    status = String(asRecord(job.body.data).status);
-    if (status === 'done' || status === 'error') break;
-    await new Promise((resolve) => setTimeout(resolve, 100));
-  }
-  expect(status).toBe('done');
-});
-
-it('job unknown kind -> 400', async () => {
-  expect((await req('POST', '/api/jobs', { kind: 'nope' })).status).toBe(400);
-});
-
-it('job other user -> 404', async () => {
-  expect((await req('GET', '/api/jobs/doesnotexist', undefined, { 'X-User-Id': 'bob' })).status).toBe(404);
-});
-
-it.skipIf(!AI)('AI plain prompt (no schema)', async () => {
-  const result = await req('POST', '/api/ai/generate', {
-    prompt: 'Reply with a JSON object {"answer": <the capital of France>}',
-  });
-  expect(result.status).toBe(200);
-  expect(String(result.body.text).toLowerCase()).toContain('paris');
-});
-
-type Schemas = Record<'structure' | 'lessonOutline' | 'segment', Record<string, unknown>>;
-const schemas = async () => JSON.parse(await readFile(path.join(ROOT, 'test/fixtures/ai_schemas.json'), 'utf8')) as Schemas;
-
-it.skipIf(!AI)('AI structured (real lesson outline schema)', async () => {
-  const result = await req('POST', '/api/ai/generate', {
-    prompt: 'Split a 10-page chapter about photosynthesis (file pages 1 to 10) into 2 or 3 lessons.',
-    responseSchema: (await schemas()).lessonOutline,
-  });
-  expect(result.status).toBe(200);
-  const lessons = (JSON.parse(String(result.body.text)) as { lessons: Array<{ title: string; pageStart: number }> }).lessons;
-  expect(lessons.length).toBeGreaterThanOrEqual(1);
-  expect(lessons.every((lesson) => lesson.title && lesson.pageStart >= 1)).toBe(true);
-});
-
-it.skipIf(!AI)('AI structure from real PDF', async () => {
-  const result = await req('POST', '/api/ai/generate', {
-    uploadId: upload.id,
-    responseSchema: (await schemas()).structure,
-    model: 'gemini-2.5-flash',
-    prompt: 'Read the attached document and list its chapters with 1-based file pages. Mark front and back matter skip.',
-  });
-  expect(result.status).toBe(200);
-  const structure = JSON.parse(String(result.body.text)) as { title: string; chapters: Array<{ pdfPageStart: number; pdfPageEnd: number }> };
-  expect(structure.title).toBeTruthy();
-  expect(structure.chapters.length).toBeGreaterThanOrEqual(1);
-  expect(structure.chapters.every((chapter) => chapter.pdfPageEnd >= chapter.pdfPageStart)).toBe(true);
-});
-
-it.skipIf(!AI)('AI segment from real JPG photo (real segment schema)', async () => {
-  const bytes = await readFile(SAMPLE_JPG);
-  const uploaded = await multipart('/api/uploads', path.basename(SAMPLE_JPG), bytes, 'image/jpeg');
-  const result = await req('POST', '/api/ai/generate', {
-    uploadId: uploaded.body.id,
-    responseSchema: (await schemas()).segment,
-    prompt: 'Create one lesson segment (durationInFrames 180 to 450) grounded only in the attached photo of notes.',
-  });
-  expect(result.status).toBe(200);
-  const segment = JSON.parse(String(result.body.text)) as { scene: { layout: { type: string } } };
-  expect(segment.scene.layout.type).toBeTruthy();
-});
-
-it.skipIf(!AI)('AI missing upload -> 404', async () => {
-  expect((await req('POST', '/api/ai/generate', { prompt: 'x', uploadId: 'nope' })).status).toBe(404);
-});
-
-it.skipIf(!AI)('AI bad model -> 502', async () => {
-  expect((await req('POST', '/api/ai/generate', { prompt: 'hi', model: 'no-such-model-xyz' })).status).toBe(502);
-});
-
-it.skipIf(!AI)('AI missing prompt -> 422', async () => {
-  expect((await req('POST', '/api/ai/generate', {})).status).toBe(422);
-});
-
 const seedLesson = async (status: string) => {
-  const course = '/api/docs/users/local-user/courses/smokec';
-  await req('PUT', course, { status: 'ready', stage: 'done', fileNames: ['n.pdf'], sources: [] });
-  await req('PUT', `${course}/chapters/smokec-c1`, { index: 0, title: 'Chapter one', status: 'writing', pdfPageStart: 0, pdfPageEnd: 3 });
-  await req('PUT', `${course}/lessons/smokec-c1-l1`, {
+  const docs = new LocalDocStore(path.join(tmp, 'firestore.sqlite3'));
+  await noteCourse(docs, 'local-user', 'smokec', { status: 'ready', stage: 'done', fileNames: ['n.pdf'], sources: [] });
+  await docs.set(chapterPath('local-user', 'smokec', 'smokec-c1'), {
+    index: 0,
+    title: 'Chapter one',
+    status: 'writing',
+    pdfPageStart: 0,
+    pdfPageEnd: 3,
+  });
+  await noteChapter(docs, 'local-user', 'smokec', 'smokec-c1');
+  await docs.set(lessonPath('local-user', 'smokec', 'smokec-c1-l1'), {
     courseId: 'smokec',
     chapterId: 'smokec-c1',
     index: 0,
@@ -260,8 +185,7 @@ const seedLesson = async (status: string) => {
     explanationSummary: 'Script.',
     studyDoc: 'Notes.',
   });
-  await req('PUT', '/api/docs/users/local-user/lessonIndex/smokec-c1-l1', { courseId: 'smokec' });
-  await req('PUT', '/api/docs/users/local-user/chapterIndex/smokec-c1', { courseId: 'smokec' });
+  await noteLesson(docs, 'local-user', 'smokec', 'smokec-c1', 'smokec-c1-l1');
 };
 
 it('course, chapter, and lesson routes', async () => {
@@ -308,14 +232,14 @@ it('ask validates the question and the lesson', async () => {
 
 it('admin reset wipes docs + files', async () => {
   await multipart('/api/uploads', 'r.txt', Buffer.from('hello'), 'text/plain');
-  await req('PUT', '/api/docs/users/local-user/smoke/r', { x: 1 });
+  await req('PUT', '/api/docs/users/local-user/state/r', { x: 1 });
   const reset = await req('POST', '/api/admin/reset');
   expect(reset.status).toBe(200);
-  const smoke = await req('GET', '/api/docs/users/local-user/smoke');
+  const smoke = await req('GET', '/api/docs/users/local-user/state');
   const uploads = await req('GET', '/api/docs/users/local-user/uploads');
   expect(smoke.body.docs).toEqual([]);
-  expect(uploads.body.docs).toEqual([]);
-  expect((await req('GET', '/api/docs/users/local-user/smoke/r')).status).toBe(404);
+  expect(uploads.status).toBe(403);
+  expect((await req('GET', '/api/docs/users/local-user/state/r')).status).toBe(404);
   expect((await multipart('/api/uploads', 'r2.txt', Buffer.from('hi'), 'text/plain')).status).toBe(200);
   const removed = reset.body.removed as { files: number; documents: number };
   expect(removed.files).toBeGreaterThanOrEqual(1);

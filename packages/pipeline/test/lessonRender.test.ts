@@ -24,7 +24,7 @@ const setup = async (options?: { tts?: boolean }) => {
   let wideAppear = false;
   let renders = 0;
 
-  await docs.set(lessonIndexPath(UID, LESSON), { courseId: COURSE });
+  await docs.set(lessonIndexPath(LESSON), { ownerUid: UID, courseId: COURSE, chapterId: 'c-c1' });
   await docs.set(lessonPath(UID, COURSE, LESSON), {
     courseId: COURSE,
     chapterId: 'c-c1',

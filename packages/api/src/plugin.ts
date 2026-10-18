@@ -1,21 +1,28 @@
+import cors from '@fastify/cors';
+import multipart from '@fastify/multipart';
 import type { FastifyInstance } from 'fastify';
 import type { ApiDeps } from './deps.js';
-import { aiGenerate, postUpload } from './services/ai.js';
+import { postUpload } from './services/ai.js';
 import { createCourse, getChapters, getCourse, listCourses, registerCourseJobs, retryChapter, retryCourse } from './services/courses.js';
 import { deleteDoc, getDoc, putDoc } from './services/docs.js';
 import { getHealth, getMe } from './services/health.js';
-import { getJob, postJob } from './services/jobs.js';
 import { askLesson, getLesson, putProgress, regenerateSegment, registerLessonJobs, renderLesson, rerenderLesson } from './services/lessons.js';
 import { serveAudio, serveRender } from './services/media.js';
 
-/** Every `/api/*` route except `/api/admin/*`. */
-export const registerKrayonApi = (app: FastifyInstance, deps: ApiDeps) => {
+/** Every `/api/*` route except `/api/admin/*`. CORS and multipart match on both backends. */
+export const registerKrayonApi = async (app: FastifyInstance, deps: ApiDeps) => {
+  await app.register(cors, {
+    origin: deps.corsOrigins,
+    methods: ['GET', 'HEAD', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Authorization', 'Content-Type', 'X-Firebase-AppCheck', 'X-User-Id', 'X-Request-ID'],
+    exposedHeaders: ['X-Request-ID'],
+  });
+  await app.register(multipart, { limits: { fileSize: 25 * 1024 * 1024, files: 12 } });
   registerCourseJobs(deps);
   registerLessonJobs(deps);
   app.get('/api/health', getHealth(deps));
   app.get('/api/me', getMe(deps));
   app.post('/api/uploads', postUpload(deps));
-  app.post('/api/ai/generate', aiGenerate(deps));
   app.post('/api/courses', createCourse(deps));
   app.get('/api/courses', listCourses(deps));
   app.get('/api/courses/:id', getCourse(deps));
@@ -34,6 +41,4 @@ export const registerKrayonApi = (app: FastifyInstance, deps: ApiDeps) => {
   app.get('/api/docs/*', getDoc(deps));
   app.put('/api/docs/*', putDoc(deps));
   app.delete('/api/docs/*', deleteDoc(deps));
-  app.post('/api/jobs', postJob(deps));
-  app.get('/api/jobs/:id', getJob(deps));
 };

@@ -14,6 +14,7 @@
     "dev": "tsc -p tsconfig.json --watch --preserveWatchOutput"
   },
   "dependencies": {
+    "@fastify/cors": "^11.1.0",
     "@fastify/multipart": "^9.2.1",
     "@krayon/pipeline": "*",
     "@krayon/shared": "*",

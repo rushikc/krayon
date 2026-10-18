@@ -17,7 +17,7 @@ export const createFirebaseAuthVerifier = (): AuthVerifier => ({
     const raw = bearer.startsWith('Bearer ') ? bearer.slice(7) : opts?.renders ? queryToken : '';
     if (!raw) throw httpError(401, 'Sign in required');
     const decoded = await getAuth().verifyIdToken(raw);
-    if (process.env.APP_CHECK_ENFORCE !== 'false' && !opts?.renders) {
+    if (process.env.APP_CHECK_ENFORCE === 'true' && !opts?.renders) {
       const check = header(req.headers['x-firebase-appcheck']);
       if (!check) throw httpError(401, 'App Check required');
       await getAppCheck().verifyToken(check);

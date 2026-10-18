@@ -62,9 +62,9 @@ export const createSourceCache = (blobs: BlobStorage, store: DocStore) => {
   const docs = new Map<string, Promise<PDFDocument>>();
   const infos = new Map<string, Promise<SourceInfo>>();
   const slices = new Map<string, Promise<Uint8Array>>();
-  const read = async (sourceId: string) => {
+  const read = async (uid: string, sourceId: string) => {
     const key = resolveKey(sourceId);
-    if (!key) throw new Error(`Missing source ${sourceId}`);
+    if (!key || !key.startsWith(`users/${uid}/sources/`)) throw new Error(`Missing source ${sourceId}`);
     const blob = await blobs.get(key);
     if (!blob) throw new Error(`Missing source ${sourceId}`);
     return { data: blob.data, contentType: blob.stat.contentType };
@@ -74,7 +74,7 @@ export const createSourceCache = (blobs: BlobStorage, store: DocStore) => {
     const key = `${uid}/${sourceId}`;
     let doc = docs.get(key);
     if (!doc) {
-      doc = read(sourceId).then((blob) => PDFDocument.load(blob.data, { ignoreEncryption: true }));
+      doc = read(uid, sourceId).then((blob) => PDFDocument.load(blob.data, { ignoreEncryption: true }));
       docs.set(key, doc);
       doc.catch(() => docs.delete(key));
     }
@@ -86,7 +86,7 @@ export const createSourceCache = (blobs: BlobStorage, store: DocStore) => {
     let found = infos.get(key);
     if (!found) {
       found = (async () => {
-        const blob = await read(sourceId);
+        const blob = await read(uid, sourceId);
         if (!isPdf(blob.contentType)) return { pageCount: 1, pageTexts: [''], labels: null };
         const textKey = pageTextKey(uid, sourceId);
         const cached = await blobs.get(textKey);
@@ -104,14 +104,14 @@ export const createSourceCache = (blobs: BlobStorage, store: DocStore) => {
 
   /** The whole source. Only the structure pass may send this to the model. */
   const full = async (uid: string, sourceId: string): Promise<SourceFile> => {
-    const blob = await read(sourceId);
+    const blob = await read(uid, sourceId);
     const total = isPdf(blob.contentType) ? (await info(uid, sourceId)).pageCount : 1;
     return { data: blob.data, mimeType: blob.contentType, full: true, pages: { start: 0, end: total - 1, total } };
   };
 
   /** Pages start..end (0-based, inclusive) as their own PDF. A photo is returned whole. */
   const slice = async (uid: string, sourceId: string, start: number, end: number): Promise<SourceFile> => {
-    const blob = await read(sourceId);
+    const blob = await read(uid, sourceId);
     if (!isPdf(blob.contentType)) return { data: blob.data, mimeType: blob.contentType, pages: { start: 0, end: 0, total: 1 } };
     const { pageCount: total } = await info(uid, sourceId);
     const from = Math.max(0, Math.min(start, total - 1));

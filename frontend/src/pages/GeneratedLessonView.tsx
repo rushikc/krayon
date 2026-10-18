@@ -6,6 +6,7 @@ import { courseLessons, reduceLesson } from '@krayon/shared';
 import { DoubtPanel } from '../components/DoubtPanel.tsx';
 import { FailureNotes } from '../components/FailureNotes.tsx';
 import { LessonFrame } from '../components/LessonFrame.tsx';
+import { RegenProgress } from '../components/RegenProgress.tsx';
 import type { LessonTool } from '../components/LessonFrame.tsx';
 import { Button } from '../components/ui/Button.tsx';
 import { Card } from '../components/ui/Card.tsx';
@@ -27,10 +28,18 @@ const WATCHED_AT = 0.9;
 
 const messageOf = (error: unknown) => (error instanceof Error ? error.message : 'The request failed.');
 
-/** Every segment in play order. A lesson that is redoing one segment keeps its pictures on screen. */
-const playableSegments = (lesson: LessonDetail): GeneratedSegment[] | null => {
+/** A single-segment regenerate: lessonRender.regenerateSegment writes "Regenerating <title>" on the lesson. */
+const isRegenerating = (lesson: LessonDetail) => lesson.status === 'rendering' && (lesson.statusDetail ?? '').startsWith('Regenerating ');
+
+/**
+ * Every segment in play order, once the lesson is ready. A first render waits for every part, because a
+ * segment stores its scene before its keyframes are rendered and reviewed. Only a lesson that is redoing
+ * one segment (it was already playable) keeps its pictures on screen while it renders.
+ */
+const playableSegments = (lesson: LessonDetail, regenerating: boolean): GeneratedSegment[] | null => {
   if (lesson.segments.length === 0) return null;
-  if (lesson.status !== 'ready' && lesson.status !== 'rendering') return null;
+  const playable = lesson.status === 'ready' || (lesson.status === 'rendering' && (regenerating || isRegenerating(lesson)));
+  if (!playable) return null;
   const segments = lesson.segments.map((item) => item.segment);
   return segments.every((item): item is GeneratedSegment => item !== null) ? segments : null;
 };
@@ -41,6 +50,16 @@ const segmentIndexAt = (segments: { startFrame: number; durationInFrames: number
 };
 
 const VOLUME_KEY = 'krayon.volume';
+
+/** Keys the player reacts to. Blocked while a segment is regenerated (typing in fields is left alone). */
+const PLAYER_KEYS = new Set([' ', 'Spacebar', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'k', 'K', 'j', 'J', 'l', 'L', 'f', 'F', 'm', 'M', 'Escape']);
+
+const isTyping = (target: EventTarget | null) =>
+  target instanceof HTMLElement &&
+  (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable);
+
+/** One segment being regenerated from the top bar. */
+type Regen = { segmentId: string; started: boolean; round: number | null; fixes: number; error: string | null };
 
 const storedVolume = () => {
   const raw = Number(localStorage.getItem(VOLUME_KEY));
@@ -130,7 +149,8 @@ export function GeneratedLessonView({ lessonId }: { lessonId: string }) {
   const [panelOpen, setPanelOpen] = useState(true);
   const [tool, setTool] = useState<LessonTool | null>(null);
   const [thinking, setThinking] = useState(false);
-  const [explainingId, setExplainingId] = useState<string | null>(null);
+  const [regen, setRegen] = useState<Regen | null>(null);
+  const regenRef = useRef<Regen | null>(null);
   const [regenOpen, setRegenOpen] = useState(false);
   const [instructions, setInstructions] = useState('');
   const [rebuilding, setRebuilding] = useState(false);
@@ -175,12 +195,34 @@ export function GeneratedLessonView({ lessonId }: { lessonId: string }) {
           setRebuilding(false);
           load();
         }
-        if (event.segmentId && (event.type === 'segment.ready' || event.type === 'segment.failed')) {
-          setExplainingId((current) => {
-            if (current !== event.segmentId) return current;
-            if (event.type === 'segment.failed') setNotice(event.error ?? 'That part could not be rewritten.');
-            return null;
-          });
+        const running = regenRef.current;
+        if (running && !running.error && event.segmentId === running.segmentId) {
+          if (event.type === 'segment.ready') {
+            regenRef.current = null;
+            setRegen(null);
+            // Leave the video paused at the start of the new cut.
+            const start = event.segment?.startFrame;
+            if (typeof start === 'number') {
+              pending.current = start;
+              frameRef.current = start;
+              setFrame(start);
+              playerRef.current?.pause();
+              playerRef.current?.seekTo(start);
+            }
+          } else if (event.type === 'segment.failed') {
+            const next = { ...running, error: event.error ?? 'That segment could not be regenerated.' };
+            regenRef.current = next;
+            setRegen(next);
+          } else {
+            const next = {
+              ...running,
+              started: true,
+              round: event.round ?? running.round,
+              fixes: running.fixes + (event.type === 'segment.fixed' ? 1 : 0),
+            };
+            regenRef.current = next;
+            setRegen(next);
+          }
         }
       }),
     [lessonId, load, session],
@@ -193,7 +235,14 @@ export function GeneratedLessonView({ lessonId }: { lessonId: string }) {
     if (summaryStatus && detailStatus && summaryStatus !== detailStatus) load();
   }, [summaryStatus, detailStatus, load]);
 
-  const segments = useMemo(() => (rebuilding || !detail ? null : playableSegments(detail)), [detail, rebuilding]);
+  const regenerating = regen !== null;
+  const segments = useMemo(() => (rebuilding || !detail ? null : playableSegments(detail, regenerating)), [detail, rebuilding, regenerating]);
+  /** The player is on screen but locked: a segment is being regenerated (here, or before a reload). */
+  const busy = segments !== null && (regenerating || (detail ? isRegenerating(detail) : false));
+  const busyRef = useRef(busy);
+  useEffect(() => {
+    busyRef.current = busy;
+  });
   const clips = useMemo(
     () => (detail?.segments ?? []).map((item) => ({ id: item.id, audioUrl: item.audioUrl, hash: item.audio?.hash })),
     [detail],
@@ -242,7 +291,13 @@ export function GeneratedLessonView({ lessonId }: { lessonId: string }) {
         save({ watched: true, positionFrame: event.detail.frame });
       }
     };
-    const onPlay = () => setPlaying(true);
+    const onPlay = () => {
+      if (busyRef.current) {
+        player.pause();
+        return;
+      }
+      setPlaying(true);
+    };
     const onPause = () => {
       setPlaying(false);
       save({ positionFrame: frameRef.current });
@@ -301,6 +356,21 @@ export function GeneratedLessonView({ lessonId }: { lessonId: string }) {
     localStorage.setItem(VOLUME_KEY, String(volume));
   }, [volume]);
 
+  // While a segment is regenerated the video is not controllable: pause it and swallow player keys
+  // in the capture phase, before LessonFrame or the Remotion player see them.
+  useEffect(() => {
+    if (!busy) return;
+    playerRef.current?.pause();
+    const onKey = (event: KeyboardEvent) => {
+      if (event.metaKey || event.ctrlKey || event.altKey || isTyping(event.target)) return;
+      if (!PLAYER_KEYS.has(event.key)) return;
+      event.preventDefault();
+      event.stopPropagation();
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [busy]);
+
   useEffect(() => {
     const player = playerRef.current;
     if (!player) return;
@@ -354,7 +424,7 @@ export function GeneratedLessonView({ lessonId }: { lessonId: string }) {
     setFrame(clamped);
   };
   const openRegen = () => {
-    if (!activeState || explainingId || rebuilding) return;
+    if (!activeState || busy || rebuilding) return;
     playerRef.current?.pause();
     setInstructions('');
     setRegenOpen(true);
@@ -365,13 +435,35 @@ export function GeneratedLessonView({ lessonId }: { lessonId: string }) {
     const prompt = instructions.trim();
     setRegenOpen(false);
     setNotice(null);
-    setExplainingId(segment.id);
+    const started: Regen = { segmentId: segment.id, started: false, round: null, fixes: 0, error: null };
+    regenRef.current = started;
+    setRegen(started);
     playerRef.current?.pause();
-    setDetail((current) => (current ? { ...current, status: 'rendering', statusDetail: `Regenerating ${segment.title}` } : current));
+    if (document.fullscreenElement) void document.exitFullscreen();
+    setDetail((current) =>
+      current
+        ? {
+            ...current,
+            status: 'rendering',
+            statusDetail: `Regenerating ${segment.title}`,
+            segments: current.segments.map((item) =>
+              item.id === segment.id ? { ...item, status: 'drafting', statusDetail: 'Rewriting the narration' } : item,
+            ),
+          }
+        : current,
+    );
     regenerateSegment(lessonId, segment.id, prompt || undefined).catch((error) => {
-      setExplainingId(null);
-      setNotice(messageOf(error));
+      const current = regenRef.current;
+      if (!current || current.segmentId !== segment.id) return;
+      const failed = { ...current, error: messageOf(error) };
+      regenRef.current = failed;
+      setRegen(failed);
     });
+  };
+  const closeRegen = () => {
+    regenRef.current = null;
+    setRegen(null);
+    load();
   };
   const regenerateAll = () => {
     const prompt = instructions.trim();
@@ -562,10 +654,10 @@ export function GeneratedLessonView({ lessonId }: { lessonId: string }) {
                   strokes={marks.strokes}
                   segmentId={activeState?.id ?? ''}
                   explainLabel="Regenerate segment"
-                  explaining={explainingId !== null || rebuilding}
+                  explaining={busy || rebuilding}
                   onToggle={() => {
                     const player = playerRef.current;
-                    if (!player) return;
+                    if (!player || busyRef.current) return;
                     if (player.isPlaying()) player.pause();
                     else player.play();
                   }}
@@ -595,15 +687,20 @@ export function GeneratedLessonView({ lessonId }: { lessonId: string }) {
                     style={{ width: '100%', height: '100%' }}
                   />
                 </LessonFrame>
-                {detail.status === 'rendering' && (
-                  <div className="pointer-events-none absolute inset-x-0 bottom-24 z-30 flex justify-center px-6">
-                    <div className="w-full max-w-md rounded-2xl border-2 border-ink bg-paper px-4 py-3 shadow-[3px_3px_0_var(--color-ink)]">
-                      <p className="font-serif text-[18px] text-ink">{detail.statusDetail ?? 'Rendering this segment'}</p>
-                      <div role="progressbar" aria-label="Rendering this segment" className="mt-3 h-3 overflow-hidden rounded-full bg-line">
-                        <div className="crayon-indeterminate h-full w-1/3 rounded-full bg-crayon" />
-                      </div>
-                    </div>
-                  </div>
+                {(busy || regen?.error) && (
+                  <RegenProgress
+                    segment={
+                      regen
+                        ? detail.segments.find((item) => item.id === regen.segmentId)
+                        : detail.segments.find((item) => item.status !== 'ready')
+                    }
+                    started={regen ? regen.started : true}
+                    round={regen?.round ?? null}
+                    fixes={regen?.fixes ?? 0}
+                    lessonDetail={detail.statusDetail}
+                    error={regen?.error ?? null}
+                    onClose={regen && (regen.error || (regen.started && detail.status !== 'rendering')) ? closeRegen : undefined}
+                  />
                 )}
               </div>
             ) : (

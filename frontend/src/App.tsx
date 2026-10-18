@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { BrowserRouter, Route, Routes } from 'react-router-dom';
 import { ErrorBoundary } from './components/ErrorBoundary.tsx';
 import { apiFetch } from './lib/api.ts';
+import { isGcpBackend, retryConnect, watchConnect } from './lib/firebase.ts';
 import { HomePage } from './pages/HomePage.tsx';
 import { LessonPage } from './pages/LessonPage.tsx';
 import { PalettePreview } from './pages/PalettePreview.tsx';
@@ -33,6 +34,21 @@ function HealthBanner() {
       }
     })();
   }, []);
+  const [offline, setOffline] = useState(false);
+  useEffect(() => {
+    if (!isGcpBackend) return undefined;
+    return watchConnect(setOffline);
+  }, []);
+  if (offline) {
+    return (
+      <div className="bg-amber-100 px-6 py-2 text-sm text-amber-950">
+        Couldn&apos;t connect, retry.{' '}
+        <button type="button" className="underline" onClick={() => retryConnect()}>
+          Retry
+        </button>
+      </div>
+    );
+  }
   if (!message) return null;
   return <div className="bg-amber-100 px-6 py-2 text-sm text-amber-950">{message}</div>;
 }
