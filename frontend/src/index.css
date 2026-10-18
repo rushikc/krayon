@@ -3,7 +3,7 @@
 @theme {
   --font-sans: 'Outfit', system-ui, sans-serif;
   --font-serif: 'Fraunces', Georgia, serif;
-  --color-paper: #f6f1e8;
+  --color-paper: #f4f2ec;
   --color-ink: #1f1b16;
   --color-muted: #5c5148;
   --color-crayon: #e4572e;
@@ -12,8 +12,8 @@
   --color-done: #217a45;
   --color-done-fill: #3c9a55;
   --color-focus: #3d6fb6;
-  --color-stone: #ebe4d8;
-  --color-line: #d9d0c3;
+  --color-stone: #e7e4dd;
+  --color-line: #d4d0c8;
   --color-chalk: #1a2420;
   --color-trail: #b9ad9a;
   --color-dot: rgba(31, 27, 22, 0.14);

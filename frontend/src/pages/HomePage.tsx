@@ -7,7 +7,7 @@ import { cardClass } from '../components/ui/Card.tsx';
 import { Chip } from '../components/ui/Chip.tsx';
 import { CrayonProgress } from '../components/ui/CrayonProgress.tsx';
 import { HandUnderline } from '../components/ui/HandUnderline.tsx';
-import { IconHighlight, IconPlay } from '../components/ui/icons.tsx';
+import { IconHighlight, IconPlay, IconTrash } from '../components/ui/icons.tsx';
 import { Shell } from '../components/ui/Shell.tsx';
 import { TopicArt } from '../components/ui/TopicArt.tsx';
 import { MAX_UPLOAD_BYTES, deleteCourse, listCourses } from '../lib/api.ts';
@@ -87,32 +87,34 @@ export function HomePage() {
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const [apiCourses, setApiCourses] = useState<CourseState[]>([]);
+  const [listingReady, setListingReady] = useState(false);
   const [pending, setPending] = useState<CreatedListing | null>(null);
   const [removing, setRemoving] = useState(false);
   const [removeError, setRemoveError] = useState<string | null>(null);
   const filter = params.get('filter') ?? 'all';
   const openCourse = session.course;
-  const courseSig = openCourse
-    ? `${openCourse.id}:${openCourse.status}:${courseLessons(openCourse)
-        .map((lesson) => `${lesson.status}${lesson.progress?.updatedAt ?? 0}`)
-        .join('')}`
-    : '';
 
   useEffect(() => {
     let cancel = false;
     listCourses()
       .then((result) => {
-        if (!cancel) setApiCourses(result.courses);
+        if (cancel) return;
+        setApiCourses(result.courses);
+        setListingReady(true);
       })
-      .catch(() => undefined);
+      .catch(() => {
+        if (!cancel) setListingReady(true);
+      });
     return () => {
       cancel = true;
     };
-  }, [courseSig]);
+  }, []);
 
   const sources = new Map(apiCourses.map((course) => [course.id, course]));
-  if (openCourse) sources.set(openCourse.id, openCourse);
-  const created = [...sources.values()].map((course, index) => listingForCourse(course, index));
+  if (listingReady && openCourse) sources.set(openCourse.id, openCourse);
+  const created = listingReady
+    ? [...sources.values()].map((course, index) => listingForCourse(course, index))
+    : [];
   const chips = [
     'All',
     ...[...new Set(created.map((card) => card.field).filter(Boolean))].sort((a, b) => a.localeCompare(b)),
@@ -148,7 +150,7 @@ export function HomePage() {
   };
 
   const sizeMb = Math.round(MAX_UPLOAD_BYTES / (1024 * 1024));
-  const hero = focus
+  const hero = listingReady && focus
     ? {
         artId: focus.artId,
         timeLeft: focus.timeLeft,
@@ -168,9 +170,9 @@ export function HomePage() {
 
   return (
     <Shell>
-      <section className="mt-8 flex flex-col items-start gap-8 min-[1200px]:mt-12 min-[1200px]:flex-row min-[1200px]:gap-8">
+      <section className="mt-8 flex flex-col items-start gap-8 min-[1200px]:flex-row min-[1200px]:gap-8">
         <div className="min-w-0 max-w-xl shrink-0">
-          <p className="text-[12px] font-semibold tracking-[0.18em] text-crayon-text uppercase">
+          <p className="font-serif text-[22px] font-[520] italic tracking-[0.08em] text-crayon-text">
             Video-first study
           </p>
           <h1 className="mt-3 max-w-xl font-serif text-[2.7rem] leading-[1.05] font-[640] text-ink sm:text-6xl">
@@ -231,65 +233,82 @@ export function HomePage() {
         <h2 className="font-serif text-4xl text-ink">
           <HandUnderline color="text-yellow">Your topics</HandUnderline>
         </h2>
-        <div className="mt-4 flex gap-2 overflow-x-auto pb-1" role="toolbar" aria-label="Filter topics">
-          {chips.map((label) => {
-            const value = filterValue(label);
-            return (
-              <Chip key={value} active={filter === value} onClick={() => setFilter(value)}>
-                {label}
-              </Chip>
-            );
-          })}
-        </div>
-        {createdVisible.length === 0 ? (
-          <p className="mt-6 text-[16px] text-muted">No topics yet. Create a lesson from your notes.</p>
+        {!listingReady ? (
+          <div className="mt-6 flex items-center gap-3" aria-busy="true" aria-live="polite">
+            <span
+              className="block h-5 w-5 shrink-0 animate-spin rounded-full border-2 border-ink/20 border-t-crayon motion-reduce:animate-none"
+              aria-hidden="true"
+            />
+            <p className="text-[16px] text-muted">Loading your topics…</p>
+          </div>
         ) : (
-          <ul className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            {createdVisible.map((card) => (
-              <li key={card.key}>
-                <div className={cardClass(false, false, 'flex h-full flex-col p-3')}>
-                  <Link
-                    to={card.href}
-                    onClick={(event) => openCreated(event, card.courseId, card.href)}
-                    className="block transition-transform hover:-translate-y-0.5"
-                  >
-                    <div className="relative">
-                      <TopicArt topicId={card.artId} className="aspect-[16/10]" />
-                      {card.timeLeft && (
-                        <span className="absolute right-2 bottom-2 rounded-md bg-ink px-1.5 py-0.5 text-[12px] font-medium text-paper">
-                          {card.timeLeft}
-                        </span>
-                      )}
+          <>
+            <div className="mt-4 flex gap-2 overflow-x-auto pb-1" role="toolbar" aria-label="Filter topics">
+              {chips.map((label) => {
+                const value = filterValue(label);
+                return (
+                  <Chip key={value} active={filter === value} onClick={() => setFilter(value)}>
+                    {label}
+                  </Chip>
+                );
+              })}
+            </div>
+            {createdVisible.length === 0 ? (
+              <p className="mt-6 text-[16px] text-muted">No topics yet. Create a lesson from your notes.</p>
+            ) : (
+              <ul className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                {createdVisible.map((card) => (
+                  <li key={card.key}>
+                    <div className={cardClass(false, false, 'flex h-full flex-col p-3')}>
+                      <Link
+                        to={card.href}
+                        onClick={(event) => openCreated(event, card.courseId, card.href)}
+                        className="block transition-transform hover:-translate-y-0.5"
+                      >
+                        <div className="relative">
+                          <TopicArt topicId={card.artId} className="aspect-[16/10]" />
+                          {card.timeLeft && (
+                            <span className="absolute right-2 bottom-2 rounded-md bg-ink px-1.5 py-0.5 text-[12px] font-medium text-paper">
+                              {card.timeLeft}
+                            </span>
+                          )}
+                        </div>
+                        {card.field && (
+                          <p className="mt-3 text-[12px] font-semibold tracking-[0.16em] text-crayon-text uppercase">{card.field}</p>
+                        )}
+                        <h3 className={`${card.field ? 'mt-1' : 'mt-3'} line-clamp-2 min-h-[calc(1.35rem*1.25*2)] font-serif text-[1.35rem] leading-tight text-ink`}>
+                          {card.title}
+                        </h3>
+                        {card.summary && <p className="mt-1 line-clamp-2 text-[15px] leading-snug text-muted">{card.summary}</p>}
+                        <p className="mt-3 text-[13px] text-muted">{card.meta}</p>
+                        <div className="mt-2">
+                          <CrayonProgress
+                            value={card.percent}
+                            label={`${card.title} progress`}
+                            tone={card.percent === 100 ? 'done' : 'crayon'}
+                            showValue
+                          />
+                        </div>
+                      </Link>
+                      <div className="mt-auto flex justify-end pt-1">
+                        <button
+                          type="button"
+                          className={buttonClass('primary', '!px-2.5 !py-1.5')}
+                          aria-label={`Remove ${card.title}`}
+                          onClick={() => {
+                            setRemoveError(null);
+                            setPending(card);
+                          }}
+                        >
+                          <IconTrash className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
                     </div>
-                    {card.field && (
-                      <p className="mt-3 text-[12px] font-semibold tracking-[0.16em] text-crayon-text uppercase">{card.field}</p>
-                    )}
-                    <h3 className={`${card.field ? 'mt-1' : 'mt-3'} font-serif text-[1.35rem] leading-tight text-ink`}>{card.title}</h3>
-                    {card.summary && <p className="mt-1 line-clamp-2 text-[15px] leading-snug text-muted">{card.summary}</p>}
-                    <p className="mt-3 text-[13px] text-muted">{card.meta}</p>
-                    <div className="mt-2">
-                      <CrayonProgress
-                        value={card.percent}
-                        label={`${card.title} progress`}
-                        tone={card.percent === 100 ? 'done' : 'crayon'}
-                        showValue
-                      />
-                    </div>
-                  </Link>
-                  <button
-                    type="button"
-                    className="mt-1 self-start text-[13px] font-medium text-muted underline"
-                    onClick={() => {
-                      setRemoveError(null);
-                      setPending(card);
-                    }}
-                  >
-                    Remove
-                  </button>
-                </div>
-              </li>
-            ))}
-          </ul>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </>
         )}
       </section>
       {pending && (
