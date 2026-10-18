@@ -61,3 +61,6 @@ Thumbs.db
 .idea/
 .vscode/*
 !.vscode/extensions.json
+
+deploy.md
+deploy-cloud.md

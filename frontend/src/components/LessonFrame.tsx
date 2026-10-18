@@ -194,13 +194,17 @@ export function LessonFrame({
         fill ? 'h-full w-full' : 'w-full rounded-[18px] border-[2.5px] border-ink shadow-[5px_5px_0_var(--color-ink)]',
       )}
     >
-      {fill ? <div className="absolute inset-0">{children}</div> : children}
+      {fill ? (
+        <div className="absolute inset-x-0 top-14 bottom-0 min-[1200px]:inset-0">{children}</div>
+      ) : (
+        children
+      )}
       {!drawing && (
         <button
           type="button"
           tabIndex={-1}
           aria-label={playing ? 'Pause lesson' : 'Play lesson'}
-          className="absolute inset-0 z-[5] cursor-pointer"
+          className="absolute inset-x-0 top-14 bottom-0 z-[5] cursor-pointer min-[1200px]:inset-0"
           onClick={() => {
             showGesture(playing ? 'pause' : 'play');
             onToggle();
@@ -208,13 +212,16 @@ export function LessonFrame({
         />
       )}
       {gesture && (
-        <div className="pointer-events-none absolute inset-0 z-[15] flex items-center justify-center" aria-hidden="true">
+        <div
+          className="pointer-events-none absolute inset-x-0 top-14 bottom-0 z-[15] flex items-center justify-center min-[1200px]:inset-0"
+          aria-hidden="true"
+        >
           <span className="flex h-16 w-16 items-center justify-center rounded-full border-2 border-paper/80 bg-ink/75 text-paper">
             {gesture === 'pause' ? <IconPause className="h-7 w-7" /> : <IconPlay className="h-7 w-7" />}
           </span>
         </div>
       )}
-      <div className="pointer-events-none absolute inset-x-2 top-2 z-20 flex items-center gap-2 min-[1200px]:inset-x-3 min-[1200px]:top-3">
+      <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex h-14 items-center gap-2 bg-paper px-2 min-[1200px]:inset-x-3 min-[1200px]:top-3 min-[1200px]:h-auto min-[1200px]:bg-transparent min-[1200px]:px-0">
         {heading ? (
           <div className="pointer-events-auto max-w-[min(200px,42%)] shrink-0 min-[1200px]:max-w-[min(340px,34%)]">
             {heading}
@@ -255,7 +262,10 @@ export function LessonFrame({
         </div>
       </div>
       <svg
-        className={cx('absolute inset-0 z-10 h-full w-full', drawing ? 'cursor-crosshair' : 'pointer-events-none')}
+        className={cx(
+          'absolute inset-x-0 top-14 bottom-0 z-10 h-auto w-full min-[1200px]:inset-0 min-[1200px]:h-full',
+          drawing ? 'cursor-crosshair' : 'pointer-events-none',
+        )}
         viewBox="0 0 100 100"
         preserveAspectRatio="none"
         aria-hidden={drawing ? undefined : true}
@@ -396,6 +406,19 @@ export function OpenChatButton({ onClick, className }: { onClick: () => void; cl
       )}
     >
       <IconAsk className="h-7 w-7" />
+    </button>
+  );
+}
+
+export function OpenChatBar({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex w-full items-center justify-center gap-2 border-y-2 border-ink bg-crayon py-3 text-[15px] font-medium text-white"
+    >
+      <IconAsk className="h-5 w-5" />
+      Open chat
     </button>
   );
 }

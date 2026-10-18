@@ -143,6 +143,17 @@ export function IconClose(props: IconProps) {
   );
 }
 
+export function IconTrash(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M5 7.2h14" />
+      <path d="M9.2 7.2V5.6c0-.5.4-.9.9-.9h3.8c.5 0 .9.4.9.9v1.6" />
+      <path d="M17.2 7.2v11.2c0 .9-.7 1.6-1.6 1.6H8.4c-.9 0-1.6-.7-1.6-1.6V7.2" />
+      <path d="M10.2 11v5.2M13.8 11v5.2" />
+    </Svg>
+  );
+}
+
 export function IconPlus(props: IconProps) {
   return (
     <Svg {...props}>

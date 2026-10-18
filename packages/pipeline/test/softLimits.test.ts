@@ -1,4 +1,4 @@
-import { wordCount } from '@krayon/shared';
+import { GenerationError, wordCount } from '@krayon/shared';
 import type { PipelineEmit } from '@krayon/shared';
 import { describe, expect, it } from 'vitest';
 import { createChapterStages } from '../src/chapters.js';
@@ -71,4 +71,58 @@ it('accepts a long script, a messy outline, and an unfinished study doc without 
   const stored = (await docs.get(lessonPath(UID, COURSE, `${CHAPTER}-l1`)))?.data;
   expect(wordCount(String(stored?.explanationSummary))).toBe(wordCount(longScript));
   expect(String(stored?.studyDoc)).toBe('## Notes');
+});
+
+it('does not fail the chapter when study notes hit MAX_TOKENS', async () => {
+  const { docs } = memoryDocs();
+  const names: string[] = [];
+  await docs.set(chapterPath(UID, COURSE, CHAPTER), {
+    index: 0,
+    sourceId: 'src',
+    title: 'Sorting',
+    pdfPageStart: 10,
+    pdfPageEnd: 12,
+    skip: false,
+    status: 'pending',
+  });
+  const modelJson = async (request: ModelRequest<unknown>) => {
+    names.push(request.name);
+    if (request.name === 'chapterText') return { value: { chapterText: 'Only the middle [p. 2].' }, attempts: 1 };
+    if (request.name === 'lessonOutline') {
+      return {
+        value: { lessons: [{ title: 'Earlier', focus: 'First idea.', pageStart: 1, pageEnd: 3 }] },
+        attempts: 1,
+      };
+    }
+    if (request.name === 'lessonScript') return { value: { explanationSummary: script(20, 20) }, attempts: 1 };
+    if (request.name === 'studyDoc') throw new GenerationError('MAX_TOKENS', [{ path: 'studyDoc', message: 'MAX_TOKENS' }], 1);
+    throw new Error(request.name);
+  };
+  const rt = {
+    docs,
+    log: quietLog,
+    sources: {
+      slice: async () => ({ data: new Uint8Array(), mimeType: 'application/pdf', pages: { start: 10, end: 12, total: 40 } }),
+      text: async () => '',
+    },
+    modelJson,
+    failureOf: (error: unknown) => ({ code: 'UPSTREAM', message: String(error), issues: [], attempts: 1 }),
+    emit: () => undefined,
+    emitChapter: () => undefined,
+    emitLesson: () => undefined,
+  } as unknown as Runtime;
+
+  const write = createChapterStages(rt).writeChapter;
+  await write(UID, COURSE, CHAPTER);
+  expect(names.filter((name) => name === 'studyDoc').length).toBeGreaterThan(0);
+  const chapter = (await docs.get(chapterPath(UID, COURSE, CHAPTER)))?.data;
+  expect(chapter?.status).toBe('ready');
+  const stored = (await docs.get(lessonPath(UID, COURSE, `${CHAPTER}-l1`)))?.data;
+  expect(stored?.status).toBe('outlined');
+  expect(String(stored?.studyDoc)).toBe('');
+
+  const studyDocCalls = names.filter((name) => name === 'studyDoc').length;
+  await docs.set(chapterPath(UID, COURSE, CHAPTER), { status: 'pending' }, { merge: true });
+  await write(UID, COURSE, CHAPTER);
+  expect(names.filter((name) => name === 'studyDoc')).toHaveLength(studyDocCalls);
 });

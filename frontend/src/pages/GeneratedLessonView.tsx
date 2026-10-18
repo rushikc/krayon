@@ -5,7 +5,7 @@ import type { GeneratedSegment, LessonDetail, LessonProgress } from '@krayon/sha
 import { courseLessons, reduceLesson } from '@krayon/shared';
 import { DoubtPanel } from '../components/DoubtPanel.tsx';
 import { FailureNotes } from '../components/FailureNotes.tsx';
-import { LessonFrame, OpenChatButton } from '../components/LessonFrame.tsx';
+import { LessonFrame, OpenChatBar } from '../components/LessonFrame.tsx';
 import { RegenProgress } from '../components/RegenProgress.tsx';
 import type { LessonTool } from '../components/LessonFrame.tsx';
 import { Button } from '../components/ui/Button.tsx';
@@ -651,6 +651,7 @@ export function GeneratedLessonView({ lessonId }: { lessonId: string }) {
               </div>
             ) : segments && inputProps ? (
               <div className="relative min-[1200px]:h-full min-[1200px]:min-h-0">
+                <div className="pt-3 min-[1200px]:h-full min-[1200px]:pt-0">
                 <div className="aspect-video min-[1200px]:aspect-auto min-[1200px]:h-full">
                 <LessonFrame
                   fill
@@ -698,11 +699,8 @@ export function GeneratedLessonView({ lessonId }: { lessonId: string }) {
                   />
                 </LessonFrame>
                 </div>
-                {!wide && !panelOpen && (
-                  <div className="flex justify-center py-3">
-                    <OpenChatButton onClick={openChat} />
-                  </div>
-                )}
+                </div>
+                {!wide && !panelOpen && <OpenChatBar onClick={openChat} />}
                 {(busy || regen?.error) && (
                   <RegenProgress
                     segment={
@@ -723,18 +721,18 @@ export function GeneratedLessonView({ lessonId }: { lessonId: string }) {
               waiting
             )}
 
-            <div className="mx-auto w-full max-w-[1100px] px-6 py-4">
+            <div className="mx-auto w-full max-w-[1100px] px-0 py-3 min-[1200px]:px-6 min-[1200px]:py-4">
               {detail.shortSource && (
-                <p className="mb-3 text-[14px] text-muted">This chapter is short, so this lesson is shorter than usual.</p>
+                <p className="mb-3 px-4 text-[14px] text-muted min-[1200px]:px-0">This chapter is short, so this lesson is shorter than usual.</p>
               )}
               {detail.studyDoc && (
-                <Card id="study-doc" className="p-5">
+                <Card id="study-doc" className="rounded-none border-x-0 p-4 shadow-none min-[1200px]:rounded-[20px] min-[1200px]:border-x-[2.5px] min-[1200px]:p-5 min-[1200px]:shadow-[4px_4px_0_var(--color-ink)]">
                   <h2 className="font-serif text-2xl text-ink">Study notes</h2>
                   <Markdown className="mt-3 text-[15px] leading-relaxed">{detail.studyDoc}</Markdown>
                 </Card>
               )}
               {next && (
-                <Link to={`/study/${next.id}`} className="mt-4 flex items-center gap-2 text-[15px] font-medium text-ink">
+                <Link to={`/study/${next.id}`} className="mt-4 flex items-center gap-2 px-4 text-[15px] font-medium text-ink min-[1200px]:px-0">
                   Next lesson: {next.title}
                   <IconArrow className="h-4 w-4" />
                 </Link>

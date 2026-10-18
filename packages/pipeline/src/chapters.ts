@@ -104,7 +104,10 @@ type ChapterDoc = {
 };
 
 type OutlineEntry = { title: string; focus: string; pageStart: number; pageEnd: number };
-type PlannedLesson = DraftLesson & { studyDoc?: string };
+type PlannedLesson = DraftLesson & { studyDoc?: string; studyDocSkipped?: boolean };
+
+/** Empty notes are stored as ''; that is falsy, so also honour studyDocSkipped. */
+const notesSettled = (lesson: PlannedLesson) => lesson.studyDoc != null || lesson.studyDocSkipped === true;
 
 const sameChapterPriority = (courseId: string, index: number): Priority => ({ courseId, kind: 'chapter', index });
 
@@ -444,16 +447,29 @@ export const createChapterStages = (rt: Runtime) => {
       const planned = chapter.planned ?? [];
       await dropExtraWriting(planned.length);
       for (const [index, lesson] of planned.entries()) {
-        await publishWriting(index, lesson, lesson.studyDoc ? 'Study notes written' : 'Writing study notes');
+        await publishWriting(index, lesson, notesSettled(lesson) ? 'Study notes written' : 'Writing study notes');
       }
       await detail('Writing study notes');
       const notes = await Promise.allSettled(
         planned.map(async (lesson, index) => {
-          if (lesson.studyDoc) return;
-          const written = { ...lesson, studyDoc: await writeStudyDoc(uid, courseId, chapter, lesson) };
-          planned[index] = written;
-          await docs.set(path, { planned }, { merge: true });
-          await publishWriting(index, written, 'Study notes written');
+          if (notesSettled(lesson)) return;
+          try {
+            const written = { ...lesson, studyDoc: await writeStudyDoc(uid, courseId, chapter, lesson) };
+            planned[index] = written;
+            await docs.set(path, { planned }, { merge: true });
+            await publishWriting(index, written, 'Study notes written');
+          } catch (error) {
+            if (isCancelled(error)) throw error;
+            (log.warn ?? log.info)(`Study notes skipped for "${lesson.title}"`, {
+              ...fields,
+              event: 'chapter.studyDoc.skipped',
+              lesson: lesson.title,
+            });
+            const skipped = { ...lesson, studyDoc: '', studyDocSkipped: true };
+            planned[index] = skipped;
+            await docs.set(path, { planned }, { merge: true });
+            await publishWriting(index, skipped, 'Study notes written');
+          }
         }),
       );
       const noteError = notes.find((result) => result.status === 'rejected');

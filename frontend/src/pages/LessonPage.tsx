@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, Navigate, useMatch, useNavigate, useParams } from 'react-router-dom';
 import { GeneratedLessonView } from './GeneratedLessonView.tsx';
 import { DoubtPanel } from '../components/DoubtPanel.tsx';
-import { LessonFrame, OpenChatButton } from '../components/LessonFrame.tsx';
+import { LessonFrame, OpenChatBar } from '../components/LessonFrame.tsx';
 import type { LessonTool } from '../components/LessonFrame.tsx';
 import { IconArrow, IconBack } from '../components/ui/icons.tsx';
 import { Shell } from '../components/ui/Shell.tsx';
@@ -186,6 +186,7 @@ function CuratedLesson() {
           }`}
         >
           <div className="h-full min-h-0 min-w-0 overflow-y-auto">
+            <div className="pt-3 min-[1200px]:pt-0">
             <div className="aspect-video min-[1200px]:aspect-auto min-[1200px]:h-full">
             <LessonFrame
               fill
@@ -268,11 +269,8 @@ function CuratedLesson() {
               />
             </LessonFrame>
             </div>
-            {!wide && !panelOpen && (
-              <div className="flex justify-center py-3">
-                <OpenChatButton onClick={openChat} />
-              </div>
-            )}
+            </div>
+            {!wide && !panelOpen && <OpenChatBar onClick={openChat} />}
           </div>
           {panelOpen && (
           <div className={wide ? 'flex h-full min-h-0 flex-col py-3 pr-3' : 'fixed inset-0 z-50 flex min-h-0 flex-col bg-paper p-3'}>
