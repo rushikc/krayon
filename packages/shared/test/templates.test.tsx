@@ -35,6 +35,25 @@ describe('SegmentStill', () => {
     }
   });
 
+  it('shows only the current caption of a long narration', () => {
+    const base = layoutSegments[1];
+    if (!base) throw new Error('Layout fixtures are missing.');
+    const segment: GeneratedSegment = {
+      ...base,
+      durationInFrames: 300,
+      narration:
+        'An acyclic graph does not contain any cycles. Directed edges are one-way streets. You never follow a path that starts and ends at the same vertex.',
+    };
+    frame.n = 0;
+    const early = markup(segment);
+    expect(early).toContain('cycles');
+    expect(early).not.toContain('same vertex');
+    frame.n = 299;
+    const late = markup(segment);
+    expect(late).toContain('same vertex');
+    expect(late).not.toContain('cycles');
+  });
+
   it('renders the fallback card for an invalid layout', () => {
     const base = layoutSegments[0];
     if (!base) throw new Error('Layout fixtures are missing.');

@@ -251,7 +251,7 @@ export function HomePage() {
                   <Link
                     to={card.href}
                     onClick={(event) => openCreated(event, card.courseId, card.href)}
-                    className="flex min-h-0 flex-1 flex-col transition-transform hover:-translate-y-0.5"
+                    className="block transition-transform hover:-translate-y-0.5"
                   >
                     <div className="relative">
                       <TopicArt topicId={card.artId} className="aspect-[16/10]" />
@@ -278,7 +278,7 @@ export function HomePage() {
                   </Link>
                   <button
                     type="button"
-                    className="mt-2 self-start text-[13px] font-medium text-muted underline"
+                    className="mt-1 self-start text-[13px] font-medium text-muted underline"
                     onClick={() => {
                       setRemoveError(null);
                       setPending(card);
