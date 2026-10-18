@@ -44,10 +44,31 @@ export const auth = getAuth(firebaseApp)
 /** Local dev has no Firebase user. GCP uses anonymous auth. */
 export const currentUid = () => (isGcpBackend ? (auth.currentUser?.uid ?? '') : 'local-user')
 
+let signingIn: Promise<void> | null = null
+
+/** Waits for the saved session, or signs in anonymously once. Shared by all callers. */
+const ensureSignedIn = (): Promise<void> => {
+  if (auth.currentUser) return Promise.resolve()
+  signingIn ??= auth
+    .authStateReady()
+    .then(async () => {
+      if (!auth.currentUser) await signInAnonymously(auth)
+    })
+    .finally(() => {
+      signingIn = null
+    })
+  return signingIn
+}
+
 export const idToken = async () => {
+  if (!isGcpBackend) return ''
+  try {
+    await ensureSignedIn()
+  } catch {
+    return ''
+  }
   const user = auth.currentUser
-  if (!isGcpBackend || !user) return ''
-  return user.getIdToken()
+  return user ? user.getIdToken() : ''
 }
 
 export const appCheckToken = async () => {
@@ -68,7 +89,7 @@ export const watchConnect = (listener: (failed: boolean) => void) => {
 
 export const retryConnect = () => {
   if (!isGcpBackend) return
-  void signInAnonymously(auth)
+  void ensureSignedIn()
     .then(() => {
       for (const listener of connectListeners) listener(false)
     })

@@ -11,7 +11,7 @@ import {
   retryCourse as postRetryCourse,
   retryLesson as postRetryLesson,
 } from '../lib/api.ts';
-import { loadCourse, saveCourse } from '../lib/localDb.ts';
+import { clearSavedCourse, loadCourse, saveCourse } from '../lib/localDb.ts';
 import { connectCourse } from '../lib/realtime.ts';
 import type { CourseSocket } from '../lib/realtime.ts';
 import { currentUid } from '../lib/firebase.ts';
@@ -143,6 +143,15 @@ export function StudySessionProvider({ children }: { children: ReactNode }) {
         fold.current = { course: next, seq: 0 };
         show(next);
         follow(id);
+      },
+      clearCourse: (id) => {
+        if (id && fold.current?.course.id !== id) return;
+        socket.current?.close();
+        socket.current = null;
+        fold.current = null;
+        clearSavedCourse();
+        setCourse(null);
+        setError(null);
       },
       renderLesson: (lessonId) =>
         run(async () => {

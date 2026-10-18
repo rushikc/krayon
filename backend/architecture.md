@@ -2,7 +2,7 @@
 
 The public site has no login screen. On load the browser signs in anonymously. If that fails it shows "Couldn't connect, retry". Courses are shared: any visitor can list, open, play, render, retry, and regenerate. Progress and study notes stay on the visitor (`users/{visitorUid}/progress` and `users/{visitorUid}/state`). Blobs stay under the uploader (`users/{ownerUid}/...`).
 
-Three Cloud Run services in `asia-south1`. Vertex stays `global`. The browser calls `krayon-api` directly. Firebase Hosting does not rewrite `/api`.
+Three Cloud Run services in `asia-south1`. Vertex stays `global`. The browser calls `krayon-api` directly. Firebase Hosting does not rewrite `/api`. Realtime in the browser is Firestore `onSnapshot` (`frontend/src/lib/realtime.ts`), not `/ws`.
 
 ```text
 anonymous browser --> krayon-api (public)
@@ -14,6 +14,8 @@ anonymous browser --> krayon-api (public)
 ```
 
 `local-backend/` runs the same pipeline. Caps default to 0 there, so local use stays unlimited.
+
+Frontend production env: `VITE_BACKEND=gcp`, `VITE_API_BASE_URL=<api-url>`, `VITE_FIREBASE_*`, `VITE_RECAPTCHA_SITE_KEY`.
 
 ## Indexes
 
@@ -39,6 +41,7 @@ Scripts in `backend/scripts/` only print commands.
 2. Firestore in `asia-south1`. Enable Anonymous auth (console: Authentication → Sign-in method → Anonymous) and create a reCAPTCHA Enterprise key for App Check (`05-firestore-and-auth.sh`).
 3. Queues (`10-queues.sh`). No `--max-dispatch-deadline`.
 4. Service accounts (`20-service-accounts.sh`). API: datastore, cloudtasks.enqueuer, objectViewer on the bucket, `serviceAccountUser` on `krayon-tasks`. Worker: datastore, objectAdmin on the bucket, aiplatform, serviceusage consumer, cloudtasks.enqueuer, `serviceAccountUser` on `krayon-tasks`, `run.invoker` on the renderer. Renderer: no extra roles. `krayon-tasks`: `run.invoker` on the worker.
-5. Build with `backend/cloudbuild.*.yaml` (no `--source .`). Deploy the API with `--allow-unauthenticated`, the worker and renderer with `--no-allow-unauthenticated` (`30-deploy-run.sh`). Read the URLs, then redeploy with `WORKER_URL`, `RENDERER_URL`, and `CORS_ORIGINS`.
+5. Build with `backend/cloudbuild.*.yaml` (no `--source .`). `30-deploy-run.sh` also prints `gcloud artifacts repositories create` for the Artifact Registry repo. Deploy the API with `--allow-unauthenticated`, the worker and renderer with `--no-allow-unauthenticated`. Read the URLs, then redeploy with `WORKER_URL`, `RENDERER_URL`, and `CORS_ORIGINS`.
 6. Scheduler audience is `WORKER_URL` (`40-scheduler.sh`).
-7. Deploy Hosting. Set `VITE_BACKEND=gcp`, `VITE_API_BASE_URL`, and `VITE_RECAPTCHA_SITE_KEY`. `APP_CHECK_ENFORCE` defaults to false.
+7. Deploy Hosting: `sh backend/scripts/50-deploy-hosting.sh --site <site-id>`. Set `VITE_BACKEND=gcp`, `VITE_API_BASE_URL=<api-url>`, `VITE_FIREBASE_*`, and `VITE_RECAPTCHA_SITE_KEY`. Add `<site-id>.web.app` and `<site-id>.firebaseapp.com` to Authentication authorized domains and the reCAPTCHA Enterprise key domains. `APP_CHECK_ENFORCE` is false in `30-deploy-run.sh` until you flip it.
+8. Rules and indexes: `firebase deploy --only firestore,storage`.

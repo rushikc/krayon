@@ -1,5 +1,6 @@
-import { chapterFrom, courseFrom, lessonSummaryFrom, progressFrom, segmentFrom } from '@krayon/shared';
-import type { DocData, DocStore, LessonDetail, LessonProgress, LessonSummary } from '@krayon/shared';
+import { chapterFrom, courseFrom, courseLessons, lessonSummaryFrom, progressFrom, segmentFrom } from '@krayon/shared';
+import type { BlobStorage, DocData, DocStore, LessonDetail, LessonProgress, LessonSummary } from '@krayon/shared';
+import { pageTextKey, sourceSegment } from './keys.js';
 
 export const coursePath = (uid: string, courseId: string) => `users/${uid}/courses/${courseId}`;
 export const chaptersPath = (uid: string, courseId: string) => `${coursePath(uid, courseId)}/chapters`;
@@ -116,6 +117,33 @@ export const locateCourse = async (docs: DocStore, courseId: string) => {
   const ownerUid = typeof index?.ownerUid === 'string' ? index.ownerUid : null;
   if (!ownerUid) return null;
   return { ownerUid, courseId };
+};
+
+/** Drops a course, its indexes, progress, and stored files. */
+export const deleteCourse = async (docs: DocStore, blobs: BlobStorage, ownerUid: string, courseId: string) => {
+  const course = await assembleCourse(docs, ownerUid, courseId);
+  const lessons = course ? courseLessons(course) : [];
+  const chapters = course?.chapters ?? [];
+  for (const chapter of chapters) {
+    await docs.delete(chapterIndexPath(chapter.id));
+    await blobs.deletePrefix(`users/${ownerUid}/text/${chapter.id}/`);
+  }
+  for (const lesson of lessons) {
+    await docs.delete(lessonIndexPath(lesson.id));
+    await docs.delete(progressPath(ownerUid, lesson.id));
+    await blobs.deletePrefix(`users/${ownerUid}/keyframes/${lesson.id}/`);
+    await blobs.deletePrefix(`users/${ownerUid}/text/${lesson.id}/`);
+  }
+  for (const source of course?.sources ?? []) {
+    if (source.path) await blobs.delete(source.path);
+    await blobs.delete(pageTextKey(ownerUid, source.id));
+    await blobs.deletePrefix(`users/${ownerUid}/slices/${sourceSegment(source.id)}/`);
+  }
+  await blobs.deletePrefix(`users/${ownerUid}/sources/${courseId}/`);
+  await docs.delete(courseIndexPath(courseId));
+  await docs.delete(courseViewPath(courseId));
+  await docs.deleteTree(coursePath(ownerUid, courseId));
+  return course !== null;
 };
 
 export const loadSummary = async (docs: DocStore, ownerUid: string, courseId: string, lessonId: string, viewerUid = ownerUid) => {

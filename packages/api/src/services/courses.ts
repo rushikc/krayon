@@ -1,7 +1,18 @@
 import { randomUUID } from 'node:crypto';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import '@fastify/multipart';
-import { assembleCourse, courseViewPath, listCourses as loadCourses, locateChapter, locateCourse, noteCourse, reserveUsage, sourceKey, DemoLimitError } from '@krayon/pipeline';
+import {
+  assembleCourse,
+  courseViewPath,
+  deleteCourse as eraseCourse,
+  listCourses as loadCourses,
+  locateChapter,
+  locateCourse,
+  noteCourse,
+  reserveUsage,
+  sourceKey,
+  DemoLimitError,
+} from '@krayon/pipeline';
 import type { ApiDeps } from '../deps.js';
 import { authHeader } from '../user.js';
 import { httpError } from '../errors.js';
@@ -108,6 +119,14 @@ export const getCourse = (deps: ApiDeps) => async (request: FastifyRequest) => {
 export const getChapters = (deps: ApiDeps) => async (request: FastifyRequest) => {
   const user = userOf(deps, request);
   return { chapters: (await courseOf(deps, user.uid, (request.params as { id: string }).id)).chapters };
+};
+
+export const deleteCourse = (deps: ApiDeps) => async (request: FastifyRequest) => {
+  const user = userOf(deps, request);
+  const course = await courseOf(deps, user.uid, (request.params as { id: string }).id);
+  if (course.ownerUid !== user.uid) throw httpError(403, 'Not allowed');
+  await eraseCourse(deps.docs, deps.blobs, course.ownerUid, course.id);
+  return { ok: true };
 };
 
 export const retryCourse = (deps: ApiDeps) => async (request: FastifyRequest) => {

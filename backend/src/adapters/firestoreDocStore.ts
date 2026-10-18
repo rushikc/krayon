@@ -91,6 +91,14 @@ export const createFirestoreDocStore = (db: Firestore = getFirestore()): DocStor
     await batch.commit();
   },
   async deleteTree(prefix) {
+    const parts = prefix.split('/').filter(Boolean);
+    if (parts.length % 2 === 0) {
+      const ref = db.doc(prefix);
+      const snap = await ref.get();
+      if (!snap.exists) return 0;
+      await db.recursiveDelete(ref);
+      return 1;
+    }
     const snap = await db.collection(prefix).get();
     let n = 0;
     for (const doc of snap.docs) {

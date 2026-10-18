@@ -21,6 +21,8 @@ export const saveCourse = (course: CourseState) => {
   }
 };
 
+export const clearSavedCourse = () => localStorage.removeItem(KEY);
+
 export const loadCourse = (): CourseState | null => {
   const raw = localStorage.getItem(KEY);
   if (!raw) return null;

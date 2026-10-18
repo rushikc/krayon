@@ -62,8 +62,10 @@ const isTyping = (target: EventTarget | null) =>
 type Regen = { segmentId: string; started: boolean; round: number | null; fixes: number; error: string | null };
 
 const storedVolume = () => {
-  const raw = Number(localStorage.getItem(VOLUME_KEY));
-  return Number.isFinite(raw) && raw >= 0 && raw <= 1 ? raw : 1;
+  const stored = localStorage.getItem(VOLUME_KEY);
+  if (!stored) return 1;
+  const raw = Number(stored);
+  return Number.isFinite(raw) && raw > 0 && raw <= 1 ? raw : 1;
 };
 
 /** Prefetches each segment's narration and frees the blob URLs when the lesson or the set of files changes. */
@@ -835,14 +837,14 @@ export function GeneratedLessonView({ lessonId }: { lessonId: string }) {
               placeholder="Custom instructions"
               className="mt-1.5 w-full resize-none rounded-2xl border-2 border-ink bg-paper px-3 py-2 text-[15px] text-ink"
             />
-            <div className="mt-4 flex flex-wrap items-center gap-2">
+            <div className="mt-4 flex flex-wrap items-start gap-2">
               <Button variant="secondary" onClick={() => setRegenOpen(false)}>
                 Cancel
               </Button>
-              <Button className="flex-col gap-0 py-2 leading-tight" onClick={regenerateCurrent}>
-                <span>Regenerate only this segment</span>
-                <span className="text-[13px] font-normal">{activeState.title}</span>
-              </Button>
+              <div className="flex flex-col items-center">
+                <Button onClick={regenerateCurrent}>Regenerate only this segment</Button>
+                <p className="mt-1 max-w-[16rem] text-center text-[13px] text-muted">{activeState.title}</p>
+              </div>
               <Button variant="secondary" onClick={regenerateAll}>
                 Regenerate the entire video
               </Button>

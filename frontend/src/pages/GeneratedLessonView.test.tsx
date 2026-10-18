@@ -39,6 +39,7 @@ const session: StudySessionValue = {
   error: null,
   startFromFiles: async () => undefined,
   openCourse: async () => undefined,
+  clearCourse: () => undefined,
   renderLesson: async () => undefined,
   retryCourse: async () => undefined,
   retryChapter: async () => undefined,

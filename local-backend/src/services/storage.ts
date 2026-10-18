@@ -77,6 +77,36 @@ export class LocalStorage implements BlobStorage {
     return deleted;
   }
 
+  async deletePrefix(prefix: string) {
+    const stem = safeKey(prefix);
+    const walk = (dir: string): string[] => {
+      let found: string[] = [];
+      let entries: Array<{ name: string; isDirectory: () => boolean }> = [];
+      try {
+        entries = readdirSync(dir, { withFileTypes: true }).map((entry) => ({
+          name: String(entry.name),
+          isDirectory: () => entry.isDirectory(),
+        }));
+      } catch {
+        return found;
+      }
+      for (const entry of entries) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) found = found.concat(walk(full));
+        else if (!entry.name.endsWith('.meta.json')) found.push(full);
+      }
+      return found;
+    };
+    const keys = walk(this.root)
+      .map((file) => path.relative(this.root, file).split(path.sep).join('/'))
+      .filter((key) => key === stem || key.startsWith(stem));
+    let n = 0;
+    for (const key of keys) {
+      if (await this.delete(key)) n += 1;
+    }
+    return n;
+  }
+
   /** Local admin reset. Not part of the BlobStorage port. */
   clear() {
     const walk = (dir: string): string[] => {

@@ -54,6 +54,8 @@ export interface BlobStorage {
   stat(key: string): Promise<BlobStat | null>;
   stream(key: string, range?: { start: number; end: number }): Promise<AsyncIterable<Uint8Array> | null>;
   delete(key: string): Promise<boolean>;
+  /** Deletes every object whose key is `prefix` or starts with `prefix`. */
+  deletePrefix(prefix: string): Promise<number>;
 }
 
 export type TaskQueue = 'ai-user' | 'ai-auto' | 'ai-background' | 'tts';

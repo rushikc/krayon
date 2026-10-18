@@ -9,7 +9,7 @@ COPY packages ./packages
 RUN npm ci --ignore-scripts \
   && npm run build -w @krayon/shared \
   && npm run build -w @krayon/renderer \
-  && npx remotion browser ensure \
+  && node -e "import('@remotion/renderer').then((r) => r.ensureBrowser())" \
   && node --input-type=module -e "import { bundle } from '@remotion/bundler'; await bundle({ entryPoint: 'packages/shared/dist/remotion/entry.js', outDir: '/app/bundle' });"
 ENV SERVE_URL=/app/bundle
 ENV NODE_ENV=production

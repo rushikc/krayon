@@ -145,6 +145,11 @@ export const memoryBlobs = (): BlobStorage & { files: Map<string, { data: Uint8A
       })();
     },
     delete: async (key) => files.delete(key),
+    deletePrefix: async (prefix) => {
+      const match = [...files.keys()].filter((key) => key === prefix || key.startsWith(prefix));
+      for (const key of match) files.delete(key);
+      return match.length;
+    },
   };
   return Object.assign(storage, { files });
 };

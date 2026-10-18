@@ -3,7 +3,7 @@ import multipart from '@fastify/multipart';
 import type { FastifyInstance } from 'fastify';
 import type { ApiDeps } from './deps.js';
 import { postUpload } from './services/ai.js';
-import { createCourse, getChapters, getCourse, listCourses, registerCourseJobs, retryChapter, retryCourse } from './services/courses.js';
+import { createCourse, deleteCourse, getChapters, getCourse, listCourses, registerCourseJobs, retryChapter, retryCourse } from './services/courses.js';
 import { deleteDoc, getDoc, putDoc } from './services/docs.js';
 import { getHealth, getMe } from './services/health.js';
 import { askLesson, getLesson, putProgress, regenerateSegment, registerLessonJobs, renderLesson, rerenderLesson } from './services/lessons.js';
@@ -26,6 +26,7 @@ export const registerKrayonApi = async (app: FastifyInstance, deps: ApiDeps) => 
   app.post('/api/courses', createCourse(deps));
   app.get('/api/courses', listCourses(deps));
   app.get('/api/courses/:id', getCourse(deps));
+  app.delete('/api/courses/:id', deleteCourse(deps));
   app.get('/api/courses/:id/chapters', getChapters(deps));
   app.post('/api/courses/:id/retry', retryCourse(deps));
   app.post('/api/chapters/:id/retry', retryChapter(deps));

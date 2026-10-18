@@ -48,5 +48,14 @@ export const createGcsBlobStorage = (bucketName = process.env.BUCKET || 'krayon-
       await file.delete();
       return true;
     },
+    async deletePrefix(prefix) {
+      const [files] = await bucket.getFiles({ prefix });
+      let n = 0;
+      for (const file of files) {
+        await file.delete({ ignoreNotFound: true });
+        n += 1;
+      }
+      return n;
+    },
   };
 };

@@ -12,6 +12,8 @@ export type StudySessionValue = {
   startFromFiles: (files: File[]) => Promise<void>;
   /** Opens a stored course and follows its live updates. No-op when that course is already open. */
   openCourse: (courseId: string) => Promise<void>;
+  /** Drops the open course. No-op when `courseId` is set and a different course is open. */
+  clearCourse: (courseId?: string) => void;
   /** Starts a lesson video ("Generate video"). */
   renderLesson: (lessonId: string) => Promise<void>;
   retryCourse: () => Promise<void>;

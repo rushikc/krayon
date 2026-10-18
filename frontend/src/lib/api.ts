@@ -73,6 +73,8 @@ export const listCourses = () => apiFetch<{ courses: CourseState[] }>('/api/cour
 
 export const getCourse = (courseId: string) => apiFetch<CourseState>(`/api/courses/${courseId}`);
 
+export const deleteCourse = (courseId: string) => apiFetch<{ ok: true }>(`/api/courses/${courseId}`, { method: 'DELETE' });
+
 /** Runs a failed structure pass again, or puts failed chapters back on the list. */
 export const retryCourse = (courseId: string) => apiJson<{ jobId: string }>(`/api/courses/${courseId}/retry`, 'POST', {});
 

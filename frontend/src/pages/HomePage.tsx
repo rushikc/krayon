@@ -10,7 +10,7 @@ import { HandUnderline } from '../components/ui/HandUnderline.tsx';
 import { IconHighlight, IconPlay } from '../components/ui/icons.tsx';
 import { Shell } from '../components/ui/Shell.tsx';
 import { TopicArt } from '../components/ui/TopicArt.tsx';
-import { MAX_UPLOAD_BYTES, listCourses } from '../lib/api.ts';
+import { MAX_UPLOAD_BYTES, deleteCourse, listCourses } from '../lib/api.ts';
 import { formatClock } from '../study/time.ts';
 import { useStudySession } from '../study/studyState.ts';
 import { useUpload } from '../study/uploadState.tsx';
@@ -87,6 +87,9 @@ export function HomePage() {
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const [apiCourses, setApiCourses] = useState<CourseState[]>([]);
+  const [pending, setPending] = useState<CreatedListing | null>(null);
+  const [removing, setRemoving] = useState(false);
+  const [removeError, setRemoveError] = useState<string | null>(null);
   const filter = params.get('filter') ?? 'all';
   const openCourse = session.course;
   const courseSig = openCourse
@@ -128,6 +131,22 @@ export function HomePage() {
     void session.openCourse(courseId).then(() => navigate(href));
   };
 
+  const confirmRemove = async () => {
+    if (!pending || removing) return;
+    setRemoving(true);
+    setRemoveError(null);
+    try {
+      await deleteCourse(pending.courseId);
+      session.clearCourse(pending.courseId);
+      setApiCourses((current) => current.filter((course) => course.id !== pending.courseId));
+      setPending(null);
+    } catch (caught) {
+      setRemoveError(caught instanceof Error ? caught.message : 'The topic could not be removed.');
+    } finally {
+      setRemoving(false);
+    }
+  };
+
   const sizeMb = Math.round(MAX_UPLOAD_BYTES / (1024 * 1024));
   const hero = focus
     ? {
@@ -149,8 +168,8 @@ export function HomePage() {
 
   return (
     <Shell>
-      <section className="mt-8 flex flex-col items-start gap-8 lg:mt-12 lg:flex-row lg:gap-50">
-        <div className="min-w-0 max-w-xl">
+      <section className="mt-8 flex flex-col items-start gap-8 min-[1200px]:mt-12 min-[1200px]:flex-row min-[1200px]:gap-8">
+        <div className="min-w-0 max-w-xl shrink-0">
           <p className="text-[12px] font-semibold tracking-[0.18em] text-crayon-text uppercase">
             Video-first study
           </p>
@@ -162,53 +181,49 @@ export function HomePage() {
             <HandUnderline>can watch</HandUnderline>
           </h1>
           <p className="mt-5 max-w-md text-[16px] leading-relaxed text-muted">
-            Drop in PDFs, notes or photos. Krayon draws a short lesson for every topic, and redraws
-            any part you didn’t follow.
+            Drop in PDFs, notes or photos. Krayon turns them into narrated video lessons, chapter by
+            chapter. Pause to ask a question, or redraw any part you didn't follow.
           </p>
           <div className="mt-6 flex flex-wrap items-center gap-3">
             <Button onClick={() => openUpload()}>
               <IconHighlight className="h-4 w-4" />
               Create a lesson from your notes
             </Button>
-            <Button
-              variant="secondary"
-              onClick={() => document.getElementById('topics')?.scrollIntoView({ behavior: 'smooth' })}
-            >
-              Browse topics
-            </Button>
           </div>
           <p className="mt-3 text-[13px] text-muted">PDF, JPG, PNG · up to {sizeMb} MB</p>
         </div>
 
         {hero && (
-          <article className={cardClass(true, false, 'w-full max-w-[420px] shrink-0 p-3 sm:p-4')}>
-            <p className="px-1 text-[12px] font-semibold tracking-[0.16em] text-crayon-text uppercase">
-              Continue learning
-            </p>
-            <div className="relative mt-3">
-              <TopicArt topicId={hero.artId} className="aspect-[16/10]" />
-              <span className="absolute top-1/2 left-1/2 flex h-12 w-12 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-[2.5px] border-ink bg-crayon text-white shadow-[2px_2px_0_var(--color-ink)]">
-                <IconPlay className="h-5 w-5" />
-              </span>
-              {hero.timeLeft && (
-                <span className="absolute right-2 bottom-2 rounded-md bg-ink/90 px-2 py-0.5 text-[12px] font-medium text-paper">
-                  {hero.timeLeft} left
+          <div className="flex min-w-0 w-full flex-1 justify-center">
+            <article className={cardClass(true, false, 'w-full max-w-[420px] shrink-0 p-3 sm:p-4')}>
+              <p className="px-1 text-[12px] font-semibold tracking-[0.16em] text-crayon-text uppercase">
+                Continue learning
+              </p>
+              <div className="relative mt-3">
+                <TopicArt topicId={hero.artId} className="aspect-[16/10]" />
+                <span className="absolute top-1/2 left-1/2 flex h-12 w-12 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-[2.5px] border-ink bg-crayon text-white shadow-[2px_2px_0_var(--color-ink)]">
+                  <IconPlay className="h-5 w-5" />
                 </span>
-              )}
-            </div>
-            <h2 className="mt-3 font-serif text-[1.7rem] leading-tight text-ink">{hero.title}</h2>
-            <p className="mt-1 text-[15px] text-muted">{hero.detail}</p>
-            <div className="mt-3">
-              <CrayonProgress value={hero.percent} label={`${hero.title} progress`} showValue />
-            </div>
-            <Link
-              to={hero.href}
-              onClick={(event) => openCreated(event, hero.courseId, hero.href)}
-              className={buttonClass('primary', 'mt-4')}
-            >
-              {hero.action}
-            </Link>
-          </article>
+                {hero.timeLeft && (
+                  <span className="absolute right-2 bottom-2 rounded-md bg-ink/90 px-2 py-0.5 text-[12px] font-medium text-paper">
+                    {hero.timeLeft} left
+                  </span>
+                )}
+              </div>
+              <h2 className="mt-3 font-serif text-[1.7rem] leading-tight text-ink">{hero.title}</h2>
+              <p className="mt-1 text-[15px] text-muted">{hero.detail}</p>
+              <div className="mt-3">
+                <CrayonProgress value={hero.percent} label={`${hero.title} progress`} showValue />
+              </div>
+              <Link
+                to={hero.href}
+                onClick={(event) => openCreated(event, hero.courseId, hero.href)}
+                className={buttonClass('primary', 'mt-4')}
+              >
+                {hero.action}
+              </Link>
+            </article>
+          </div>
         )}
       </section>
 
@@ -232,39 +247,85 @@ export function HomePage() {
           <ul className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             {createdVisible.map((card) => (
               <li key={card.key}>
-                <Link
-                  to={card.href}
-                  onClick={(event) => openCreated(event, card.courseId, card.href)}
-                  className={cardClass(false, false, 'flex h-full flex-col p-3 transition-transform hover:-translate-y-0.5')}
-                >
-                  <div className="relative">
-                    <TopicArt topicId={card.artId} className="aspect-[16/10]" />
-                    {card.timeLeft && (
-                      <span className="absolute right-2 bottom-2 rounded-md bg-ink px-1.5 py-0.5 text-[12px] font-medium text-paper">
-                        {card.timeLeft}
-                      </span>
+                <div className={cardClass(false, false, 'flex h-full flex-col p-3')}>
+                  <Link
+                    to={card.href}
+                    onClick={(event) => openCreated(event, card.courseId, card.href)}
+                    className="flex min-h-0 flex-1 flex-col transition-transform hover:-translate-y-0.5"
+                  >
+                    <div className="relative">
+                      <TopicArt topicId={card.artId} className="aspect-[16/10]" />
+                      {card.timeLeft && (
+                        <span className="absolute right-2 bottom-2 rounded-md bg-ink px-1.5 py-0.5 text-[12px] font-medium text-paper">
+                          {card.timeLeft}
+                        </span>
+                      )}
+                    </div>
+                    {card.field && (
+                      <p className="mt-3 text-[12px] font-semibold tracking-[0.16em] text-crayon-text uppercase">{card.field}</p>
                     )}
-                  </div>
-                  {card.field && (
-                    <p className="mt-3 text-[12px] font-semibold tracking-[0.16em] text-crayon-text uppercase">{card.field}</p>
-                  )}
-                  <h3 className={`${card.field ? 'mt-1' : 'mt-3'} font-serif text-[1.35rem] leading-tight text-ink`}>{card.title}</h3>
-                  {card.summary && <p className="mt-1 line-clamp-2 text-[15px] leading-snug text-muted">{card.summary}</p>}
-                  <p className="mt-3 text-[13px] text-muted">{card.meta}</p>
-                  <div className="mt-2">
-                    <CrayonProgress
-                      value={card.percent}
-                      label={`${card.title} progress`}
-                      tone={card.percent === 100 ? 'done' : 'crayon'}
-                      showValue
-                    />
-                  </div>
-                </Link>
+                    <h3 className={`${card.field ? 'mt-1' : 'mt-3'} font-serif text-[1.35rem] leading-tight text-ink`}>{card.title}</h3>
+                    {card.summary && <p className="mt-1 line-clamp-2 text-[15px] leading-snug text-muted">{card.summary}</p>}
+                    <p className="mt-3 text-[13px] text-muted">{card.meta}</p>
+                    <div className="mt-2">
+                      <CrayonProgress
+                        value={card.percent}
+                        label={`${card.title} progress`}
+                        tone={card.percent === 100 ? 'done' : 'crayon'}
+                        showValue
+                      />
+                    </div>
+                  </Link>
+                  <button
+                    type="button"
+                    className="mt-2 self-start text-[13px] font-medium text-muted underline"
+                    onClick={() => {
+                      setRemoveError(null);
+                      setPending(card);
+                    }}
+                  >
+                    Remove
+                  </button>
+                </div>
               </li>
             ))}
           </ul>
         )}
       </section>
+      {pending && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-ink/40 px-6" role="presentation">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="remove-topic-title"
+            className="w-full max-w-md rounded-[20px] border-[2.5px] border-ink bg-paper p-5 shadow-[4px_4px_0_var(--color-ink)]"
+          >
+            <h2 id="remove-topic-title" className="font-serif text-[24px] leading-tight text-ink">
+              Remove this topic?
+            </h2>
+            <p className="mt-2 text-[15px] text-muted">
+              Do you really want to remove {pending.title}? This cannot be undone.
+            </p>
+            {removeError && <p className="mt-3 text-[15px] text-crayon-text">{removeError}</p>}
+            <div className="mt-4 flex flex-wrap items-center gap-2">
+              <Button
+                variant="secondary"
+                disabled={removing}
+                onClick={() => {
+                  if (removing) return;
+                  setPending(null);
+                  setRemoveError(null);
+                }}
+              >
+                Cancel
+              </Button>
+              <Button disabled={removing} onClick={() => void confirmRemove()}>
+                {removing ? 'Removing…' : 'Yes, remove'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </Shell>
   );
 }

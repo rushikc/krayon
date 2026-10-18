@@ -34,13 +34,18 @@ const lessonPages = (lesson: LessonSummary) => {
 function LessonAction({ lesson }: { lesson: LessonSummary }) {
   const session = useStudySession();
   if (lesson.status === 'writing') {
-    if (!lesson.statusDetail?.startsWith('Writing')) return null;
+    if (!lesson.statusDetail) return null;
     return (
-      <span
-        className="block h-5 w-5 animate-spin rounded-full border-2 border-ink/20 border-t-crayon motion-reduce:animate-none"
-        role="status"
-        aria-label={lesson.statusDetail}
-      />
+      <div className="flex items-center gap-2">
+        <span className="shrink-0 text-[13px] text-muted">{lesson.statusDetail}</span>
+        {lesson.statusDetail.startsWith('Writing') && (
+          <span
+            className="block h-5 w-5 animate-spin rounded-full border-2 border-ink/20 border-t-crayon motion-reduce:animate-none"
+            role="status"
+            aria-label={lesson.statusDetail}
+          />
+        )}
+      </div>
     );
   }
   if (lesson.status === 'ready') {
@@ -120,28 +125,25 @@ function LessonRow({ lesson, number, next }: { lesson: LessonSummary; number: nu
             {lesson.title}
           </Link>
         )}
-        <p className="mt-0.5 flex min-w-0 items-center gap-2 text-[13px] text-muted">
-          {writing ? (
-            <>
-              {lesson.statusDetail && <span className="shrink-0">{lesson.statusDetail}</span>}
-              {pages && <span className="shrink-0">{pages}</span>}
-            </>
-          ) : (
-            <>
-              {next && <span className="shrink-0 font-medium text-ink">Up next</span>}
-              {state && (
-                <span className={cx('shrink-0', lesson.status === 'failed' && 'text-crayon-text')}>{state}</span>
-              )}
-              {length && <span className="shrink-0 tabular-nums">{length}</span>}
-              {lesson.status === 'failed' && lesson.error && (
-                <span className="min-w-0 truncate text-crayon-text" title={lesson.error}>
-                  {lesson.error}
-                </span>
-              )}
-              {lesson.shortSource && <span className="shrink-0">Short source</span>}
-            </>
-          )}
-        </p>
+        {writing ? (
+          pages ? (
+            <p className="mt-0.5 text-[13px] text-muted">{pages}</p>
+          ) : null
+        ) : (
+          <p className="mt-0.5 flex min-w-0 items-center gap-2 text-[13px] text-muted">
+            {next && <span className="shrink-0 font-medium text-ink">Up next</span>}
+            {state && (
+              <span className={cx('shrink-0', lesson.status === 'failed' && 'text-crayon-text')}>{state}</span>
+            )}
+            {length && <span className="shrink-0 tabular-nums">{length}</span>}
+            {lesson.status === 'failed' && lesson.error && (
+              <span className="min-w-0 truncate text-crayon-text" title={lesson.error}>
+                {lesson.error}
+              </span>
+            )}
+            {lesson.shortSource && <span className="shrink-0">Short source</span>}
+          </p>
+        )}
       </div>
       <LessonAction lesson={lesson} />
     </li>

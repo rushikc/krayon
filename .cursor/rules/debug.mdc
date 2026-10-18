@@ -7,11 +7,12 @@ alwaysApply: false
 
 ## How it fits together
 - `npm run dev` (repo root) builds `packages/shared` and `packages/pipeline`, then runs `tsc --watch` for both, **local-backend** (Fastify + tsx watch, http://localhost:8787) and **Vite** (http://localhost:5173). Vite proxies `/api/*` and `/ws` to the backend, so the browser never calls Google directly. The backend imports the packages from `dist/`, so rebuild them after editing.
+- `npm run dev` does not build or watch `@krayon/api`. After editing `packages/api`, run `npm run build -w @krayon/api`.
 - The backend mocks Google Cloud locally:
   - Firestore → SQLite at `local-backend/data/firestore.sqlite3` (table `docs`: collection, id, data JSON, updated)
   - Cloud Storage → files under `local-backend/data/storage/`
   - Auth → stub user `local-user` (override with the `X-User-Id` header)
-  - Jobs → in-process (`course`, `resumeCourse`, `retryCourse`, `retryChapter`, `renderLesson`, `regenerate`, `ingest`), status in `jobs/{id}` docs
+  - Jobs → in-process (`course`, `resumeCourse`, `retryCourse`, `retryChapter`, `renderLesson`, `rerenderLesson`, `regenerate`), status in `jobs/{id}` docs
 - Gemini is **real**: Vertex AI, project `krayon-ai`, location `global`, model `GEMINI_MODEL` (default `gemini-2.5-flash`) and `GEMINI_REVIEW_MODEL`, via gcloud Application Default Credentials (`GEMINI_API_KEY` is only a fallback). Config lives in `local-backend/.env`.
 
 ## Pipeline (`packages/pipeline/src/`)
@@ -21,11 +22,11 @@ Course → chapter → lesson → segment. `pipeline.ts` wires the stages; every
 3. **Lesson render** (`lessonRender.ts`): only chapter 1 lesson 1 starts on its own; others start on `POST /api/lessons/:id/render`. `beats` splits the verbatim script by word count (`beats.ts`: split over 35 words, merge under 15; duration is the 6–15 s estimate). Then, when `TTS_ENABLED` is on, `voice` synthesizes one WAV per segment (cached; the lesson's own priority, so a clicked lesson jumps the TTS queue), and `retime` sets `durationInFrames` from the audio length plus a 0.6 s pause, capped at 60 s. Then per segment: `scene` (normalized, then validated; repair only for a structurally broken scene) → keyframes → `review` → fix. A segment gets `1 + SEGMENT_RETRIES` tries. The lesson is `ready` only when every segment is voiced (if TTS is on) and its scene is ready; otherwise `failed`. Retry re-runs failed segments and keeps audio that already exists. `TTS_ENABLED=false` skips voice and uses the 6–15 s estimate (silent video).
 - Scene, review, script, and chat calls get page slices (`pdf.ts`), never the full file (`assertSliced` throws). Logs show `attached_pages`.
 - Queues (`queue.ts`): one Gemini queue (`GEMINI_MAX_CONCURRENCY`), one TTS queue (`TTS_CONCURRENCY`), and one render queue (`RENDER_CONCURRENCY`). Order: user-clicked lesson/chat first, then the viewed course (latest `/ws` subscribe), then auto lesson → chapter work → background, oldest first.
-- Docs: `users/{uid}/courses/{c}/chapters/{ch}`, `…/lessons/{l}` (has `chapterId`), `…/lessons/{l}/segments/{s}/rounds/{n}`, plus `users/{uid}/lessonIndex/{l}`, `chapterIndex/{ch}`, `progress/{l}`, `pageText/{sourceId}`, `ttsCache/{hash}` (blob id and seconds for one narration). Ids: `{courseId}-c1`, `{chapterId}-l1`, `s01`. Audio files live in storage and are served at `GET /api/audio/:blobId` (Range → 206).
+- Docs: `users/{uid}/courses/{c}/chapters/{ch}`, `…/lessons/{l}` (has `chapterId`), `…/lessons/{l}/segments/{s}/rounds/{n}`. Top-level indexes: `courseIndex/{c}`, `chapterIndex/{ch}`, `lessonIndex/{l}`, `courseViews/{c}`. Page text is a blob at `users/{uid}/pagetext/{sourceId}.json`. TTS cache is in-memory plus the audio blob `users/{uid}/audio/{hash}.wav`. Ids: `{courseId}-c1`, `{chapterId}-l1`, `s01`. Audio is served at `GET /api/audio/:blobId` (Range → 206).
 - Retry, scoped to where it failed: `POST /api/courses/:id/retry` (structure), `POST /api/chapters/:id/retry`, `POST /api/lessons/:id/retry`. Learner rewrite: `POST /api/lessons/:id/segments/:sid/regenerate`. Chat: `POST /api/lessons/:id/ask` (`call_type=chat`).
 - Restart recovery (`docstore.recoverInterrupted`): writing chapters → pending, rendering lessons → queued, unfinished segments → pending (ready ones are kept), a segment with `voice: voicing` → `pending`, then `resumeCourse` per open course.
-- Reset everything: `curl -X POST localhost:8787/api/admin/reset` (local dev only; also the header's "Clear resources" button). It also clears the slice/page-text caches, the TTS cache docs and audio blobs, all three queues, and stops runs in flight.
-- Tests: `npm test` (shared + backend without AI), `npm run test:backend` (real Vertex calls).
+- Reset everything: `curl -X POST localhost:8787/api/admin/reset` (local dev only; also the header's "Clear resources" button). It also clears the slice/page-text caches, TTS audio blobs, all three queues, and stops runs in flight.
+- Tests: `npm test` (shared + pipeline + local-backend with `AI=0`). `npm run test:backend` (real Vertex calls).
 
 ## Schemas: one source of truth
 - zod schemas in `packages/shared/src/schemas.ts` define every model response (`structure`, `chapterText`, `lessonOutline`, `lessonScript`, `studyDoc`, `beats`, `scene`, `segment`, `review`, `chat`). `toModelSchema()` (`shared/src/modelSchema.ts`) generates the Gemini response schemas: a scene layout is an `anyOf` with one branch per type, each with its own `required` list.
@@ -34,7 +35,7 @@ Course → chapter → lesson → segment. `pipeline.ts` wires the stages; every
 - `packages/pipeline/src/ai_schemas.json` is a generated copy. After changing a zod schema run `npm run build -w @krayon/shared && npm run schemas -w @krayon/pipeline`; `local-backend/test/generate.test.ts` fails if it drifts.
 
 ## Error codes (`errorInfo.code`)
-`errorInfo = {code, message, issues: [{path, message}], attempts}` is stored on failed segment/lesson/chapter/course docs, sent on `segment.failed` / `lesson.failed` / `chapter.failed` / `structure.failed` events, and returned by `/api/ai/generate` and `/ask`.
+`errorInfo = {code, message, issues: [{path, message}], attempts}` is stored on failed segment/lesson/chapter/course docs, sent on `segment.failed` / `lesson.failed` / `chapter.failed` / `structure.failed` events, and returned by `/ask`.
 | code | meaning | HTTP |
 |---|---|---|
 | `SCHEMA_INVALID` | JSON parsed but zod or a check rejected it after every attempt | 422 |
@@ -66,7 +67,7 @@ Events (`event` key):
 - `render.done` / `render.failed` (with `duration_ms`), `render.wait` (DEBUG, `queue_wait_ms`).
 - `segment.fix` (INFO): a review `patchedSegment` was rejected (`issues`). `segment.review` (ERROR): review stopped; the segment is kept as unreviewed unless it was a safety block.
 - `segment.failed` / `lesson.failed` / `chapter.failed` / `structure.failed` (ERROR from the pipeline with `code` and `issues`; INFO from the event bus).
-- `ai.generate`, `ai.chat` (`krayon.app`, WARNING): `/api/ai/generate` or `/ask` failed: `status`, `code`.
+- `ai.chat` (`krayon.app`, WARNING): `/ask` failed: `status`, `code`.
 - Pipeline events (`krayon.pipeline`), one per emitted event: `courseId`, `chapterId`, `lessonId`, `segmentId`, `ready`/`total`, `round`, `flow`, `step`, `score`, `pass`.
 - `job`: `job_id`, `kind`, `status` (queued, running, done, error), `duration_ms`.
 - `recover` (counts reset after a restart), `reset`, `startup`; at DEBUG only: `docstore.*`, `storage.*`, `gemini.text`, `queue.viewed`.
@@ -92,12 +93,18 @@ sqlite3 ../data/firestore.sqlite3 "select collection,id,json_extract(data,'$.err
 In the browser: the Network tab shows `X-Request-ID` on every `/api` response; failed parts show their message with Retry where they happened (course banner, chapter header, lesson row and lesson page).
 
 ## Settings (`local-backend/.env`)
+Full local list: `local-backend/.env.example`. Restart the backend after changing them.
 - `LOG_LEVEL` (`INFO`; `DEBUG` adds docstore, storage and raw Gemini output), `LOG_BODY_MAX` (2000), `LOG_DIR` (`./logs`), `DATA_DIR` (`./data`), `PORT` (8787).
 - `MAX_REPAIR_ROUNDS` (2): a broken scene gets `MAX_REPAIR_ROUNDS + 1` validated calls. 429s are retried with backoff inside each call; `MAX_TOKENS` fails at once.
-- `SEGMENT_RETRIES` (2), `CHAPTER_CONCURRENCY` (3), `GEMINI_MAX_CONCURRENCY` (5), `RENDER_CONCURRENCY` (2), `RENDER_KEYFRAMES_MAX` (8), `GEMINI_REVIEW_MODEL`, `MAX_REVIEW_ROUNDS`, `REVIEW_PASS_SCORE`. Restart the backend after changing them.
+- `MAX_REVIEW_ROUNDS` (2), `REVIEW_PASS_SCORE` (8), `SEGMENT_RETRIES` (2), `CHAPTER_CONCURRENCY` (3), `GEMINI_MAX_CONCURRENCY` (5), `RENDER_CONCURRENCY` (2), `RENDER_KEYFRAMES_MAX` (8), `RENDER_TIMEOUT_MS` (90000), `GEMINI_REVIEW_MODEL`.
+- Caps (`CAP_*`, default 0 = off): over the cap the API returns `429 { code: 'demo_limit' }`.
+- GCP worker also reads `STALE_MINUTES` (15) and `TASK_MAX_ATTEMPTS` (3); those are Cloud Run env, not local-backend config.
 - TTS: `TTS_ENABLED` (true), `TTS_VOICE` (`en-US-Chirp3-HD-Charon`), `TTS_RATE` (1.0), `TTS_CONCURRENCY` (4), `TTS_QUOTA_PROJECT` (`krayon-ai`). Chirp 3 HD, LINEAR16 WAV at 24 kHz, one file per segment. A 403 usually means ADC has no quota project: `gcloud auth application-default set-quota-project krayon-ai`. Health is `GET /v1/voices` and does not gate `/api/health` `ok`. `GET /api/audio/:blobId` supports `Range`.
 - `THINKING_BUDGET_<CALLTYPE>` overrides the thinking budget for one call type (`THINKING_BUDGET_SCENE`, `THINKING_BUDGET_BEATS`, `THINKING_BUDGET_REVIEW`, `THINKING_BUDGET_REPAIR`, and the same for `structure`, `chapterText`, `lessonOutline`, `lessonScript`, `studyDoc`, `chat`). Unset: scene 0, beats 0, review 256, repair 256, everything else 1024.
 - To test without touching the dev server or its data, run another instance: `PORT=8797 DATA_DIR=/tmp/k/data LOG_DIR=/tmp/k/logs npx tsx src/index.ts` in `local-backend/`.
+
+## GCP
+On Cloud Run, logs are structured JSON on stdout (`backend/src/adapters/cloudLogging.ts`). Cloud Logging picks up `severity` and `logging.googleapis.com/trace` from `TRACE_HEADER`. The browser uses Firestore `onSnapshot` for realtime, not `/ws`. See `backend/architecture.md`.
 
 ## Rules for agents
 - Check `app.jsonl` for the failing request id before guessing; quote the relevant lines (`ai.attempt` → `ai.failed` → `segment.failed` → `lesson.failed`).

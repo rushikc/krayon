@@ -1,10 +1,8 @@
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import type { DragEvent, KeyboardEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
-import type { CourseState } from '@krayon/shared';
-import { listCourses, MAX_UPLOAD_BYTES } from '../lib/api.ts';
+import { MAX_UPLOAD_BYTES } from '../lib/api.ts';
 import { useStudySession } from '../study/studyState.ts';
-import { useUpload } from '../study/uploadState.tsx';
 import { Button } from './ui/Button.tsx';
 import { Chip } from './ui/Chip.tsx';
 import { IconClose, IconFile, IconImage } from './ui/icons.tsx';
@@ -13,10 +11,6 @@ import { cx } from './ui/cx.ts';
 type ListedFile =
   | { name: string; kind: 'pdf' | 'image'; file: File; preview?: string }
   | { name: string; kind: 'rejected' };
-
-const fileTitle = (name: string) => name.replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' ').trim();
-
-const courseLabel = (course: CourseState) => course.title?.trim() || fileTitle(course.fileNames[0] ?? '') || 'Your notes';
 
 const classify = (file: File): ListedFile => {
   const name = file.name;
@@ -35,40 +29,15 @@ type AddDocsPopupProps = {
 
 export function AddDocsPopup({ onClose }: AddDocsPopupProps) {
   const navigate = useNavigate();
-  const { topicId } = useUpload();
-  const { startFromFiles, course: openCourse } = useStudySession();
+  const { startFromFiles } = useStudySession();
   const titleId = useId();
   const dialogRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const filesRef = useRef<ListedFile[]>([]);
-  const [courses, setCourses] = useState<CourseState[]>([]);
-  const [choice, setChoice] = useState<{ mode: 'existing' | 'new'; id: string | null } | null>(null);
   const [files, setFiles] = useState<ListedFile[]>([]);
   const [over, setOver] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancel = false;
-    listCourses()
-      .then((result) => {
-        if (!cancel) setCourses(result.courses);
-      })
-      .catch(() => undefined);
-    return () => {
-      cancel = true;
-    };
-  }, []);
-
-  const library = useMemo(() => {
-    const byId = new Map(courses.map((course) => [course.id, course]));
-    if (openCourse) byId.set(openCourse.id, openCourse);
-    return [...byId.values()];
-  }, [courses, openCourse]);
-
-  const matchedId = topicId && library.some((course) => course.id === topicId) ? topicId : null;
-  const mode = choice?.mode ?? (matchedId ? 'existing' : 'new');
-  const selected = choice ? choice.id : matchedId;
 
   useEffect(() => {
     filesRef.current = files;
@@ -139,7 +108,6 @@ export function AddDocsPopup({ onClose }: AddDocsPopupProps) {
   };
 
   const accepted = files.filter((file) => file.kind !== 'rejected');
-  const selectedCourse = library.find((course) => course.id === selected) ?? null;
 
   const createTopic = async () => {
     if (accepted.length === 0) return;
@@ -187,25 +155,11 @@ export function AddDocsPopup({ onClose }: AddDocsPopupProps) {
         </div>
         <div className="min-h-0 overflow-y-auto overscroll-contain">
         <p className="mt-2 text-[15px] leading-relaxed text-muted">
-          PDFs and photos only. Add them to a topic you already have, or start a course from every file you drop.
+          PDFs and photos only. Start a course from every file you drop.
         </p>
 
         <div className="mt-4 flex flex-wrap gap-2" role="group" aria-label="Where the files go">
-          <Chip
-            active={mode === 'new'}
-            onClick={() => setChoice({ mode: 'new', id: null })}
-          >
-            Create new topic
-          </Chip>
-          {library.map((course) => (
-            <Chip
-              key={course.id}
-              active={mode === 'existing' && selected === course.id}
-              onClick={() => setChoice({ mode: 'existing', id: course.id })}
-            >
-              {courseLabel(course)}
-            </Chip>
-          ))}
+          <Chip active>Create new topic</Chip>
         </div>
 
         <input
@@ -290,15 +244,9 @@ export function AddDocsPopup({ onClose }: AddDocsPopupProps) {
 
         {error && <p className="mt-4 text-[15px] text-crayon-text">{error}</p>}
 
-        {mode === 'existing' && selectedCourse ? (
-          <Button className="mt-4 w-full shrink-0" disabled={accepted.length === 0 || busy} onClick={() => void createTopic()}>
-            {busy ? 'Creating your topic…' : `Add to ${courseLabel(selectedCourse)}`}
-          </Button>
-        ) : (
-          <Button className="mt-4 w-full shrink-0" disabled={accepted.length === 0 || busy} onClick={() => void createTopic()}>
-            {busy ? 'Creating your topic…' : 'Create new topic'}
-          </Button>
-        )}
+        <Button className="mt-4 w-full shrink-0" disabled={accepted.length === 0 || busy} onClick={() => void createTopic()}>
+          {busy ? 'Creating your topic…' : 'Create new topic'}
+        </Button>
         </div>
       </div>
     </div>
