@@ -3,10 +3,11 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, Navigate, useMatch, useNavigate, useParams } from 'react-router-dom';
 import { GeneratedLessonView } from './GeneratedLessonView.tsx';
 import { DoubtPanel } from '../components/DoubtPanel.tsx';
-import { LessonFrame } from '../components/LessonFrame.tsx';
+import { LessonFrame, OpenChatButton } from '../components/LessonFrame.tsx';
 import type { LessonTool } from '../components/LessonFrame.tsx';
 import { IconArrow, IconBack } from '../components/ui/icons.tsx';
 import { Shell } from '../components/ui/Shell.tsx';
+import { isWideLayout, useWideLayout } from '../components/ui/wideLayout.ts';
 import { getTopic } from '../data/topics.ts';
 import { usePalette } from '../paletteState.ts';
 import { COMPOSITION_HEIGHT, COMPOSITION_WIDTH, FPS } from '../remotion/catalog.ts';
@@ -36,7 +37,8 @@ function CuratedLesson() {
   const [frame, setFrame] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [muted, setMuted] = useState(false);
-  const [panelOpen, setPanelOpen] = useState(true);
+  const wide = useWideLayout();
+  const [panelOpen, setPanelOpen] = useState(isWideLayout);
   const [tool, setTool] = useState<LessonTool | null>(null);
   const home = prefix || '/';
   const base = home === '/' ? '' : home;
@@ -109,11 +111,16 @@ function CuratedLesson() {
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== 'Escape' || event.defaultPrevented || document.fullscreenElement || document.querySelector('[role="dialog"]')) return;
+      if (panelOpen) {
+        setPanelOpen(false);
+        setTool((current) => (current === 'highlight' ? current : null));
+        return;
+      }
       if (topic) navigate(`${base}/topics/${topic.id}`);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [base, navigate, topic]);
+  }, [base, navigate, panelOpen, topic]);
 
   if (!topic || !subtopic || !marks || !active) {
     return <Navigate to={home} replace />;
@@ -175,10 +182,11 @@ function CuratedLesson() {
       <div className="flex h-full min-h-0 flex-col">
         <div
           className={`grid min-h-0 flex-1 ${
-            panelOpen ? 'grid-cols-[minmax(0,1fr)_528px] gap-3' : 'grid-cols-1'
+            panelOpen && wide ? 'grid-cols-[minmax(0,1fr)_528px] gap-3' : 'grid-cols-1'
           }`}
         >
-          <div className="h-full min-h-0 min-w-0">
+          <div className="h-full min-h-0 min-w-0 overflow-y-auto">
+            <div className="aspect-video min-[1200px]:aspect-auto min-[1200px]:h-full">
             <LessonFrame
               fill
               heading={
@@ -205,7 +213,7 @@ function CuratedLesson() {
                   )}
                 </div>
               }
-              onChat={panelOpen ? undefined : openChat}
+              onChat={!panelOpen && wide ? openChat : undefined}
               frame={frame}
               duration={duration}
               playing={playing}
@@ -259,9 +267,15 @@ function CuratedLesson() {
                 style={{ width: '100%', height: '100%' }}
               />
             </LessonFrame>
+            </div>
+            {!wide && !panelOpen && (
+              <div className="flex justify-center py-3">
+                <OpenChatButton onClick={openChat} />
+              </div>
+            )}
           </div>
           {panelOpen && (
-          <div className="flex h-full min-h-0 flex-col py-3 pr-3">
+          <div className={wide ? 'flex h-full min-h-0 flex-col py-3 pr-3' : 'fixed inset-0 z-50 flex min-h-0 flex-col bg-paper p-3'}>
           <DoubtPanel
             topicId={topic.id}
             paused={!playing}
@@ -283,19 +297,6 @@ function CuratedLesson() {
                 ],
               }));
             }}
-            onExplain={() => {
-              playerRef.current?.pause();
-              const longer = subtopic.beats.join(' ');
-              patchMarks(lessonKey(topic.id, subtopic.id), (current) => {
-                const doubts = current.doubts.map((turn, turnIndex) =>
-                  turn.role === 'krayon' && turnIndex === current.doubts.findLastIndex((item) => item.role === 'krayon')
-                    ? { ...turn, text: longer }
-                    : turn,
-                );
-                return { ...current, expanded: true, doubts };
-              });
-            }}
-            onPin={savePin}
             onNote={(text) => {
               patchMarks(lessonKey(topic.id, subtopic.id), (current) => ({
                 ...current,

@@ -5,13 +5,14 @@ import type { GeneratedSegment, LessonDetail, LessonProgress } from '@krayon/sha
 import { courseLessons, reduceLesson } from '@krayon/shared';
 import { DoubtPanel } from '../components/DoubtPanel.tsx';
 import { FailureNotes } from '../components/FailureNotes.tsx';
-import { LessonFrame } from '../components/LessonFrame.tsx';
+import { LessonFrame, OpenChatButton } from '../components/LessonFrame.tsx';
 import { RegenProgress } from '../components/RegenProgress.tsx';
 import type { LessonTool } from '../components/LessonFrame.tsx';
 import { Button } from '../components/ui/Button.tsx';
 import { Card } from '../components/ui/Card.tsx';
 import { CrayonProgress } from '../components/ui/CrayonProgress.tsx';
 import { IconArrow, IconBack } from '../components/ui/icons.tsx';
+import { isWideLayout, useWideLayout } from '../components/ui/wideLayout.ts';
 import { Markdown } from '../components/ui/Markdown.tsx';
 import { Shell } from '../components/ui/Shell.tsx';
 import { ApiError, askLesson, fetchAudioBlobUrl, getLesson, regenerateSegment, renderUrl, rerenderLesson, saveLessonProgress } from '../lib/api.ts';
@@ -148,7 +149,8 @@ export function GeneratedLessonView({ lessonId }: { lessonId: string }) {
   const [playing, setPlaying] = useState(false);
   const [muted, setMuted] = useState(false);
   const [volume, setVolume] = useState(storedVolume);
-  const [panelOpen, setPanelOpen] = useState(true);
+  const wide = useWideLayout();
+  const [panelOpen, setPanelOpen] = useState(isWideLayout);
   const [tool, setTool] = useState<LessonTool | null>(null);
   const [thinking, setThinking] = useState(false);
   const [regen, setRegen] = useState<Regen | null>(null);
@@ -347,12 +349,17 @@ export function GeneratedLessonView({ lessonId }: { lessonId: string }) {
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape' && !document.fullscreenElement && !document.querySelector('[role="dialog"]')) {
+        if (panelOpen) {
+          setPanelOpen(false);
+          setTool((current) => (current === 'highlight' ? current : null));
+          return;
+        }
         navigate('/study');
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [navigate]);
+  }, [navigate, panelOpen]);
 
   useEffect(() => {
     localStorage.setItem(VOLUME_KEY, String(volume));
@@ -539,8 +546,8 @@ export function GeneratedLessonView({ lessonId }: { lessonId: string }) {
           <IconArrow className="h-3.5 w-3.5" />
         </Link>
       )}
-      <span className="min-w-0 truncate text-[12px] text-muted">{detail.chapterTitle}</span>
-      <span className="shrink-0 text-[12px] text-muted">·</span>
+      <span className="hidden min-w-0 truncate text-[12px] text-muted min-[1200px]:block">{detail.chapterTitle}</span>
+      <span className="hidden shrink-0 text-[12px] text-muted min-[1200px]:block">·</span>
       <span className="min-w-0 truncate font-serif text-[15px] leading-none text-ink">{detail.title}</span>
       {chapterPosition >= 0 && (
         <span className="shrink-0 text-[12px] text-muted">
@@ -635,7 +642,7 @@ export function GeneratedLessonView({ lessonId }: { lessonId: string }) {
           </div>
         )}
 
-        <div className={`grid min-h-0 flex-1 ${panelOpen && segments ? 'grid-cols-[minmax(0,1fr)_480px] gap-3' : 'grid-cols-1'}`}>
+        <div className={`grid min-h-0 flex-1 ${panelOpen && wide && segments ? 'grid-cols-[minmax(0,1fr)_480px] gap-3' : 'grid-cols-1'}`}>
           <div className="h-full min-h-0 min-w-0 overflow-y-auto bg-paper">
             {segments && !narrationAudio.ready ? (
               <div className="flex h-full flex-col items-center justify-center gap-3 text-ink">
@@ -643,11 +650,12 @@ export function GeneratedLessonView({ lessonId }: { lessonId: string }) {
                 <p className="text-[15px] text-muted">{Math.round(narrationAudio.progress * 100)}%</p>
               </div>
             ) : segments && inputProps ? (
-              <div className="relative h-full min-h-0">
+              <div className="relative min-[1200px]:h-full min-[1200px]:min-h-0">
+                <div className="aspect-video min-[1200px]:aspect-auto min-[1200px]:h-full">
                 <LessonFrame
                   fill
                   heading={heading}
-                  onChat={panelOpen ? undefined : openChat}
+                  onChat={!panelOpen && wide ? openChat : undefined}
                   frame={frame}
                   duration={duration}
                   playing={playing}
@@ -689,6 +697,12 @@ export function GeneratedLessonView({ lessonId }: { lessonId: string }) {
                     style={{ width: '100%', height: '100%' }}
                   />
                 </LessonFrame>
+                </div>
+                {!wide && !panelOpen && (
+                  <div className="flex justify-center py-3">
+                    <OpenChatButton onClick={openChat} />
+                  </div>
+                )}
                 {(busy || regen?.error) && (
                   <RegenProgress
                     segment={
@@ -781,7 +795,7 @@ export function GeneratedLessonView({ lessonId }: { lessonId: string }) {
             </div>
           </div>
           {panelOpen && segments && (
-            <div className="flex h-full min-h-0 flex-col py-3 pr-3">
+            <div className={wide ? 'flex h-full min-h-0 flex-col py-3 pr-3' : 'fixed inset-0 z-50 flex min-h-0 flex-col bg-paper p-3'}>
               <DoubtPanel
                 paused={!playing}
                 timeLabel={formatClock(frame, FPS)}
@@ -792,8 +806,6 @@ export function GeneratedLessonView({ lessonId }: { lessonId: string }) {
                 prompts={prompts}
                 thinking={thinking}
                 onAsk={ask}
-                onExplain={openRegen}
-                onPin={(text) => patchMarks(marksKey, (current) => ({ ...current, pins: [...current.pins, stamp(text)] }))}
                 onNote={(text) => patchMarks(marksKey, (current) => ({ ...current, notes: [...current.notes, stamp(text)] }))}
                 onQuizToggle={(id) => {
                   patchMarks(marksKey, (current) => {

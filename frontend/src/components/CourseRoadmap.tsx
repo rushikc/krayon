@@ -60,8 +60,8 @@ function LessonAction({ lesson }: { lesson: LessonSummary }) {
   if (lesson.status === 'queued' || lesson.status === 'rendering') {
     const counted = lesson.status === 'rendering' && lesson.segmentCount > 0;
     return (
-      <div className="flex items-center gap-3">
-        <div className="w-[180px] shrink-0">
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="min-w-0 w-full min-[1200px]:w-[180px] min-[1200px]:shrink-0">
           <p className="mb-1 text-right text-[13px] font-medium text-ink tabular-nums">
             {counted ? `Rendering ${lesson.segmentsReady}/${lesson.segmentCount}` : lesson.status === 'queued' ? 'Queued' : 'Planning the video'}
           </p>
@@ -104,7 +104,7 @@ function LessonRow({ lesson, number, next }: { lesson: LessonSummary; number: nu
   return (
     <li
       className={cx(
-        'grid grid-cols-[2.25rem_minmax(0,1fr)_auto] items-center gap-3 rounded-2xl border-2 px-3 py-2.5',
+        'grid grid-cols-[2.25rem_minmax(0,1fr)] items-center gap-x-3 gap-y-2 rounded-2xl border-2 px-3 py-2.5 min-[1200px]:grid-cols-[2.25rem_minmax(0,1fr)_auto]',
         writing || !next ? 'border-ink/15 bg-paper' : 'border-ink bg-yellow/40 shadow-[3px_3px_0_var(--color-ink)]',
       )}
     >
@@ -130,7 +130,7 @@ function LessonRow({ lesson, number, next }: { lesson: LessonSummary; number: nu
             <p className="mt-0.5 text-[13px] text-muted">{pages}</p>
           ) : null
         ) : (
-          <p className="mt-0.5 flex min-w-0 items-center gap-2 text-[13px] text-muted">
+          <p className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-[13px] text-muted">
             {next && <span className="shrink-0 font-medium text-ink">Up next</span>}
             {state && (
               <span className={cx('shrink-0', lesson.status === 'failed' && 'text-crayon-text')}>{state}</span>
@@ -145,7 +145,9 @@ function LessonRow({ lesson, number, next }: { lesson: LessonSummary; number: nu
           </p>
         )}
       </div>
-      <LessonAction lesson={lesson} />
+      <div className="col-start-2 min-w-0 min-[1200px]:col-start-auto">
+        <LessonAction lesson={lesson} />
+      </div>
     </li>
   );
 }
@@ -184,9 +186,12 @@ function ChapterSection({
         type="button"
         aria-expanded={open}
         onClick={onToggle}
-        className="flex w-full items-center gap-4 px-5 py-4 text-left"
+        className="flex w-full items-center gap-3 px-4 py-4 text-left min-[1200px]:gap-4 min-[1200px]:px-5"
       >
-        <span className="w-20 shrink-0 text-[13px] font-medium tracking-wide text-muted uppercase">Chapter {number}</span>
+        <span className="shrink-0 text-[13px] font-medium tracking-wide text-muted uppercase">
+          <span className="max-[1199px]:hidden">Chapter </span>
+          {number}
+        </span>
         <span className="min-w-0 flex-1">
           <span className="block truncate font-serif text-[20px] leading-tight text-ink">{chapter.title}</span>
           <span className="mt-0.5 block text-[13px] text-muted">
@@ -196,7 +201,7 @@ function ChapterSection({
         {rendering && (
           <span className="flex shrink-0 items-center gap-2 text-[13px] font-medium text-muted">
             <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-crayon" aria-hidden="true" />
-            Rendering…
+            <span className="max-[1199px]:hidden">Rendering…</span>
           </span>
         )}
         <span className={cx('shrink-0 text-[18px] text-ink transition-transform', open && 'rotate-90')} aria-hidden="true">
@@ -328,7 +333,7 @@ export function CourseRoadmap() {
 
   return (
     <Shell>
-      <div className="mt-2 flex h-14 items-center gap-3">
+      <div className="mt-2 flex min-h-14 flex-wrap items-center gap-3 py-2 min-[1200px]:h-14 min-[1200px]:flex-nowrap min-[1200px]:py-0">
         <Link
           to="/"
           aria-label="Library"
@@ -339,8 +344,8 @@ export function CourseRoadmap() {
         <h1 className="min-w-0 truncate font-serif text-[24px] leading-none text-ink">
           <HandUnderline>{title}</HandUnderline>
         </h1>
-        {course.category && <p className="min-w-0 truncate text-[14px] text-muted">{course.category}</p>}
-        <div className="ml-auto flex shrink-0 items-center gap-2">
+        {course.category && <p className="hidden min-w-0 truncate text-[14px] text-muted min-[1200px]:block">{course.category}</p>}
+        <div className="ml-auto hidden shrink-0 items-center gap-2 min-[1200px]:flex">
           {chapters.length > 0 && (
             <span className={`${pill} bg-paper`}>
               {chapters.length} {chapters.length === 1 ? 'chapter' : 'chapters'}
@@ -378,7 +383,10 @@ export function CourseRoadmap() {
         </div>
       ) : (
         chapters.length > 0 && (
-          <div className="mt-4 grid grid-cols-[minmax(0,1fr)_320px] items-start gap-6 pb-10">
+          <div className="mt-4 grid grid-cols-1 items-start gap-4 pb-10 min-[1200px]:grid-cols-[minmax(0,1fr)_320px] min-[1200px]:gap-6">
+            <div className="min-[1200px]:hidden">
+              <NextCard course={course} />
+            </div>
             <div className="space-y-4">
               {chapters.map((chapter, index) => (
                 <ChapterSection
@@ -392,8 +400,10 @@ export function CourseRoadmap() {
                 />
               ))}
             </div>
-            <aside className="sticky top-4 space-y-4">
-              <NextCard course={course} />
+            <aside className="space-y-4 min-[1200px]:sticky min-[1200px]:top-4">
+              <div className="max-[1199px]:hidden">
+                <NextCard course={course} />
+              </div>
               <SourcesCard course={course} onAdd={() => openUpload()} />
             </aside>
           </div>

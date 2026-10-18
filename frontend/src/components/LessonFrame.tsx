@@ -214,8 +214,12 @@ export function LessonFrame({
           </span>
         </div>
       )}
-      <div className="pointer-events-none absolute inset-x-3 top-3 z-20 flex items-center gap-2">
-        {heading ? <div className="pointer-events-auto max-w-[min(340px,34%)] shrink-0">{heading}</div> : null}
+      <div className="pointer-events-none absolute inset-x-2 top-2 z-20 flex items-center gap-2 min-[1200px]:inset-x-3 min-[1200px]:top-3">
+        {heading ? (
+          <div className="pointer-events-auto max-w-[min(200px,42%)] shrink-0 min-[1200px]:max-w-[min(340px,34%)]">
+            {heading}
+          </div>
+        ) : null}
         <div className="flex min-w-0 flex-1 justify-center">
         <div className="pointer-events-auto flex h-8 min-w-0 max-w-full items-center gap-0.5 overflow-x-auto rounded-full border-2 border-ink bg-paper px-1 shadow-[2px_2px_0_var(--color-ink)]">
           <ToolButton label="Ask a doubt" pressed={activeTool === 'ask'} onClick={() => onTool('ask')}>
@@ -361,7 +365,7 @@ export function LessonFrame({
             aria-valuenow={volume ?? 1}
             aria-valuetext={muted ? 'Muted' : `${Math.round((volume ?? 1) * 100)} percent`}
             onChange={(event) => onVolume(Number(event.target.value))}
-            className="h-1 w-20 shrink-0 accent-crayon"
+            className="h-1 w-20 shrink-0 accent-crayon max-[1199px]:hidden"
           />
         )}
         <button
@@ -374,16 +378,25 @@ export function LessonFrame({
         </button>
       </div>
       {onChat && (
-        <button
-          type="button"
-          aria-label="Open chat"
-          onClick={onChat}
-          className="absolute right-4 bottom-16 z-30 flex h-14 w-14 items-center justify-center rounded-full border-2 border-ink bg-crayon text-white shadow-[3px_3px_0_var(--color-ink)]"
-        >
-          <IconAsk className="h-7 w-7" />
-        </button>
+        <OpenChatButton onClick={onChat} className="absolute right-4 bottom-16 z-30" />
       )}
     </div>
+  );
+}
+
+export function OpenChatButton({ onClick, className }: { onClick: () => void; className?: string }) {
+  return (
+    <button
+      type="button"
+      aria-label="Open chat"
+      onClick={onClick}
+      className={cx(
+        'flex h-14 w-14 items-center justify-center rounded-full border-2 border-ink bg-crayon text-white shadow-[3px_3px_0_var(--color-ink)]',
+        className,
+      )}
+    >
+      <IconAsk className="h-7 w-7" />
+    </button>
   );
 }
 
