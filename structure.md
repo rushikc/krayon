@@ -6,16 +6,15 @@ npm workspaces monorepo (`package.json`: `frontend`, `local-backend`, `packages/
 
 | Path | Purpose | Contains | Belongs here / does not |
 |---|---|---|---|
-| `frontend/` | The web app (desktop, ≥ 1200 px) | React 19 + Vite + Tailwind 4 in `src/` (`pages/`, `components/`, `study/` session and local state, `lib/` API, WebSocket, Firebase, AI helpers, `remotion/` player compositions and the sample "Slope of a line" lesson), `public/`, `dist/` (build output Hosting serves) | **Yes:** UI, client state, playback with `@remotion/player`, calls to `/api` and `/ws`. **No:** pipeline logic, secrets (only `.env.example` is committed), server code |
+| `frontend/` | The web app (desktop, ≥ 1200 px) | React 19 + Vite + Tailwind 4 in `src/` (`pages/`, `components/`, `study/` session and local state, `lib/` (`api.ts`, `firebase.ts`, `localDb.ts`, `realtime.ts`, `sceneValidator.ts`, `socket.ts`), `remotion/` player compositions), `public/`, `dist/` (build output Hosting serves) | **Yes:** UI, client state, playback with `@remotion/player`, calls to `/api` and `/ws`. **No:** pipeline logic, secrets (only `.env.example` is committed), server code |
 | `local-backend/` | Local-only adapters; never deployed (`AGENTS.md`) | Fastify shell in `src/` (SQLite docstore, file storage, in-process jobs, auth stub, WebSocket, logging). HTTP routes live in `packages/api`. `test/`, `data/`, `logs/` | **Yes:** local ports. **No:** course/lesson/segment decisions, Dockerfiles, Cloud Run. `data/` and `logs/` are gitignored |
-| `packages/shared/` (`@krayon/shared`) | Contracts used by every other package | `src/`: zod schemas (`schemas.ts`, `modelSchema.ts` → Gemini JSON schemas), limits (`limits.ts`), scene types and `sceneValidator.ts`, course/event types, `ports.ts` (DocStore, BlobStorage, JobQueue, EventBus, AuthProvider), Remotion templates (`remotion/`, also used to render stills); `test/` | **Yes:** types, schemas, validators, limits, render templates shared by browser and server. **No:** I/O, Node-only APIs, model calls |
+| `packages/shared/` (`@krayon/shared`) | Contracts used by every other package | `src/`: zod schemas (`schemas.ts`, `modelSchema.ts` → Gemini JSON schemas), limits (`limits.ts`), scene types and `sceneValidator.ts`, course/event types, `ports.ts` (`DocStore`, `BlobStorage`, `TaskDispatcher`, `AuthVerifier`, `Notifier`, `Coordination`, `Clock`, `KeyframeRenderer`, `TtsClient`, `ModelClient`, plus transitional `EventBus`, `JobQueue`, `AuthProvider`), Remotion templates (`remotion/`, also used to render stills); `test/` | **Yes:** types, schemas, validators, limits, render templates shared by browser and server. **No:** I/O, Node-only APIs, model calls |
 | `packages/pipeline/` (`@krayon/pipeline`) | Generation business logic, the same locally and on GCP | Stages, handlers (`src/handlers/`), prompts, Gemini, TTS, local stills (`render.ts`), recovery, keys | **Yes:** stage bodies and task handlers, written only against `ports.ts`. **No:** Fastify, SQLite, cloud SDK adapters |
 | `packages/api/` (`@krayon/api`) | HTTP services shared by both backends | `registerKrayonApi`, course/lesson/media/doc services, errors, byte ranges | **Yes:** request validation and response shapes. **No:** generation decisions, storage drivers |
 | `packages/renderer/` (`@krayon/renderer`) | Cloud Run stills service | `src/server.ts`, `src/runStill.ts`, `Dockerfile` (Chrome) | **Yes:** Remotion bundle and `POST /render`. **No:** course logic |
-| `backend/` | GCP adapters and Cloud Run entrypoints | `src/api.ts`, `src/worker.ts`, Firestore/GCS/Cloud Tasks/Auth adapters, Dockerfiles, `scripts/` (print only), `env/` | **Yes:** cloud drivers and deploy config. **No:** generation logic, local mocks |
-| `diagrams/` | Architecture diagrams | `krayon-architecture.excalidraw` + three PNG exports (frontend flow, backend create-course, interactions and storage) | **Yes:** diagrams and their sources. Documents the topic-based pipeline, which predates Course > Chapter > Lesson |
-| `lessons/` | Empty | — | No content and no references found; purpose unclear (candidate to remove or document) |
-| `.cursor/rules/` | Agent rules for Cursor | `local-backend.mdc`, `debug.mdc`, `desktop-only.mdc`, `commit-finished-plan.mdc` | **Yes:** coding and agent conventions. **No:** product docs |
+| `backend/` | GCP adapters and Cloud Run entrypoints | `src/api.ts`, `src/worker.ts`, `src/adapters/`, `Dockerfile.api`, `Dockerfile.worker`, `cloudbuild.api.yaml`, `cloudbuild.worker.yaml`, `cloudbuild.renderer.yaml`, `scripts/` (`00-enable-apis.sh` through `50-deploy-hosting.sh`), `env/`, `architecture.md` | **Yes:** cloud drivers and deploy config. **No:** generation logic, local mocks |
+| `data/` | Gitignored local sample material and mock storage | `books/`, `diagrams/`, local mock blobs (also `local-backend/data/`) | Not in git. Sample PDFs/photos for testing, plus pipeline storage when running locally |
+| `.cursor/rules/` | Agent rules for Cursor | `local-backend.mdc`, `debug.mdc`, `desktop-only.mdc`, `commit-finished-plan.mdc`, `no-logic-in-backends.mdc` | **Yes:** coding and agent conventions. **No:** product docs |
 | `.firebase/` | Firebase CLI hosting cache | `hosting.*.cache` | Generated, gitignored; never edit |
 | `node_modules/` | Hoisted workspace dependencies | — | Generated by `npm install`; gitignored |
 | `.git/` | Git metadata | — | — |
@@ -24,13 +23,17 @@ npm workspaces monorepo (`package.json`: `frontend`, `local-backend`, `packages/
 
 | File | Purpose |
 |---|---|
-| `package.json` | Workspace list and scripts: `setup`, `dev` (builds shared + pipeline, then runs both watchers, backend :8787 and Vite :5173 via `concurrently`), `genkit`, `build`, `test` |
+| `package.json` | Workspace list and scripts: `setup`, `dev` (builds shared + pipeline, then `dev:shared`, `dev:pipeline`, `dev:backend`, `dev:frontend` via `concurrently`), `dev:shared`, `dev:pipeline`, `dev:frontend`, `dev:backend`, `genkit`, `build`, `test`, `test:emulators`, `lint`, `test:backend`, `test:backend:quick` |
 | `package-lock.json` | Lockfile for all workspaces |
 | `firebase.json` | Hosting SPA rewrite, plus Firestore, Storage and emulator config. No `/api` rewrite. The browser calls the Cloud Run URL in `VITE_API_BASE_URL` |
+| `firestore.rules` | Firestore security rules |
+| `firestore.indexes.json` | Firestore composite indexes |
+| `storage.rules` | Cloud Storage security rules |
+| `eslint.config.mjs` | Root ESLint config for workspace `src/` trees |
 | `.firebaserc` | Default Firebase project `krayon-ai` |
-| `.gitignore` | `node_modules/`, `dist/`, `.env*` (except `.env.example`), `.firebase/`, `logs/`, `*.log`, OS/editor files. `local-backend/.gitignore` also ignores `data/` |
-| `README.md` | Product summary, run and deploy steps, backends overview |
-| `implementation.md` | Living product and pipeline notes plus open questions (still describes the topic-based roadmap) |
+| `.gitignore` | `node_modules/`, `dist/`, `.env*` (except `.env.example`), `.firebase/`, `firebase.deploy.local.json`, `logs/`, `*.log`, `*.jsonl`, `/data/`, OS/editor files. `local-backend/.gitignore` also ignores `data/` |
+| `README.md` | Product summary, quick start, tests, short deploy |
+| `implementation.md` | Product vision and open questions |
 | `structure.md` | This file |
 | `.DS_Store` | macOS artifact (gitignored) |
 
@@ -38,7 +41,4 @@ npm workspaces monorepo (`package.json`: `frontend`, `local-backend`, `packages/
 
 If a change decides what a course, chapter, lesson or segment does next, it belongs in `packages/pipeline` (a stage body or a handler). If it is an HTTP shape both backends share, it belongs in `packages/api`. `local-backend/` and `backend/` only adapt ports: SQLite and files on the laptop, Firestore, GCS and Cloud Tasks on GCP.
 
-## Notes
-
-- **Migration in progress:** `packages/shared` (types, schemas, events, `limits.ts`) and the new `packages/pipeline` modules (`store.ts`, `pdf.ts`, `pageRanges.ts`, `queue.ts`) describe Course > Chapter > Lesson > Segment. `pipeline.ts`, `local-backend/src/routes/courses.ts` and the frontend study pages still use the older Course > Topic > Segment flow.
-- `frontend/src/lib/sceneValidator.ts`, `lib/aiSchemas.ts` and `remotion/scene.ts` are thin re-exports of `@krayon/shared`, so frontend and pipeline share one set of schemas and validators. Add new contracts to `packages/shared`, not here.
+`/topics/*` routes are curated demo content only (`frontend/src/App.tsx`, `frontend/src/data/topics.ts`). Generated courses use `/courses/*`.

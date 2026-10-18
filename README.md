@@ -2,71 +2,101 @@
 
 Krayon turns notes, PDFs, and photos into a video-first study experience.
 
-A lesson looks like a video you can pause. Underneath, it is a timeline of [Remotion](https://www.remotion.dev/) components: React code that draws each stretch and plays live in the browser. Nothing is baked into an mp4. Because each stretch is its own component, a learner can stop on the part they did not follow and regenerate only that stretch into a longer explanation. The rest of the lesson stays as it is.
+A lesson looks like a video you can pause. Underneath, it is a timeline of [Remotion](https://www.remotion.dev/) scenes played live in the browser with `@remotion/player`. Nothing is baked into an mp4. Each stretch of the lesson is its own segment, so a learner can stop on the part they did not follow and regenerate only that stretch. The rest of the lesson stays as it is.
 
-The nearest reference is NotebookLM: source material in, grounded study artifacts out. Krayon leads with the playable lesson. Doubts, highlights, notes, and quizzes happen on the lesson itself.
+The nearest reference is NotebookLM: source material in, grounded study artifacts out. Krayon leads with the playable lesson. Doubts, highlights, and notes happen on the lesson itself.
 
 ## How a lesson is built
 
-1. **Roadmap.** The source is split into smaller topics. Every lesson, study doc, pin, and quiz hangs off one of those topics.
-2. **Lesson and study doc. Each topic gets a short Remotion lesson and a written study doc. A long subject is many short lessons, not one long file.**
-3. **Work inside the lesson.** Pause and ask a doubt, redraw one section, highlight by drawing on the frame, pin what matters, drop or remove a note, then generate a quiz or a mock exam.
+The generated model is **Course → Chapter → Lesson → Segment**. Each lesson has one written study doc beside the playable timeline.
 
-A lesson is a list of segments. Each segment has a duration and a Remotion component. `<Series>` plays them in order. Replacing one component and its duration lengthens or shortens only that part. A 1 minute stretch can become a 3 minute explanation, and a 10 minute lesson becomes 12 minutes, without rewriting the other 9 minutes.
+1. **Structure.** Uploaded sources become a course of chapters with page ranges.
+2. **Chapters.** Each chapter is written into lessons: outline, script, and a study doc per lesson.
+3. **Work inside the lesson.** Pause and ask a doubt, redraw one segment, highlight by drawing on the frame, pin what matters, or drop or remove a note.
 
-The stand-in lesson is “Slope of a line”: three segments you can play and seek between.
+A lesson is a list of segments. Each segment has a duration, scene JSON (rendered by the shared Remotion templates), and optional spoken narration. Replacing one segment lengthens or shortens only that part. A 1 minute stretch can become a 3 minute explanation, and a 10 minute lesson becomes 12 minutes, without rewriting the other 9 minutes.
+
+### Planned
+
+- Quiz generation (today the quiz tool is a checklist of doubt prompts in `frontend/src/components/DoubtPanel.tsx`)
+- Mock exam
 
 ## Test materials and input assumptions
 
-Krayon expects two kinds of input:
+Krayon accepts PDFs (`application/pdf`) and any `image/*` upload (`packages/api/src/services/uploads.ts`). Typical inputs:
 
 - **Lecturer PDFs**: handouts and study material that are mostly text, with a few diagrams, tables and practice questions.
-- **Student photos (JPG)**: phone photos of textbook pages, handwritten notes on ruled or graph paper, and filled-in paper worksheets. Expect slight rotation, perspective, shadows and uneven lighting.
+- **Student photos**: phone photos of textbook pages, handwritten notes, and worksheets. Expect slight rotation, perspective, shadows and uneven lighting.
 
-Sample inputs for testing live on the Desktop (all mocks). For now the topics favour explanations built from boxes, diagrams and text rather than math and physics:
-
-- `~/Desktop/Business-Porters-Five-Forces/`: one lecturer handout PDF
-- `~/Desktop/Economics-Supply-and-Demand/`: four student photos (handwritten notes, a graph-paper diagram, a textbook page, a worksheet)
-- `~/Desktop/Software-Client-Server-and-REST-APIs/`: one lecturer handout PDF and three student photos
+Sample material lives in gitignored `data/books/` (not in the repo). Local pipeline runs also write mock storage under gitignored `data/` and `local-backend/data/`.
 
 ## Stack
 
 - React, Vite, and Tailwind in `frontend/`
-- Remotion, played in the app with `@remotion/player`
-- Firebase project `krayon-ai` (Analytics today, Hosting for the deployed app)
+- Remotion, played in the app with `@remotion/player`; scene templates in `packages/shared/src/remotion/templates/`
+- Fastify HTTP layer in `packages/api` (`@krayon/api`)
+- Vertex AI Gemini 2.5 Flash and Genkit
+- Cloud Text-to-Speech Chirp 3 HD
+- Firebase Hosting, anonymous Auth, App Check, Firestore, and Storage
+- Cloud Run (`krayon-api`, `krayon-worker`, `krayon-renderer`), Cloud Tasks, Cloud Scheduler
 
+## Quick start
 
-
-## Run locally
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-Copy `frontend/.env.example` to `frontend/.env` and fill in the Firebase web config. The real `.env` stays out of git.
-
-## Deploy
-
-Site id and URLs are passed at deploy time. They are never committed. Scripts under `backend/scripts/` print commands; they do not run them. IAM and deploy order live in `backend/architecture.md`.
-
-Put production frontend env in `frontend/.env.production` (gitignored): `VITE_BACKEND=gcp`, `VITE_API_BASE_URL=<api-url>`, Firebase web config, and `VITE_RECAPTCHA_SITE_KEY` as needed.
+All API traffic in development goes through `local-backend/`, a TypeScript Fastify server on `127.0.0.1:8787`. It makes real Gemini calls and mocks Firestore (SQLite), Cloud Storage (local files), Auth (`X-User-Id` stub), and background jobs (in-process). Vite proxies `/api` and `/ws` to it. See `local-backend/README.md`.
 
 From the repo root:
 
 ```bash
-# Hosting. Optional --create also prints hosting:sites:create.
-sh backend/scripts/50-deploy-hosting.sh --site <site-id>
-
-# Cloud Run. --site derives default Hosting origins; --origins wins if both are set.
-sh backend/scripts/30-deploy-run.sh --site <site-id>
-# or: sh backend/scripts/30-deploy-run.sh --origins https://<site-id>.web.app,https://<site-id>.firebaseapp.com
-# Second pass: --worker-url <worker-url> --renderer-url <renderer-url>
-
-# After the worker URL is known:
-sh backend/scripts/40-scheduler.sh --worker-url <worker-url>
+gcloud auth application-default login   # once, for Vertex AI
+npm run setup                           # workspace install, shared + pipeline builds, local-backend/.env
+npm run dev                             # local backend :8787 + Vite :5173; Ctrl+C stops both
 ```
+
+`npm run setup` copies `local-backend/.env.example` to `local-backend/.env` if the env file is missing. Copy `frontend/.env.example` to `frontend/.env` and fill Firebase web config when you need it. Real `.env` files stay out of git.
+
+You can also start pieces with `npm run dev:backend`, `npm run dev:frontend`, and `npm run genkit` (Genkit developer UI). `npm run dev` watches `@krayon/shared` and `@krayon/pipeline` only. After editing `packages/api`, run `npm run build -w @krayon/api` (that package is not watched).
+
+## Backends
+
+`local-backend/` is a local mock. It is never deployed. It stands in for Firestore, Cloud Storage, Cloud Tasks, and Firebase Auth so the generation pipeline can run on a laptop, and it calls Gemini on Vertex from that laptop.
+
+`backend/` is the Cloud Run backend: `src/api.ts` and `src/worker.ts` entrypoints, GCP adapters under `src/adapters/`, Cloud Build files, print-only deploy scripts, and `env/` examples. Still frames on GCP go through `packages/renderer`. IAM, queues, and deploy order live in `backend/architecture.md`.
+
+## Build and quality
+
+`npm run build` builds `@krayon/shared`, `@krayon/pipeline`, `@krayon/api`, `local-backend`, and `frontend` in that order.
+
+`npm run lint` runs ESLint on `packages/shared/src`, `packages/pipeline/src`, `packages/api/src`, `packages/renderer/src`, `local-backend/src`, and `backend/src`.
+
+## Tests
+
+| Script | What it runs |
+|---|---|
+| `npm test` | `@krayon/shared`, `@krayon/pipeline`, then `local-backend` with `AI=0` (`test:quick`) |
+| `npm run test:backend` | full `local-backend` vitest (real Vertex when AI is configured) |
+| `npm run test:backend:quick` | `local-backend` vitest with `AI=0` (no Vertex) |
+| `npm run test:emulators` | opt-in placeholder; not run from the default test task |
+
+## Deploy
+
+Scripts under `backend/scripts/` print commands; they do not run them. Full IAM and service detail: `backend/architecture.md`.
+
+Order from the repo root:
+
+```bash
+sh backend/scripts/00-enable-apis.sh
+sh backend/scripts/05-firestore-and-auth.sh
+sh backend/scripts/10-queues.sh
+sh backend/scripts/20-service-accounts.sh
+sh backend/scripts/30-deploy-run.sh --site <site-id>
+# Second pass after URLs exist:
+# sh backend/scripts/30-deploy-run.sh --site <site-id> --worker-url <worker-url> --renderer-url <renderer-url>
+sh backend/scripts/40-scheduler.sh --worker-url <worker-url>
+sh backend/scripts/50-deploy-hosting.sh --site <site-id>
+firebase deploy --only firestore,storage
+```
+
+Put production frontend env in `frontend/.env.production` (gitignored): `VITE_BACKEND=gcp`, `VITE_API_BASE_URL=<api-url>`, Firebase web config (`VITE_FIREBASE_*`), and `VITE_RECAPTCHA_SITE_KEY` as needed.
 
 ### Values set outside git
 
@@ -74,26 +104,3 @@ sh backend/scripts/40-scheduler.sh --worker-url <worker-url>
 - `VITE_API_BASE_URL` — `frontend/.env.production` (gitignored) before `npm run build -w frontend`.
 - Cloud Run API URL — also ends up in the built JS bundle (`frontend/dist`). That is expected: the browser needs it at runtime, so it is public anyway. It must not appear in tracked files.
 - Browser origins for Auth and App Check — Firebase Console → Authentication → Authorized domains, and the reCAPTCHA Enterprise key domains (`<site-id>.web.app`, `<site-id>.firebaseapp.com`).
-
-## Backends
-
-`local-backend/` is a local mock. It is never deployed. It stands in for Firestore, Cloud Storage, Cloud Tasks, and Firebase Auth so the generation pipeline can run on a laptop, and it calls Gemini on Vertex from that laptop.
-
-`backend/` is the future cloud backend. It will run on Cloud Run and Firebase and use the same `packages/pipeline` package. Do not create it until that work starts.
-
-## Local backend
-
-All API traffic in development goes through `local-backend/`, a TypeScript Fastify server on `127.0.0.1:8787`. It makes real Gemini calls, and mocks Firestore (SQLite), Cloud Storage (local files), Auth (an `X-User-Id` stub) and background jobs (an in-process runner). `npm run dev` starts it with Vite. Vite proxies `/api` and `/ws` to it. See `local-backend/README.md`.
-
-## Run everything
-
-From the repo root:
-
-```bash
-gcloud auth application-default login   # once, for Vertex AI
-npm run setup   # once: workspace install, shared and pipeline builds, local-backend/.env
-npm run dev     # local backend on 127.0.0.1:8787 + Vite on :5173; Ctrl+C stops both
-npm run genkit  # Genkit developer UI for the generation flows
-```
-
-You can also start them one at a time with `npm run dev:backend` and `npm run dev:frontend`. `npm run build` builds shared, the pipeline, the local backend, and the frontend.
