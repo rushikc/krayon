@@ -1,25 +1,48 @@
 # Krayon
 
-Krayon turns notes, PDFs, and photos into a video-first study experience.
+**Your study material, taught back to you.** Krayon turns PDFs, notes and photos into narrated, animated video courses you can pause, question and fix one part at a time.
 
-A lesson looks like a video you can pause. Underneath, it is a timeline of [Remotion](https://www.remotion.dev/) scenes played live in the browser with `@remotion/player`. Nothing is baked into an mp4. Each stretch of the lesson is its own segment, so a learner can stop on the part they did not follow and regenerate only that stretch. The rest of the lesson stays as it is.
+A Krayon lesson looks like a video, but it isn't one baked mp4. It's a timeline of small [Remotion](https://www.remotion.dev/) segments played live in the browser with `@remotion/player`. Each segment has its own narration, scene JSON and duration. That one design choice is what makes Krayon fast, cheap and flexible.
 
-The nearest reference is NotebookLM: source material in, grounded study artifacts out. Krayon leads with the playable lesson. Doubts, highlights, and notes happen on the lesson itself.
+## Why segments instead of generated video
+
+Text-to-video models such as Veo produce one fixed clip of a few seconds at a time. A 3-minute lesson means stitching about 23 clips that you can't edit, at $9–$90 in list prices. Krayon writes the lesson as structured segments instead:
+
+- **Faster.** A 3-minute narrated lesson renders in about 2.5 minutes once the course is built. Segments are voiced, built and reviewed in parallel.
+- **Cheaper.** About $0.20 per 3-minute lesson for Gemini, Text-to-Speech and Cloud Run together. That's 44 to 440 times cheaper than generating the same 180 seconds with Veo.
+- **Regenerate just the part you didn't follow.** Pause on a confusing stretch and regenerate only that segment, with live step-by-step progress. The rest of the lesson stays as it is. A 1-minute stretch can grow into a 3-minute explanation without touching the other parts.
+- **Easy for the AI to reason about.** Every segment is plain text: its script and scene description. When you pause and ask a doubt, Krayon puts exactly that segment, along with the lesson around it, into Gemini's context. Answers are about the moment on screen, not the whole video.
+- **Self-checking.** Gemini reviews keyframes rendered from each segment and scores them for clarity, readability and accuracy. Anything below 8/10 is redrawn, up to 2 rounds.
+
+The nearest reference is NotebookLM: source material in, grounded study material out. Krayon leads with the playable lesson, and doubts, highlights and notes happen on the lesson itself.
 
 ## How a lesson is built
 
-The generated model is **Course → Chapter → Lesson → Segment**. Each lesson has one written study doc beside the playable timeline.
+The generated model is **Course → Chapter → Lesson → Segment**.
 
-1. **Structure.** Uploaded sources become a course of chapters with page ranges.
-2. **Chapters.** Each chapter is written into lessons: outline, script, and a study doc per lesson.
-3. **Work inside the lesson.** Pause and ask a doubt, redraw one segment, highlight by drawing on the frame, pin what matters, or drop or remove a note.
+1. **Upload.** Drop in PDFs, notes or phone photos of pages.
+2. **Structure.** Gemini 2.5 Flash on Vertex AI reads the material and plans a course of chapters with page ranges.
+3. **Chapters.** Each chapter is written into lessons: outline, script and a study doc per lesson.
+4. **Segments.** For each lesson, Gemini writes beats and scene JSON per segment. Cloud Text-to-Speech (Chirp 3 HD) narrates them, the video is synced to the voice, and Remotion renders keyframes for review.
+5. **Watch and work inside the lesson.** Pause and ask a doubt, regenerate one segment, highlight by drawing on the frame, pin what matters, or add and remove notes. Progress updates live while a course generates.
 
-A lesson is a list of segments. Each segment has a duration, scene JSON (rendered by the shared Remotion templates), and optional spoken narration. Replacing one segment lengthens or shortens only that part. A 1 minute stretch can become a 3 minute explanation, and a 10 minute lesson becomes 12 minutes, without rewriting the other 9 minutes.
+## Features
+
+- Upload anything: PDFs, notes or photos
+- Auto course roadmap of chapters and lessons
+- Narrated, animated video lessons
+- A written study doc for every lesson
+- Pause and ask: context-aware doubt chat with Gemini at the paused moment
+- Regenerate a single segment, with live progress
+- Real-time progress while a course generates
+- No setup: anonymous sign-in, start right away
 
 ### Planned
 
-- Quiz generation (today the quiz tool is a checklist of doubt prompts in `frontend/src/components/DoubtPanel.tsx`)
-- Mock exam
+- Subject templates for maths and physics diagrams
+- Multilingual narration
+- Sharing courses with classmates and teachers
+- Quizzes and mock tests generated from the same material (today the quiz tool is a checklist of doubt prompts in `frontend/src/components/DoubtPanel.tsx`)
 
 ## Test materials and input assumptions
 
