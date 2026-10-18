@@ -304,7 +304,8 @@ export function HomePage() {
               Remove this topic?
             </h2>
             <p className="mt-2 text-[15px] text-muted">
-              Do you really want to remove {pending.title}? This cannot be undone.
+              Do you really want to remove <span className="font-medium text-ink">{pending.title}</span>? This cannot be
+              undone.
             </p>
             {removeError && <p className="mt-3 text-[15px] text-crayon-text">{removeError}</p>}
             <div className="mt-4 flex flex-wrap items-center gap-2">
